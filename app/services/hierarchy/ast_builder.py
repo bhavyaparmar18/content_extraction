@@ -1,0 +1,550 @@
+"""AST Builder — constructs a typed document tree from extracted elements.
+
+Replaces and extends the v1 ``TreeBuilder`` by producing a fully-typed AST
+of ``ASTNode`` subclasses instead of the simpler ``SectionNode`` objects.
+
+The builder:
+1. Accepts a ``RawDocument`` (already reordered by ``PDFLayoutAnalyzer``
+   for PDFs).
+2. Walks elements in reading order, maintaining a section stack.
+3. Produces the correct hierarchy: headings → sections, paragraphs,
+   lists, tables, images, icons, captions.
+4. Returns a ``DocumentNode`` (the AST root).
+
+**NOTE**: This builder handles the *structural assembly* only.  Rich
+extraction (list grouping, highlight detection, merged cells, OCR) is
+performed by specialized extractors *before* the builder runs.  The builder
+consumes their enriched output.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from typing import Optional
+
+from loguru import logger as _default_logger
+
+from app.config.settings import Settings
+from app.schemas.document import (
+    DocumentMetadata,
+    ElementType,
+    ExtractedElement,
+    ExtractedHeading,
+    ExtractedImage,
+    ExtractedIcon,
+    ExtractedTable,
+    PageContent,
+    RawDocument,
+)
+from app.schemas.ast_nodes import (
+    ASTNode,
+    CaptionNode,
+    DocumentNode,
+    HeadingNode,
+    IconNode,
+    ImageNode,
+    ListItemNode,
+    ListNode,
+    ParagraphNode,
+    SectionNode,
+    SourceLocation,
+    TableCellNode,
+    TableNode,
+    TableRowNode,
+)
+
+
+class ASTBuilder:
+    """Build a typed AST from a parsed ``RawDocument``.
+
+    Usage::
+
+        builder = ASTBuilder(settings)
+        ast_root = builder.build(raw_document)
+    """
+
+    # Pattern for detecting numbered/bulleted list items
+    _LIST_BULLET_RE = re.compile(
+        r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]\s"
+    )
+    _LIST_ORDERED_RE = re.compile(
+        r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s|[ivxlcdm]+[.)]\s)", re.IGNORECASE
+    )
+
+    def __init__(self, settings: Settings, logger=None) -> None:
+        self.settings = settings
+        self.logger = logger or _default_logger
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def build(self, document: RawDocument) -> DocumentNode:
+        """Build the complete AST from *document*.
+
+        Returns the root ``DocumentNode`` with all children assembled.
+        """
+        self.logger.info(f"ASTBuilder: building AST for {document.source}")
+
+        root = DocumentNode(
+            node_id=str(uuid.uuid4()),
+            doc_metadata=document.metadata,
+        )
+
+        # Flatten all page elements in reading order
+        all_elements = self._flatten_elements(document)
+
+        # Section stack for heading-based hierarchy
+        # The root acts as a virtual level-0 section
+        root_section = SectionNode(
+            node_id=root.node_id,
+            level=0,
+            heading=HeadingNode(
+                text=document.metadata.title or "Document Root",
+                level=0,
+            ),
+        )
+        stack: list[SectionNode] = [root_section]
+
+        sequence = 0
+        i = 0
+        while i < len(all_elements):
+            element = all_elements[i]
+
+            if element.element_type == ElementType.HEADING:
+                heading_el = element  # type: ExtractedHeading
+                heading_node = self._make_heading_node(heading_el, sequence)
+
+                section = SectionNode(
+                    node_id=str(uuid.uuid4()),
+                    heading=heading_node,
+                    level=heading_el.level,
+                    sequence=sequence,
+                    source_location=self._make_source_loc(heading_el),
+                )
+
+                # Pop stack until we find a parent with a strictly lower level
+                while len(stack) > 1 and stack[-1].level >= heading_el.level:
+                    stack.pop()
+
+                parent = stack[-1]
+                parent.children.append(section)
+                stack.append(section)
+                sequence += 1
+
+            elif element.element_type == ElementType.TABLE:
+                table_el = element  # type: ExtractedTable
+                table_node = self._make_table_node(table_el, sequence)
+                current = stack[-1]
+                current.children.append(table_node)
+                sequence += 1
+
+            elif element.element_type == ElementType.IMAGE:
+                image_el = element  # type: ExtractedImage
+                image_node = self._make_image_node(image_el, sequence)
+                current = stack[-1]
+                current.children.append(image_node)
+                sequence += 1
+
+            elif element.element_type == ElementType.ICON:
+                icon_el = element  # type: ExtractedIcon
+                icon_node = self._make_icon_node(icon_el, sequence)
+                current = stack[-1]
+                current.children.append(icon_node)
+                sequence += 1
+
+            elif element.element_type == ElementType.CAPTION:
+                caption_node = self._make_caption_node(element, sequence)
+                current = stack[-1]
+                # Try to attach to the last child (image or table)
+                if current.children:
+                    last_child = current.children[-1]
+                    if isinstance(last_child, (ImageNode, TableNode)):
+                        caption_node.referenced_node_id = last_child.node_id
+                        if isinstance(last_child, ImageNode):
+                            last_child.caption = element.content
+                        elif isinstance(last_child, TableNode):
+                            last_child.caption = element.content
+                current.children.append(caption_node)
+                sequence += 1
+
+            elif self._is_list_item(element):
+                # Consume consecutive list items into a ListNode
+                list_node, consumed = self._consume_list_items(
+                    all_elements, i, sequence,
+                )
+                current = stack[-1]
+                current.children.append(list_node)
+                sequence += consumed
+                i += consumed
+                continue  # skip the i += 1 at the end
+
+            else:
+                # Default: paragraph
+                # Check if it's a continuation of the previous paragraph or list item
+                is_continuation = False
+                text_content = element.content.strip()
+                current = stack[-1]
+                
+                if text_content and current.children:
+                    first_char = text_content[0]
+                    if first_char.islower() or first_char in ',);]-':
+                        last_child = current.children[-1]
+                        if isinstance(last_child, ParagraphNode):
+                            last_child.text += " " + text_content
+                            is_continuation = True
+                        elif isinstance(last_child, ListNode) and last_child.items:
+                            last_item = last_child.items[-1]
+                            last_item.text += " " + text_content
+                            is_continuation = True
+                            
+                if not is_continuation:
+                    para_node = self._make_paragraph_node(element, sequence)
+                    current.children.append(para_node)
+                    sequence += 1
+
+            i += 1
+
+        # Transfer root_section children to the DocumentNode
+        root.children = root_section.children
+        return root
+
+    # ── Element → Node Converters ─────────────────────────────────────
+
+    def _make_heading_node(
+        self, el: ExtractedHeading, seq: int,
+    ) -> HeadingNode:
+        """Convert an ``ExtractedHeading`` to a ``HeadingNode``."""
+        # Extract numbering prefix if present
+        numbering = None
+        match = re.match(r"^(\d+(?:\.\d+)*\.?)\s", el.content.strip())
+        if match:
+            numbering = match.group(1).rstrip(".")
+
+        return HeadingNode(
+            node_id=str(uuid.uuid4()),
+            text=el.content.strip(),
+            level=el.level,
+            numbering=numbering,
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    def _make_paragraph_node(
+        self, el: ExtractedElement, seq: int,
+    ) -> ParagraphNode:
+        """Convert a generic paragraph element to a ``ParagraphNode``."""
+        return ParagraphNode(
+            node_id=str(uuid.uuid4()),
+            text=el.content.strip(),
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    def _make_table_node(
+        self, el: ExtractedTable, seq: int,
+    ) -> TableNode:
+        """Convert an ``ExtractedTable`` to a ``TableNode`` with rows/cells."""
+        rows: list[TableRowNode] = []
+
+        def _process_cell(raw_cell, r_idx, c_idx):
+            cell_node = TableCellNode(
+                node_id=str(uuid.uuid4()),
+                row_index=r_idx,
+                col_index=c_idx,
+                row_span=raw_cell.row_span,
+                col_span=raw_cell.col_span,
+                is_merge_origin=raw_cell.is_merge_origin,
+                merge_origin_ref=raw_cell.merge_origin_ref,
+                content=[]
+            )
+            
+            if raw_cell.content_text:
+                cell_node.content.append(ParagraphNode(
+                    node_id=str(uuid.uuid4()),
+                    text=raw_cell.content_text,
+                ))
+                
+            for media in raw_cell.media_nodes:
+                if media.element_type == ElementType.IMAGE:
+                    cell_node.content.append(self._make_image_node(media, 0))
+                elif media.element_type == ElementType.ICON:
+                    cell_node.content.append(self._make_icon_node(media, 0))
+                    
+            return cell_node
+
+        # Header row
+        if el.headers:
+            header_cells = []
+            for col_idx, header_cell in enumerate(el.headers):
+                header_cells.append(_process_cell(header_cell, 0, col_idx))
+
+            rows.append(TableRowNode(
+                node_id=str(uuid.uuid4()),
+                row_index=0,
+                is_header=True,
+                cells=header_cells,
+            ))
+
+        # Data rows
+        for row_idx, row_data in enumerate(el.rows):
+            data_row_index = row_idx + (1 if el.headers else 0)
+            cells = []
+            for col_idx, cell_data in enumerate(row_data):
+                cells.append(_process_cell(cell_data, data_row_index, col_idx))
+
+            rows.append(TableRowNode(
+                node_id=str(uuid.uuid4()),
+                row_index=data_row_index,
+                cells=cells,
+            ))
+
+        return TableNode(
+            node_id=str(uuid.uuid4()),
+            row_count=len(rows),
+            col_count=len(el.headers) if el.headers else (
+                len(el.rows[0]) if el.rows else 0
+            ),
+            grid_cols=el.grid_cols or (len(el.headers) if el.headers else (len(el.rows[0]) if el.rows else 0)),
+            rows=rows,
+            has_header_row=bool(el.headers),
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    def _make_image_node(
+        self, el: ExtractedImage, seq: int,
+    ) -> ImageNode:
+        """Convert an ``ExtractedImage`` to an ``ImageNode``."""
+        return ImageNode(
+            node_id=str(uuid.uuid4()),
+            asset_path=el.image_path,
+            alt_text=el.caption or "",
+            width=el.width,
+            height=el.height,
+            caption=el.caption or None,
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    def _make_icon_node(
+        self, el: ExtractedIcon, seq: int,
+    ) -> IconNode:
+        """Convert an ``ExtractedIcon`` to an ``IconNode``."""
+        return IconNode(
+            node_id=str(uuid.uuid4()),
+            asset_path=el.image_path,
+            semantic_meaning=el.semantic_meaning,
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    def _make_caption_node(
+        self, el: ExtractedElement, seq: int,
+    ) -> CaptionNode:
+        """Convert a caption element to a ``CaptionNode``."""
+        # Try to extract the label (e.g., "Figure 1", "Table 2")
+        label = None
+        label_match = re.match(
+            r"^((?:Figure|Fig\.?|Table|Tbl\.?|Image|Diagram|Chart|Graph|Exhibit)\s*\d+)",
+            el.content.strip(),
+            re.IGNORECASE,
+        )
+        if label_match:
+            label = label_match.group(1)
+
+        return CaptionNode(
+            node_id=str(uuid.uuid4()),
+            text=el.content.strip(),
+            caption_label=label,
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
+        )
+
+    # ── List Detection & Consumption ──────────────────────────────────
+
+    def _is_list_item(self, el: ExtractedElement) -> bool:
+        """Check if an element looks like a list item."""
+        if el.element_type == ElementType.LIST_ITEM:
+            return True
+        if el.element_type == ElementType.NUMBERED_STEP:
+            return True
+        text = el.content.strip()
+        if self._LIST_BULLET_RE.match(text):
+            return True
+        if self._LIST_ORDERED_RE.match(text):
+            return True
+        return False
+
+    def _detect_list_type(self, text: str) -> str:
+        """Determine whether a list item text is ordered or unordered."""
+        stripped = text.strip()
+        if self._LIST_ORDERED_RE.match(stripped):
+            return "ordered"
+        return "unordered"
+
+    def _consume_list_items(
+        self,
+        elements: list[ExtractedElement],
+        start_index: int,
+        start_seq: int,
+    ) -> tuple[ListNode, int]:
+        """Consume consecutive list items starting at *start_index*.
+
+        Returns (ListNode, number_of_elements_consumed).
+        """
+        items: list[ListItemNode] = []
+        i = start_index
+        seq = start_seq
+
+        # Determine list type from first item
+        first_text = elements[i].content.strip()
+        list_type = self._detect_list_type(first_text)
+
+        item_index = 1
+        while i < len(elements):
+            el = elements[i]
+            
+            if self._is_list_item(el):
+                # Clean bullet/number prefix
+                text = el.content.strip()
+                clean_text = self._strip_list_prefix(text)
+    
+                item = ListItemNode(
+                    node_id=str(uuid.uuid4()),
+                    text=clean_text,
+                    index=item_index if list_type == "ordered" else None,
+                    sequence=seq,
+                    source_location=self._make_source_loc(el),
+                    confidence=el.confidence,
+                )
+                items.append(item)
+                item_index += 1
+                seq += 1
+                i += 1
+            else:
+                # Check if it's a continuation paragraph
+                text_content = el.content.strip()
+                if text_content and items:
+                    first_char = text_content[0]
+                    if first_char.islower() or first_char in ',);]-':
+                        items[-1].text += " " + text_content
+                        # We don't increment seq here since it's merged
+                        i += 1
+                        continue
+                # Not a list item and not a continuation -> break
+                break
+
+        list_node = ListNode(
+            node_id=str(uuid.uuid4()),
+            list_type=list_type,
+            nesting_depth=0,
+            items=items,
+            sequence=start_seq,
+        )
+
+        consumed = i - start_index
+        return list_node, consumed
+
+    def _strip_list_prefix(self, text: str) -> str:
+        """Remove the bullet or number prefix from list item text."""
+        # Try bullet patterns first
+        bullet_match = self._LIST_BULLET_RE.match(text)
+        if bullet_match:
+            return text[bullet_match.end():].strip()
+
+        # Try ordered patterns
+        ordered_match = self._LIST_ORDERED_RE.match(text)
+        if ordered_match:
+            return text[ordered_match.end():].strip()
+
+        return text
+
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _flatten_elements(self, document: RawDocument) -> list[ExtractedElement]:
+        """Flatten all page elements into a single reading-order list.
+
+        After flattening, icons are reordered so that each icon appears
+        immediately *before* the text element whose vertical range it
+        overlaps with on the same page.  This corrects sub-pixel layout
+        variations where the PDF parser places an icon slightly after
+        its associated paragraph.
+        """
+        all_elements: list[ExtractedElement] = []
+        for page in document.pages:
+            all_elements.extend(page.elements)
+
+        return self._reorder_icons(all_elements)
+
+    @staticmethod
+    def _vertical_overlap(bbox_a, bbox_b) -> float:
+        """Return the vertical overlap ratio between two bounding boxes.
+
+        Returns what fraction of the smaller box's height is overlapping.
+        """
+        if bbox_a is None or bbox_b is None:
+            return 0.0
+        if bbox_a.page != bbox_b.page:
+            return 0.0
+        overlap_top = max(bbox_a.y0, bbox_b.y0)
+        overlap_bottom = min(bbox_a.y1, bbox_b.y1)
+        overlap = max(0.0, overlap_bottom - overlap_top)
+        if overlap == 0.0:
+            return 0.0
+        min_height = min(bbox_a.y1 - bbox_a.y0, bbox_b.y1 - bbox_b.y0)
+        if min_height <= 0:
+            return 0.0
+        return overlap / min_height
+
+    def _reorder_icons(self, elements: list[ExtractedElement]) -> list[ExtractedElement]:
+        """Move misplaced icons so each sits before its associated text element.
+
+        An icon is "misplaced" when it appears *after* a text element that it
+        vertically overlaps with (≥30% of the smaller box's height).  In that
+        case the icon is pulled out and re-inserted just before that element.
+        """
+        result = list(elements)
+        i = 0
+        while i < len(result):
+            el = result[i]
+            if el.element_type != ElementType.ICON or el.bbox is None:
+                i += 1
+                continue
+
+            # Look backward for a text element on the same page that overlaps
+            best_j: int | None = None
+            for j in range(i - 1, -1, -1):
+                candidate = result[j]
+                if candidate.bbox is None or candidate.page != el.page:
+                    break  # different page or no bbox — stop scanning
+                if candidate.element_type in (
+                    ElementType.PARAGRAPH, ElementType.HEADING,
+                    ElementType.LIST_ITEM, ElementType.NUMBERED_STEP,
+                ):
+                    if self._vertical_overlap(el.bbox, candidate.bbox) >= 0.3:
+                        best_j = j
+                        break
+
+            if best_j is not None:
+                # Pull icon out and insert before the overlapping text element
+                icon = result.pop(i)
+                result.insert(best_j, icon)
+                # Don't increment i — the next element slid into position i
+            else:
+                i += 1
+
+        return result
+
+    @staticmethod
+    def _make_source_loc(el: ExtractedElement) -> SourceLocation:
+        """Create a SourceLocation from an ExtractedElement."""
+        return SourceLocation(
+            page=el.page,
+            bbox=el.bbox,
+        )

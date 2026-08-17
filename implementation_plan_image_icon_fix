@@ -1,0 +1,46 @@
+# Goal Description
+
+The goal is to fix the PDF parser so that it can extract vector-based graphics (such as corporate logos, flowcharts, and infographic icons) which are currently being missed because they are not stored as traditional raster images (like JPEG/PNG) in the PDF. We also want to ensure that once extracted, these vector graphics can be properly processed and recognized as icons by the existing `IconExtractor`.
+
+## Proposed Changes
+
+We will modify the core PDF parser to capture vector graphics by finding drawing paths (lines, shapes, fills), grouping them into logical regions, and taking high-quality page screenshots of those specific regions.
+
+### [Component Name: PDF Parser]
+
+#### [MODIFY] [pdf_parser.py](file:///c:/Users/Bhavya/Desktop/Content%20Extraction/app/services/parser/pdf_parser.py)
+- **Add Vector Extraction Logic**: Create a new internal method `_extract_vector_graphics(self, page, page_number, start_sequence)`.
+  - Use PyMuPDF's `page.get_drawings()` to extract all vector paths on the page.
+  - Implement a clustering algorithm to group overlapping or closely adjacent drawing bounding boxes (`rect`s). This ensures a complex flowchart or an icon made of multiple separate shapes is treated as a single image bounding box.
+  - Filter out page-sized bounding boxes (to avoid capturing page borders or background fills).
+- **Render to Image**: For each clustered bounding box, use `page.get_pixmap(clip=cluster_rect)` to render just that region of the page into a PNG image.
+- **Save and Instantiate**: Save the rendered PNG to the `extracted_images_dir` and instantiate an `ExtractedImage` object. 
+- **Integrate into Extraction Pipeline**: Update `_extract_page` to call `_extract_vector_graphics` alongside the existing `_extract_images` (which will still be used to catch standard raster photos).
+
+### [Component Name: Icon Extractor]
+
+*(No code changes required, but logic flows here)*
+- By converting vector shapes into standard `ExtractedImage` objects (saved as PNGs), the newly captured vector icons will automatically flow into the existing `IconExtractor` in `icons.py`.
+- The `IconExtractor` will check their pixel dimensions (which we rendered) and if they are `<= 128x128`, it will hash them and classify them as `ExtractedIcon` items, preserving their original exact bounding box locations from the PDF.
+
+## User Review Required
+
+> [!WARNING]
+> **Performance Impact:**
+> Rendering page pixmaps (taking screenshots) and clustering vector paths adds a slight computational overhead compared to simply reading text. For a standard PDF, this is very fast, but for a 1000-page PDF heavily laden with complex CAD-style vectors, this phase could take longer.
+
+## Open Questions
+
+> [!IMPORTANT]
+> 1. Should we add a specific visual margin/padding (e.g., 5 pixels) around the extracted vector graphics when rendering them, or crop them as tightly as possible?
+> 2. Are there any background colors/watermarks that are vector shapes that we should specifically try to ignore by size? Currently, I plan to ignore any drawing that spans more than 90% of the page width/height.
+
+## Verification Plan
+
+### Automated Tests
+- Run `pytest` to ensure no existing PDF extraction logic breaks.
+
+### Manual Verification
+- Re-run the extraction on `data/uploads/b6db819e-4a78-4e24-861b-7f406ed63832.pdf` (or the equivalent test PDF containing the SOP).
+- Check the generated JSON output (`d701e96b-f922-4dc3-99ab-7136d36a8ef1_v2.json`) to confirm that `total_images` and `total_icons` are now correctly greater than `0`.
+- Verify that the bounding boxes for the newly extracted images/icons match their visual locations on the PDF pages.

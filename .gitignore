@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environment
+venv/
+env/
+.env
+.venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# Scratch / temp files
+scratch/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (optional - remove if you want to track these)
+# data/
