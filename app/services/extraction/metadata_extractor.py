@@ -104,15 +104,17 @@ class SOPMetadataExtractor:
         cls,
         file_path: str,
         fallback_filename: str = "",
-    ) -> tuple[str, str, str]:
-        """Extract (document_name, document_number, document_version) from file.
+    ) -> tuple[str, str, str, str]:
+        """Extract (document_name, document_number, document_version, document_type) from file.
 
         Args:
             file_path: Absolute path to the PDF or DOCX file.
             fallback_filename: Original filename if file_path is temporary.
 
         Returns:
-            Tuple of (document_name, document_number, document_version).
+            Tuple of (document_name, document_number, document_version, document_type).
+            ``document_type`` is the Type/Subtype value from the preamble table
+            (e.g. "Governance and Procedure > Guidance").
         """
         path = Path(file_path)
         ext = path.suffix.lower()
@@ -122,13 +124,14 @@ class SOPMetadataExtractor:
         elif ext == ".docx":
             return cls._extract_from_docx(path)
         else:
-            return "", "", ""
+            return "", "", "", ""
 
     @classmethod
-    def _extract_from_pdf(cls, file_path: Path) -> tuple[str, str, str]:
+    def _extract_from_pdf(cls, file_path: Path) -> tuple[str, str, str, str]:
         doc_name = ""
         doc_number = ""
         doc_version = ""
+        doc_type = ""
 
         # 1. Try checking first-page tables via pdfplumber
         try:
@@ -174,6 +177,17 @@ class SOPMetadataExtractor:
                                 ]
                             ):
                                 doc_version = val
+                            elif not doc_type and any(
+                                k in key
+                                for k in [
+                                    "type/subtype",
+                                    "type",
+                                    "subtype",
+                                    "document type",
+                                    "doc type",
+                                ]
+                            ):
+                                doc_type = val
         except Exception:
             pass
 
@@ -208,13 +222,14 @@ class SOPMetadataExtractor:
             except Exception:
                 pass
 
-        return doc_name, doc_number, doc_version
+        return doc_name, doc_number, doc_version, doc_type
 
     @classmethod
-    def _extract_from_docx(cls, file_path: Path) -> tuple[str, str, str]:
+    def _extract_from_docx(cls, file_path: Path) -> tuple[str, str, str, str]:
         doc_name = ""
         doc_number = ""
         doc_version = ""
+        doc_type = ""
 
         try:
             doc = docx.Document(file_path)
@@ -255,6 +270,17 @@ class SOPMetadataExtractor:
                             ]
                         ):
                             doc_version = val
+                        elif not doc_type and any(
+                            k in key
+                            for k in [
+                                "type/subtype",
+                                "type",
+                                "subtype",
+                                "document type",
+                                "doc type",
+                            ]
+                        ):
+                            doc_type = val
 
             # 2. Regex fallback on first paragraphs
             if not (doc_name and doc_number and doc_version):
@@ -283,4 +309,4 @@ class SOPMetadataExtractor:
         except Exception:
             pass
 
-        return doc_name, doc_number, doc_version
+        return doc_name, doc_number, doc_version, doc_type

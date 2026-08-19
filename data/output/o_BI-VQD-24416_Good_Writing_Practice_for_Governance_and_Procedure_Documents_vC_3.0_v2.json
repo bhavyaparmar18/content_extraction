@@ -6,10 +6,11 @@
     "document_number": "o\nBI-VQD-24416",
     "document_name": "Good Writing Practice for Governance and Procedure\nDocuments",
     "document_version": "C\n3.0",
+    "document_type": "Governance and Procedure > Guidance",
     "title": "o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0",
     "language": "en",
     "page_count": 15,
-    "duplicate_upload_count": 15
+    "duplicate_upload_count": 18
   },
   "sections": [
     {
@@ -20,6 +21,7 @@
         {
           "element_type": "table",
           "page": 1,
+          "section_name": "0 PREAMBLE",
           "num_rows": 8,
           "num_cols": 2,
           "cells": [
@@ -156,12 +158,14 @@
         {
           "element_type": "heading",
           "page": 1,
+          "section_name": "0 PREAMBLE",
           "level": 4,
           "text": "GENERAL INFORMATION"
         },
         {
           "element_type": "table",
           "page": 1,
+          "section_name": "0 PREAMBLE",
           "num_rows": 2,
           "num_cols": 2,
           "cells": [
@@ -202,72 +206,86 @@
         {
           "element_type": "heading",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "level": 4,
           "text": "Table of Content"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "1 PURPOSE ......................................................................................................... 3"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "2 APPLICABILITY ................................................................................................. 3"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "3 DEFINITIONS & ABBREVIATIONS ................................................................... 3"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "4 IMPLEMENTATION AND/OR PRE-REQUISITES ............................................. 4"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "5 ROLES & RESPONSIBILITIES ......................................................................... 4"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "6 PRINCIPLES FOR DOCUMENT WRITING ....................................................... 4 6.1 LANGUAGE AND WORDING ....................................................................... 5 6.2 ACCESSIBILITY AND UNDERSTANDABILITY OF DOCUMENT ................. 6 6.3 ASSESSING DOCUMENT READABILITY AND LANGUAGE ACCURACY . 6 6.4 USING ARTIFICIAL INTELIGENCE IN CONTENT CREATION .................... 8 6.5 USE VISUALIZATIONS TO INCREASE TEXT UNDERSTANDING ............. 8"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "6.5.1 Strategic use of symbols ....................................................................... 8"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "6.5.2 Infographics........................................................................................... 9"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "6.5.3 Flow Charts for Process Descriptions ................................................. 10"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS .................................. 11 7.1 ARTICULATE THE PURPOSE .................................................................... 11 7.2 DETERMINE THE APPLICABILITY ............................................................ 11 7.3 CLARIFY DEFINITIONS AND ABBREVIATIONS ....................................... 12 7.4 GUIDELINES FOR IMPLEMENTATION AND PREREQUISITES ............... 12 7.5 IDENTIFY ALL ROLES AND THE RESPECTIVE RESPONSIBILITIES ...... 12 8"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "ASSOCIATED DOCUMENTS .......................................................................... 14"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "9 REFERENCES ................................................................................................ 14"
         },
         {
           "element_type": "paragraph",
           "page": 2,
+          "section_name": "0 PREAMBLE",
           "text": "10 DOCUMENT HISTORY ................................................................................... 14"
         }
       ],
@@ -281,15 +299,17 @@
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "1 PURPOSE",
           "text": "This Guidance:"
         },
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "1 PURPOSE",
           "text": "Outlines the writing of Boehringer Ingelheim Governance and Procedure Documents (GP Docs) with a focus on human learning principles, readability, and accessibility.",
           "icons": [
             {
-              "icon_id": "012d4677-8c4d-4b8a-8f5a-ced6d6c10b87",
+              "icon_id": "ebd3c229-d514-48db-b0bd-637876335e58",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec0_b84e825f3a.png",
               "semantic_meaning": "unknown"
             }
@@ -298,10 +318,11 @@
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "1 PURPOSE",
           "text": "Aims to make GP Docs clearer, leading to a better understanding and practical application.",
           "icons": [
             {
-              "icon_id": "b4bd2311-e4e3-4c17-b304-3e3584133a84",
+              "icon_id": "834e6862-00f6-4abc-9bd3-0446621f63a5",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec1_e07401b561.png",
               "semantic_meaning": "unknown"
             }
@@ -318,15 +339,17 @@
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "2 APPLICABILITY",
           "text": "This Guidance is applicable:"
         },
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "2 APPLICABILITY",
           "text": "To all authors who write GP Docs, except Policies.",
           "icons": [
             {
-              "icon_id": "8d8096f4-49af-4af5-933e-c7c3b8d19689",
+              "icon_id": "73a6dd5c-8d3d-4f28-9751-41f80b836436",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec2_21593c97d0.png",
               "semantic_meaning": "unknown"
             }
@@ -335,10 +358,11 @@
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "2 APPLICABILITY",
           "text": "All business units/divisions and departments writing GP Docs, except Policies.",
           "icons": [
             {
-              "icon_id": "a8d5a18d-249c-4988-be7d-0cd397ee1cb3",
+              "icon_id": "248aa81d-2be6-4ad3-9e51-5821502fa2cf",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec3_2e32076307.png",
               "semantic_meaning": "unknown"
             }
@@ -347,10 +371,11 @@
         {
           "element_type": "paragraph",
           "page": 3,
+          "section_name": "2 APPLICABILITY",
           "text": "World-wide",
           "icons": [
             {
-              "icon_id": "58f01ad9-3f50-40e2-8abf-adfc106aeeaf",
+              "icon_id": "bcca6895-c114-44fd-a313-945e28a39859",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec4_f197689508.png",
               "semantic_meaning": "unknown"
             }
@@ -367,6 +392,7 @@
         {
           "element_type": "table",
           "page": 3,
+          "section_name": "3 DEFINITIONS & ABBREVIATIONS",
           "num_rows": 2,
           "num_cols": 2,
           "cells": [
@@ -407,6 +433,7 @@
         {
           "element_type": "table",
           "page": 3,
+          "section_name": "3 DEFINITIONS & ABBREVIATIONS",
           "num_rows": 4,
           "num_cols": 2,
           "cells": [
@@ -479,12 +506,14 @@
         {
           "element_type": "heading",
           "page": 4,
+          "section_name": "3 DEFINITIONS & ABBREVIATIONS",
           "level": 4,
           "text": "Infographics Description"
         },
         {
           "element_type": "table",
           "page": 4,
+          "section_name": "3 DEFINITIONS & ABBREVIATIONS",
           "num_rows": 5,
           "num_cols": 6,
           "cells": [
@@ -705,6 +734,7 @@
         {
           "element_type": "paragraph",
           "page": 4,
+          "section_name": "4 IMPLEMENTATION AND/OR PRE-REQUISITES",
           "text": "Use the principles in this guidance when creating or updating a Directive, SOP, Work Instruction and Guidance. There is no need to update effective documents due to this Guidance before their periodic review."
         }
       ],
@@ -718,6 +748,7 @@
         {
           "element_type": "table",
           "page": 4,
+          "section_name": "5 ROLES & RESPONSIBILITIES",
           "num_rows": 2,
           "num_cols": 3,
           "cells": [
@@ -782,6 +813,7 @@
         {
           "element_type": "table",
           "page": 4,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 2,
           "num_cols": 2,
           "cells": [
@@ -824,72 +856,85 @@
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Effective communication is crucial for Boehringer Ingelheim's success. Excellence in writing facilitates clear, concise, and engaging communication."
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 2,
           "text": "6.1 LANGUAGE AND WORDING"
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 4,
           "text": "Principles of Simplified Writing"
         },
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "To make GP Docs more accessible, employ simple language:"
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 1,
           "text": "1. Active Voice is Key:"
         },
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Always pair specific role names with active verbs. Use formulations like \"GQ authors write new Governance and Procedures Documents\" and \"The System Owner must perform a system review annually\". Avoid passive constructions."
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 1,
           "text": "2. Brevity Matters:"
         },
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Write short, straightforward sentences, ideally not longer than two lines. Avoid superfluous words and repetitions."
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 1,
           "text": "3. Global Language:"
         },
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Avoid idioms or jargon."
         },
         {
           "element_type": "heading",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 1,
           "text": "4. Stay on Topic:"
         },
         {
           "element_type": "paragraph",
           "page": 5,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Keep focused on the central theme. Effective Word Choice Strategies"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Prefer \"confirm\" or \"verify\" over \"ensure\".",
             "Do not use \"please\".",
@@ -903,17 +948,20 @@
         {
           "element_type": "heading",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 2,
           "text": "6.2 ACCESSIBILITY AND UNDERSTANDABILITY OF DOCUMENT"
         },
         {
           "element_type": "paragraph",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Different readers of a document may have different needs regarding understandability and accessibility of the content. When you write a document consider the following aspects to address different needs:"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Language : Provide translations as needed, adhere to the BI-VQD-161829-WI:"
           ]
@@ -921,11 +969,13 @@
         {
           "element_type": "paragraph",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Translation Process. To make your document more readable, refer to chapter 6.3 ."
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Illustrations and images : Support your text with visuals and provide descriptions in plain language where necessary, refer to chapter 6.5 .",
             "Use of colour : Adhere to our corporate colour palette while being mindful of colour vision impairments: o Contrast : Ensure graphics and coloured text have sufficient contrast."
@@ -934,27 +984,32 @@
         {
           "element_type": "paragraph",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Choose colour combinations with distinct brightness levels to enhance readability, e.g., ensure sufficient contrast ratio between foreground and their background. o Red-green combinations: Avoid using these, as they are not distinguishable to individuals with red-green colour blindness. o Symbol and colour: Use symbols consistently and avoid assigning different meanings to the same symbol based on colour alone. When using colours to differentiate or highlight information, always provide an alternative means of identification, such as symbols or patterns."
         },
         {
           "element_type": "heading",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 2,
           "text": "6.3 ASSESSING DOCUMENT READABILITY AND LANGUAGE ACCURACY"
         },
         {
           "element_type": "paragraph",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "This section offers guidance on using Microsoft Word's built-in tools to improve text readability and check spelling and grammar accuracy. Keep in mind that these tools may not be available for all languages. Tools Overview"
         },
         {
           "element_type": "paragraph",
           "page": 6,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Microsoft Word offers two distinct sets of tools to enhance your document:"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Spelling & Grammar Check:"
           ]
@@ -962,11 +1017,13 @@
         {
           "element_type": "paragraph",
           "page": 7,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Run a spell and grammar check with the current language selected. It identifies and corrects spelling mistakes and grammatical errors. This ensures your document is free from common language errors, enhancing its professionalism and readability."
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Readability Scores:",
             "Readability scores are metrics to evaluate the ease with which your audience can understand the text. Note that readability scores may not be available for documents in languages other than English.",
@@ -976,11 +1033,13 @@
         {
           "element_type": "paragraph",
           "page": 7,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Word by navigating to File > Options > Proofing. In the \"When correcting spelling and grammar in Word\" section, ensure the box for \"Show readability statistics\" is checked."
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "After running a spelling and grammar check, Word automatically displays readability statistics for documents in English, including: o Flesch Reading Ease: Scores range from 1 to 100. Higher scores indicate easier readability. Aim for 60 to 70 for general documents. SOPs might tolerate a lower score. A score in the range of 30-50 could still be acceptable, as it indicates the text is likely to be understood by professionals with a good understanding of the topic. o Flesch-Kincaid Grade Level: Reflects the U.S. school grade level needed for comprehension. General documents should target a grade level of 7 to 8, while specialized documents like SOPs might aim for a grade level of 10 to 12, considering the technical language and the educated audience. o Passive Sentences Readability Index: In technical writing, some use of passive voice is acceptable, especially when the doer of the action is unknown or irrelevant. A good target might be to have less than 10% of sentences in passive voice to maintain clarity and ease of understanding."
           ]
@@ -988,22 +1047,26 @@
         {
           "element_type": "paragraph",
           "page": 7,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Balancing Technicality and Accessibility While making the document accessible to a broad range of employees, it is also crucial not to oversimplify technical details that are essential for the correct execution of the procedures. Readability scores are guides, not absolute rules. Always consider your audience's specific needs and adjust your writing accordingly."
         },
         {
           "element_type": "heading",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 2,
           "text": "6.4 USING ARTIFICIAL INTELIGENCE IN CONTENT CREATION"
         },
         {
           "element_type": "paragraph",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Artificial Intelligence (AI), including models like ChatGPT, enhances content creation. Benefits include:"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Efficiency: AI accelerates content generation, freeing time for refinement.",
             "Consistency: Natural Language Processing (NLP) ensures uniform tone and style.",
@@ -1014,11 +1077,13 @@
         {
           "element_type": "paragraph",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "For AI support and examples, visit the EngageAI SharePoint page by entering “EngageAI/” in your browser. For guidance on AI tools, consult:"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "BI-VQD-1157557-G: Guidance for using non-validated AI for activities in GxP environments.",
             "BI-VQD-188683-G: Artificial Intelligence (AI) for GxP relevant Computerized"
@@ -1027,11 +1092,13 @@
         {
           "element_type": "paragraph",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Systems."
         },
         {
           "element_type": "table",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1057,44 +1124,52 @@
         {
           "element_type": "heading",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 2,
           "text": "6.5 USE VISUALIZATIONS TO INCREASE TEXT UNDERSTANDING"
         },
         {
           "element_type": "paragraph",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Visual aids (e.g., symbols, Infographics, diagrams, flow charts) play a crucial role in enhancing understanding and engagement."
         },
         {
           "element_type": "heading",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 3,
           "text": "6.5.1 Strategic use of symbols"
         },
         {
           "element_type": "paragraph",
           "page": 8,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Use symbols and signs before colours to define and clarify specific information. The primary characteristic of symbols is their geometric uniqueness. They therefore function independently of the colour scheme if they can be clearly recognized via the brightness contrast."
         },
         {
           "element_type": "paragraph",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "In addition to the symbols used in the infographics (see chapter 6.5.2 ), six additional green symbols are outlined in chapter 7.1 and 7.2 . You may introduce extra symbols if they are defined in the document. Use all symbols consistently throughout the document. Avoid overuse of symbols."
         },
         {
           "element_type": "heading",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 3,
           "text": "6.5.2 Infographics"
         },
         {
           "element_type": "paragraph",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Infographics serve as optional educational enhancements, clarifying and emphasizing key points. They should engage the reader with direct calls to action. Ensure clarity in infographics by explaining them in the \"Definitions & Abbreviations\" chapter. Use the following four infographics for all GP Docs (global, (cross-) divisional or local)."
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Use the “Executive Summary/Introduction” Infographic at the beginning of a"
           ]
@@ -1102,11 +1177,13 @@
         {
           "element_type": "paragraph",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "(longer) section . What can the learner expect? Write an educational introduction:"
         },
         {
           "element_type": "table",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 4,
           "cells": [
@@ -1148,6 +1225,7 @@
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Use “Explanation” Infographic in the document as needed to accompany more difficult parts of the text:"
           ]
@@ -1155,6 +1233,7 @@
         {
           "element_type": "table",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 4,
           "cells": [
@@ -1196,6 +1275,7 @@
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Use “Attention” Infographic in the document as needed to draw attention to topics to remember or not to mix up:"
           ]
@@ -1203,6 +1283,7 @@
         {
           "element_type": "table",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 4,
           "cells": [
@@ -1244,6 +1325,7 @@
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Use the “Key-take-away” Infographic at the end of the section. What should the learner remember after reading? Draw attention to the main learning topics to be memorized - with a call to action."
           ]
@@ -1251,6 +1333,7 @@
         {
           "element_type": "table",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 4,
           "cells": [
@@ -1292,22 +1375,26 @@
         {
           "element_type": "paragraph",
           "page": 9,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Do not overload your document with infographics. Consider that colours may draw the attention away from the (non-coloured) main text."
         },
         {
           "element_type": "heading",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 3,
           "text": "6.5.3 Flow Charts for Process Descriptions"
         },
         {
           "element_type": "paragraph",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "text": "Focus on e.g., regulatory-required content in your process descriptions. Use the following four principles for the flow chart, see Example 1 below:"
         },
         {
           "element_type": "list",
           "page": 0,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "items": [
             "Indicate the steps/section.",
             "Highlight the involved roles, e.g., via separate boxes.",
@@ -1318,24 +1405,28 @@
         {
           "element_type": "image",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "title": "Example 1: Process visualization.",
           "image_path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_images\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page10_img1_3a90b9fab0.png"
         },
         {
           "element_type": "heading",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "level": 4,
           "text": "…"
         },
         {
           "element_type": "image",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "title": "",
           "image_path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_images\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page10_img2_55d1f293df.png"
         },
         {
           "element_type": "table",
           "page": 10,
+          "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1369,26 +1460,30 @@
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Documents should logically order content/processes, maintaining clarity, consistency, and coherence in symbols, colours, terminology, and writing style. Break down complex information into smaller segments, using headings and subheadings for organization and navigation."
         },
         {
           "element_type": "heading",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "level": 2,
           "text": "7.1 ARTICULATE THE PURPOSE"
         },
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Clarify for the reader the purpose of the document at the beginning. Explain the document subject (“what is described”) and the intention (“why you are writing the document”; “what do you want to achieve”). Use the following two green symbols as described:"
         },
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Brief description of what the document is about? What process is described in the document?",
           "icons": [
             {
-              "icon_id": "477add3c-bc6f-4e3d-b826-e1a5e2f2c33c",
+              "icon_id": "8834903e-63d6-4d8c-91ab-4c353b2df3ad",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec0_c5e304d3e4.png",
               "semantic_meaning": "unknown"
             }
@@ -1397,10 +1492,11 @@
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Brief description of the intention. What do you want to achieve?",
           "icons": [
             {
-              "icon_id": "e4f39ec4-a267-44a2-b52e-f26c5c3fcf7a",
+              "icon_id": "12078b3e-0cc1-4910-b1a4-13e4397a5606",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec1_26b2fb9e92.png",
               "semantic_meaning": "unknown"
             }
@@ -1409,26 +1505,30 @@
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Do not use these two symbols for other purposes."
         },
         {
           "element_type": "heading",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "level": 2,
           "text": "7.2 DETERMINE THE APPLICABILITY"
         },
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Clarify in short sentences for whom this GP Doc is applicable in this section. Use the following four green symbols in your text as described:"
         },
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Explain which target Roles must follow this document, ensuring accurate training assignment. The more specific you are in describing the Roles where this document is applicable, the better training assignment can be performed.",
           "icons": [
             {
-              "icon_id": "ad28985f-894a-4f6a-90cd-e02e9d303ac7",
+              "icon_id": "3de1a436-7c5c-48a6-8dbd-885caf2f5635",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec2_4bbcb3fe7e.png",
               "semantic_meaning": "unknown"
             }
@@ -1437,10 +1537,11 @@
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "In which business units, group functions, departments the document applies, according to the applicability defined for impacted divisions and departments in the eDMS.",
           "icons": [
             {
-              "icon_id": "edbff1c8-5be8-46ba-9d40-81c4b36bcd40",
+              "icon_id": "a7c40dd4-7f92-4678-94d9-b0f26cb5560b",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec3_90041eaf44.png",
               "semantic_meaning": "unknown"
             }
@@ -1449,10 +1550,11 @@
         {
           "element_type": "paragraph",
           "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "The applicable geography, e.g., world-wide, R/OPU, country/countries, or site(s).",
           "icons": [
             {
-              "icon_id": "b4542fde-9deb-47e1-88da-ceae053ba18c",
+              "icon_id": "47f950c4-ea08-4df9-b2e6-ac77cb96c82e",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec4_c283a6222c.png",
               "semantic_meaning": "unknown"
             }
@@ -1461,10 +1563,11 @@
         {
           "element_type": "paragraph",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "If applicable, list affected processes/systems and/or materials (if none, delete).",
           "icons": [
             {
-              "icon_id": "358735f6-11e3-4f53-ba31-90d3ef001d9f",
+              "icon_id": "45d1ef31-8b81-47cc-9978-3824be9a9fbb",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page12_vec0_920298b5e7.png",
               "semantic_meaning": "unknown"
             }
@@ -1473,33 +1576,39 @@
         {
           "element_type": "paragraph",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Give additional information below these symbols as appropriate. Do not use these four green symbols for other purposes."
         },
         {
           "element_type": "heading",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "level": 2,
           "text": "7.3 CLARIFY DEFINITIONS AND ABBREVIATIONS"
         },
         {
           "element_type": "paragraph",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "It is important for the reader to understand definitions and abbreviations. Define the terms and show the full term for abbreviations as outlined in Chapter 3 “Definitions & Abbreviations” in this Guidance. Explain the meaning of the Infographics used in your document. If they are not explained in your template/document copy the table in Chapter 3 “Definitions & Abbreviations” of this Guidance into your document. Delete a row/Infographic description in this table if you do not use the respective Infographic in your text."
         },
         {
           "element_type": "heading",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "level": 2,
           "text": "7.4 GUIDELINES FOR IMPLEMENTATION AND PREREQUISITES"
         },
         {
           "element_type": "paragraph",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Choose a feasible implementation date or transition period, considering potential conflicts with existing documents, procedures, risk assessments, qualifications, or training, including translations. Updates may necessitate process reengineering or new training initiatives. Allow ample time for these adjustments to avoid non- compliance risks."
         },
         {
           "element_type": "table",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1525,17 +1634,20 @@
         {
           "element_type": "heading",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "level": 2,
           "text": "7.5 IDENTIFY ALL ROLES AND THE RESPECTIVE RESPONSIBILITIES"
         },
         {
           "element_type": "paragraph",
           "page": 12,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "text": "Define all roles within your document in the “Roles & Responsibilities” section, consistently using these role names throughout. Roles outline the responsibility and accountability. If the same role is used in other GP Docs, ensure the role definitions are not contradictory. List all roles with responsibilities in the process consistently throughout the document. If you do not mention a role in the “Roles & Responsibilities” section, it implies that the role does not have any responsibility in the process. Define for each role the competence level (refer to BI-VQD-176246-S: Learning Management, considering the implementation timeline). The identified roles will determine the assignment of the document in the Learning Management System (LOS). Additional information, including a “Role Matrix” for standardized role definitions, is available on the Global Learning Hub (GLH) Intranet page. Type “glh/” into your browser to access this resource."
         },
         {
           "element_type": "table",
           "page": 13,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1569,6 +1681,7 @@
         {
           "element_type": "table",
           "page": 14,
+          "section_name": "8 ASSOCIATED DOCUMENTS",
           "num_rows": 2,
           "num_cols": 3,
           "cells": [
@@ -1633,6 +1746,7 @@
         {
           "element_type": "table",
           "page": 14,
+          "section_name": "9 REFERENCES",
           "num_rows": 8,
           "num_cols": 3,
           "cells": [
@@ -1841,6 +1955,7 @@
         {
           "element_type": "table",
           "page": 14,
+          "section_name": "10 DOCUMENT HISTORY",
           "num_rows": 2,
           "num_cols": 3,
           "cells": [
@@ -1897,11 +2012,13 @@
         {
           "element_type": "paragraph",
           "page": 15,
+          "section_name": "10 DOCUMENT HISTORY",
           "text": "Document Approvals Approved Date: 18 Aug 2025"
         },
         {
           "element_type": "table",
           "page": 15,
+          "section_name": "10 DOCUMENT HISTORY",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1926,6 +2043,7 @@
         {
           "element_type": "table",
           "page": 15,
+          "section_name": "10 DOCUMENT HISTORY",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [
@@ -1950,6 +2068,7 @@
         {
           "element_type": "table",
           "page": 15,
+          "section_name": "10 DOCUMENT HISTORY",
           "num_rows": 1,
           "num_cols": 2,
           "cells": [

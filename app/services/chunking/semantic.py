@@ -170,6 +170,12 @@ class SemanticChunker(BaseChunker):
                 if len(split_indices) > 1:
                     new_meta.section = f"{chunk.metadata.section} (Part {idx + 1})"
 
+                # Ensure every sub-chunk starts with the section heading so that
+                # the section context is preserved for QA retrieval.
+                heading_prefix = f"# {chunk.heading}" if chunk.heading else ""
+                if heading_prefix and not sub_content.startswith(heading_prefix):
+                    sub_content = f"{heading_prefix}\n\n{sub_content}"
+
                 # Distribute tables/images/icons based on inline text marker matching
                 images = [
                     img for img in chunk.images

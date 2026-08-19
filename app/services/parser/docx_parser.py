@@ -111,7 +111,7 @@ class DocxParser(BaseParser):
         props = doc.core_properties
         file_stat = Path(file_path).stat()
 
-        doc_name, doc_num, doc_ver = SOPMetadataExtractor.extract_from_file(
+        doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
             file_path, fallback_filename=Path(file_path).name
         )
         upload_count = SOPMetadataExtractor.get_upload_count(document_id) if document_id else 0
@@ -133,6 +133,7 @@ class DocxParser(BaseParser):
             document_name=doc_name,
             document_number=doc_num,
             document_version=doc_ver,
+            document_type=doc_type,
             duplicate_upload_count=upload_count,
         )
 
