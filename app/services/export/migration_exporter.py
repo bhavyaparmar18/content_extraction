@@ -114,6 +114,7 @@ class MigrationExporter:
             document_number=getattr(doc_meta, "document_number", None),
             document_name=getattr(doc_meta, "document_name", None),
             document_version=getattr(doc_meta, "document_version", None),
+            document_type=getattr(doc_meta, "document_type", None) or None,
             title=title,
             language=getattr(doc_meta, "language", "en"),
             page_count=getattr(doc_meta, "page_count", 0),

@@ -134,6 +134,7 @@ class DocumentMetadata(BaseModel):
     document_name: str = ""
     document_number: str = ""
     document_version: str = ""
+    document_type: str = ""   # Type/Subtype from the preamble table (e.g. "Governance and Procedure > Guidance")
     duplicate_upload_count: int = 0
 
 

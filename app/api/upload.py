@@ -57,7 +57,7 @@ async def upload_document(
     with open(temp_path, "wb") as f:
         f.write(contents)
 
-    doc_name, doc_num, doc_ver = SOPMetadataExtractor.extract_from_file(
+    doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
         str(temp_path), fallback_filename=file.filename
     )
     document_id = SOPMetadataExtractor.generate_document_id(
@@ -114,7 +114,7 @@ async def upload_documents_batch(
         with open(temp_path, "wb") as f:
             f.write(contents)
 
-        doc_name, doc_num, doc_ver = SOPMetadataExtractor.extract_from_file(
+        doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
             str(temp_path), fallback_filename=file.filename
         )
         document_id = SOPMetadataExtractor.generate_document_id(
