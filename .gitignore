@@ -28,6 +28,11 @@ htmlcov/
 # Scratch / temp files
 scratch/
 
+# Logs
+data/logs/
+*.log
+*.log.zip
+
 # OS
 .DS_Store
 Thumbs.db

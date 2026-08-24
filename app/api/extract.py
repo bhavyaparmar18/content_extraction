@@ -2,10 +2,12 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
+from loguru import logger
 from pydantic import BaseModel
 
 from app.config.settings import Settings, get_settings
+from app.core.exceptions import DocumentNotFoundError, ParsingError
 from app.services.parser import ParserFactory
 from app.services.extraction import TableExtractor, CrossPageTableStitcher, IconExtractor, CaptionExtractor
 from app.services.hierarchy.ast_builder import ASTBuilder
@@ -39,48 +41,51 @@ async def extract_document(
     a summary of extracted elements.
     """
 
-    # ── Locate the uploaded file ────────────────────────────────────
-    upload_path: Path | None = None
-    for ext in settings.allowed_extensions:
-        candidate = settings.upload_dir / f"{request.document_id}{ext}"
-        if candidate.exists():
-            upload_path = candidate
-            break
+    document_id = request.document_id
+    with logger.contextualize(document_id=document_id):
+        logger.info("Synchronous extract requested for '{d}'.", d=document_id)
 
-    if upload_path is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No uploaded file found for document_id '{request.document_id}'.",
-        )
+        # ── Locate the uploaded file ────────────────────────────────────
+        upload_path: Path | None = None
+        for ext in settings.allowed_extensions:
+            candidate = settings.upload_dir / f"{document_id}{ext}"
+            if candidate.exists():
+                upload_path = candidate
+                break
 
-    # ── Parse ───────────────────────────────────────────────────────
-    try:
-        factory = ParserFactory(settings=settings)
-        parser = factory.get_parser(str(upload_path))
-        raw_document = parser.parse(str(upload_path))
-        
-        # ── Advanced Extraction Pipeline ────────────────────────────────
-        extractors = [
-            TableExtractor(settings=settings),
-            CrossPageTableStitcher(settings=settings),
-            IconExtractor(settings=settings),
-            CaptionExtractor(settings=settings),
-        ]
-        
-        for extractor in extractors:
-            raw_document = extractor.extract(raw_document)
-            
-        # ── AST Generation ─────────────────────────────────────
-        ast_builder = ASTBuilder(settings=settings)
-        document_node = ast_builder.build(raw_document)
-            
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Extraction failed: {e}",
-        )
+        if upload_path is None:
+            raise DocumentNotFoundError(
+                f"No uploaded file found for document_id '{document_id}'."
+            )
+
+        # ── Parse + extract + build AST ─────────────────────────────────
+        try:
+            factory = ParserFactory(settings=settings)
+            parser = factory.get_parser(str(upload_path))
+            raw_document = parser.parse(str(upload_path))
+
+            extractors = [
+                TableExtractor(settings=settings),
+                CrossPageTableStitcher(settings=settings),
+                IconExtractor(settings=settings),
+                CaptionExtractor(settings=settings),
+            ]
+            for extractor in extractors:
+                raw_document = extractor.extract(raw_document)
+
+            ast_builder = ASTBuilder(settings=settings)
+            document_node = ast_builder.build(raw_document)
+
+        except ValueError as e:
+            logger.warning("Extraction rejected for '{d}': {e}", d=document_id, e=e)
+            raise ParsingError(
+                f"Could not parse document '{document_id}'.", detail=str(e)
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Extraction failed unexpectedly for '{d}'.", d=document_id)
+            raise ParsingError(
+                f"Extraction failed for document '{document_id}'.", detail=str(e)
+            )
 
     # ── Build summary ───────────────────────────────────────────────
     element_counts: dict[str, int] = {}

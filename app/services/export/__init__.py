@@ -1,5 +1,4 @@
 # export package
-from .base_exporter import BaseExporter
-from .json_export import JSONExporter
+from .migration_exporter import MigrationExporter
 
-__all__ = ["BaseExporter", "JSONExporter"]
+__all__ = ["MigrationExporter"]

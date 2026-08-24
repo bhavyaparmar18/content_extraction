@@ -7,7 +7,6 @@ specifically for reconstructing Microsoft Word (.docx) documents.
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Optional, Any
 
@@ -34,7 +33,7 @@ from app.schemas.migration import (
     MigrationIconRef,
 )
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def _is_major_section_heading(title: str) -> Optional[str]:

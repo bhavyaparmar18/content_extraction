@@ -13,6 +13,7 @@ from typing import Optional
 import fitz  # PyMuPDF
 import pdfplumber
 import docx
+from loguru import logger
 
 from app.config.settings import Settings
 
@@ -35,7 +36,8 @@ class SOPMetadataExtractor:
         try:
             data = json.loads(cls.REGISTRY_PATH.read_text(encoding="utf-8"))
             return int(data.get(document_id, 0))
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Upload counter read failed ({e}); assuming 0.", e=e)
             return 0
 
     @classmethod
@@ -48,7 +50,8 @@ class SOPMetadataExtractor:
         cls._ensure_registry_dir()
         try:
             data = json.loads(cls.REGISTRY_PATH.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Upload counter read failed ({e}); starting fresh.", e=e)
             data = {}
 
         prev_count = int(data.get(document_id, 0))
@@ -58,8 +61,8 @@ class SOPMetadataExtractor:
 
         try:
             cls.REGISTRY_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to persist upload counter for '{d}': {e}", d=document_id, e=e)
 
         return already_uploaded, new_count
 
@@ -188,8 +191,10 @@ class SOPMetadataExtractor:
                                 ]
                             ):
                                 doc_type = val
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "PDF table metadata extraction failed for '{f}': {e}", f=file_path.name, e=e
+            )
 
         # 2. Try regex fallback on first page text if any is missing
         if not (doc_name and doc_number and doc_version):
@@ -219,8 +224,10 @@ class SOPMetadataExtractor:
                         if m:
                             doc_name = m.group(1).strip()
                 doc.close()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "PDF text metadata fallback failed for '{f}': {e}", f=file_path.name, e=e
+                )
 
         return doc_name, doc_number, doc_version, doc_type
 
@@ -306,7 +313,9 @@ class SOPMetadataExtractor:
                     )
                     if m:
                         doc_name = m.group(1).strip()
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "DOCX metadata extraction failed for '{f}': {e}", f=file_path.name, e=e
+            )
 
         return doc_name, doc_number, doc_version, doc_type

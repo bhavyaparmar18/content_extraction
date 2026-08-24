@@ -13,6 +13,12 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
+class RejectedFile(BaseModel):
+    """A file that was excluded from a batch upload, with the reason why."""
+    filename: str
+    reason: str
+
+
 class DocumentJob(BaseModel):
     """Tracks the progress of a single document in a batch job."""
     document_id: str
@@ -34,6 +40,7 @@ class BatchJob(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     documents: list[DocumentJob] = Field(default_factory=list)
+    rejected_files: list[RejectedFile] = Field(default_factory=list)
     
     @property
     def total_documents(self) -> int:
