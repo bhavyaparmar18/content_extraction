@@ -37,10 +37,31 @@ from app.schemas.migration import (
 logger = logging.getLogger(__name__)
 
 
-def _is_major_section_heading(title: str) -> Optional[str]:
-    match = re.match(r"^(\d+)\s+([A-Z0-9\s&/\-_,]+)$", title.strip())
+def _is_major_section_heading(
+    title: str,
+    level: Optional[int] = None,
+    current_section_number: Optional[str] = None,
+) -> Optional[str]:
+    stripped = title.strip()
+    if level is not None and level > 1:
+        return None
+    if stripped.endswith(":") or re.match(r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]", stripped):
+        return None
+    # Subsections like 6.1, 6.5.1 are not major sections
+    if re.match(r"^\d+\.\d+", stripped):
+        return None
+    match = re.match(r"^(\d+)\s+([A-Z0-9\s&/\-_,]+)$", stripped)
     if match:
-        return match.group(1)
+        sec_num = match.group(1)
+        title_part = match.group(2).strip()
+        if title_part in ("N/A", "NONE", "NO.") or title_part.startswith("BI-"):
+            return None
+        if current_section_number is not None and current_section_number.isdigit() and sec_num.isdigit():
+            curr_n = int(current_section_number)
+            new_n = int(sec_num)
+            if new_n < curr_n:
+                return None
+        return sec_num
     return None
 
 
@@ -163,9 +184,10 @@ class MigrationExporter:
 
         def attach_icon(icon_ref: MigrationIconRef, page: int = 0):
             nonlocal buffered_icons
-            # Icons in PDF reading order precede the text they belong to,
-            # so always buffer them for attachment to the *next* element.
-            buffered_icons.append(icon_ref)
+            if current_section and current_section.elements:
+                current_section.elements[-1].icons.append(icon_ref)
+            else:
+                buffered_icons.append(icon_ref)
 
         def traverse(node: Any, is_top_section: bool = False):
             if node is None:
@@ -185,20 +207,38 @@ class MigrationExporter:
                 heading = getattr(node, "heading", None)
                 heading_level = getattr(heading, "level", 1) if heading else 1
                 heading_text = (getattr(heading, "text", "") or "").strip() if heading else ""
-                major_sec = _is_major_section_heading(heading_text) if heading_text else None
+                curr_sec_num = current_section.section_number if current_section else None
+                major_sec = _is_major_section_heading(
+                    heading_text, level=heading_level, current_section_number=curr_sec_num
+                ) if heading_text else None
 
-                if major_sec or (current_section is None):
-                    title = heading_text or f"Section {len(sections)+1}"
-                    ensure_section(title, page, section_number=major_sec)
-                elif heading:
-                    add_element(
-                        MigrationElement(
-                            element_type="heading",
-                            page=page,
-                            level=heading_level,
-                            text=heading_text,
-                        )
-                    )
+                if major_sec:
+                    ensure_section(heading_text, page, section_number=major_sec)
+                else:
+                    if current_section is None:
+                        ensure_section("0 PREAMBLE", page, section_number="0")
+                    if heading and heading_text:
+                        h_stripped = heading_text.replace("\u200b", "").strip()
+                        if (
+                            re.match(r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]", h_stripped)
+                            or (re.match(r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s)", h_stripped) and h_stripped.endswith(":"))
+                        ):
+                            add_element(
+                                MigrationElement(
+                                    element_type="list",
+                                    page=page,
+                                    items=[heading_text],
+                                )
+                            )
+                        else:
+                            add_element(
+                                MigrationElement(
+                                    element_type="heading",
+                                    page=page,
+                                    level=max(2, heading_level),
+                                    text=heading_text,
+                                )
+                            )
 
                 for child in getattr(node, "children", []):
                     traverse(child, is_top_section=False)
@@ -207,17 +247,44 @@ class MigrationExporter:
                 text = (getattr(node, "text", "") or "").strip()
                 if text:
                     level = getattr(node, "level", 1)
-                    major_sec = _is_major_section_heading(text)
-                    if current_section is None or major_sec:
-                        ensure_section(text, page, section_number=major_sec)
-                    add_element(
-                        MigrationElement(
-                            element_type="heading",
-                            page=page,
-                            level=level,
-                            text=text,
-                        )
+                    curr_sec_num = current_section.section_number if current_section else None
+                    major_sec = _is_major_section_heading(
+                        text, level=level, current_section_number=curr_sec_num
                     )
+                    if major_sec:
+                        ensure_section(text, page, section_number=major_sec)
+                        add_element(
+                            MigrationElement(
+                                element_type="heading",
+                                page=page,
+                                level=1,
+                                text=text,
+                            )
+                        )
+                    else:
+                        if current_section is None:
+                            ensure_section("0 PREAMBLE", page, section_number="0")
+                        h_stripped = text.replace("\u200b", "").strip()
+                        if (
+                            re.match(r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]", h_stripped)
+                            or (re.match(r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s)", h_stripped) and h_stripped.endswith(":"))
+                        ):
+                            add_element(
+                                MigrationElement(
+                                    element_type="list",
+                                    page=page,
+                                    items=[text],
+                                )
+                            )
+                        else:
+                            add_element(
+                                MigrationElement(
+                                    element_type="heading",
+                                    page=page,
+                                    level=max(2, level),
+                                    text=text,
+                                )
+                            )
 
             elif node_type == "paragraph":
                 text = (getattr(node, "text", "") or "").strip()
@@ -316,10 +383,11 @@ class MigrationExporter:
                 if not getattr(cell, "is_merge_origin", True):
                     continue
 
-                # Extract text, icon_path, image_path from cell content
+                # Extract text, icon_path, image_path, and background_color from cell content
                 cell_text_parts: list[str] = []
                 icon_path: Optional[str] = None
                 image_path: Optional[str] = None
+                background_color: Optional[str] = None
 
                 for item in getattr(cell, "content", []):
                     item_type = getattr(item, "node_type", None)
@@ -327,6 +395,18 @@ class MigrationExporter:
                         t = (getattr(item, "text", "") or "").strip()
                         if t:
                             cell_text_parts.append(t)
+                        # Capture highlight color from paragraph-level background
+                        if not background_color:
+                            para_bg = getattr(item, "highlight_color", None) or getattr(item, "background_color", None)
+                            if para_bg:
+                                background_color = para_bg
+                    elif item_type == "highlight":
+                        # Standalone HighlightNode — carry its color as cell background
+                        t = (getattr(item, "text", "") or "").strip()
+                        if t:
+                            cell_text_parts.append(t)
+                        if not background_color:
+                            background_color = getattr(item, "color_hex", None) or getattr(item, "highlight_color", None)
                     elif item_type == "icon":
                         ip = getattr(item, "asset_path", None)
                         if ip and not icon_path:
@@ -353,8 +433,12 @@ class MigrationExporter:
                         icon_path=icon_path,
                         image_path=image_path,
                         is_header=is_header,
+                        background_color=background_color,
                     )
                 )
+
+        if not any(c.text or c.icon_path or c.image_path or c.background_color for c in cells):
+            return None
 
         return MigrationElement(
             element_type="table",

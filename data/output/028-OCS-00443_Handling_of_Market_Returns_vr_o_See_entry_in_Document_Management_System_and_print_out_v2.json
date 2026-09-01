@@ -1,0 +1,1206 @@
+{
+  "version": "3.1",
+  "document_id": "028-OCS-00443_Handling_of_Market_Returns_vr_o_See_entry_in_Document_Management_System_and_print_out",
+  "metadata": {
+    "document_id": "028-OCS-00443_Handling_of_Market_Returns_vr_o_See_entry_in_Document_Management_System_and_print_out",
+    "document_number": "028-OCS-00443",
+    "document_name": "Handling of Market Returns",
+    "document_version": "r\no\nSee entry in Document Management System and print out",
+    "document_type": "STANDARD OPERATING PROCEDURE",
+    "title": "028-OCS-00443_Handling_of_Market_Returns_vr_o_See_entry_in_Document_Management_System_and_print_out",
+    "language": "en",
+    "page_count": 9,
+    "duplicate_upload_count": 3
+  },
+  "sections": [
+    {
+      "title": "0 PREAMBLE",
+      "page_start": 1,
+      "page_end": 2,
+      "elements": [
+        {
+          "element_type": "table",
+          "page": 1,
+          "section_name": "0 PREAMBLE",
+          "num_rows": 5,
+          "num_cols": 3,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Hierarchy Level:",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 2,
+              "text": "CORPORATE",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Type:",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 2,
+              "text": "STANDARD OPERATING PROCEDURE",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Title:",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 2,
+              "text": "Handling of Market Returns",
+              "is_header": false
+            },
+            {
+              "row_index": 3,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Document ID:",
+              "is_header": false
+            },
+            {
+              "row_index": 3,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "028-OCS-00443",
+              "is_header": false
+            },
+            {
+              "row_index": 3,
+              "col_index": 2,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Version: 1.0",
+              "is_header": false
+            },
+            {
+              "row_index": 4,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Supersedes:",
+              "is_header": false
+            },
+            {
+              "row_index": 4,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 2,
+              "text": "028-OCP-00122 Version 2.0 and 300-MCP-014244 Version 2.0",
+              "is_header": false
+            }
+          ]
+        },
+        {
+          "element_type": "heading",
+          "page": 1,
+          "section_name": "0 PREAMBLE",
+          "level": 4,
+          "text": "DOCUMENT ATTRIBUTES"
+        },
+        {
+          "element_type": "table",
+          "page": 1,
+          "section_name": "0 PREAMBLE",
+          "num_rows": 3,
+          "num_cols": 2,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Scope",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "☒ Animal Health\n☒ Biopharmaceuticals\n☐ Development\n☒ Human Pharma Business Unit\n☐ Research\n☐ Translational Medicine",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Issuing Division",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Corporate Quality Assurance",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Author, Reviewer, Approval and Release",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "See entry in Document Management System and print out",
+              "is_header": false
+            }
+          ]
+        },
+        {
+          "element_type": "paragraph",
+          "page": 1,
+          "section_name": "0 PREAMBLE",
+          "text": "Use current version of template . Use current version of BI Regulation only! With your signature you approve that you did not alter the template in its functionalities and pre-defined texts."
+        },
+        {
+          "element_type": "heading",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "level": 4,
+          "text": "TABLE OF CONTENTS"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "1 PURPOSE..........................................................................................................................3"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "2 SCOPE...............................................................................................................................3"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "3 IMPLEMENTATION AND/OR PRE-REQUISITES ......................................................4"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "4 ROLES & RESPONSIBILITIES ......................................................................................4"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "5 PROCEDURE ...................................................................................................................5 5.1"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "GENERAL CONSIDERATIONS AND CRITERIA...................................................5 5.1.1"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "Criteria for acceptance of returned products.......................................................5"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "5.2 ACCEPTANCE PROCEDURE ...................................................................................6 5.2.1"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "Inspection and Assessment..................................................................................6"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "5.2.2 Return to saleable stock.......................................................................................7"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS...............................................7 6.1"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "DEFINITIONS .............................................................................................................7"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "6.2 ABBREVIATIONS ......................................................................................................8"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "7 REFERENCE DOCUMENTS ..........................................................................................8"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 2,
+          "section_name": "0 PREAMBLE",
+          "text": "8 DOCUMENT HISTORY..................................................................................................9"
+        }
+      ],
+      "section_number": "0"
+    },
+    {
+      "title": "1 PURPOSE",
+      "page_start": 3,
+      "page_end": 3,
+      "elements": [
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "1 PURPOSE",
+          "text": "This document is intended to ensure that products returned from the market do not impair the quality of saleable stock. It defines the quality requirements for the handling and evaluation of market returns of Boehringer Ingelheim products ('returned goods') that are intended to be returned to saleable inventory."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "1 PURPOSE",
+          "text": "It considers applicable regulatory requirements for the acceptance of non-defective products and the return to saleable stock."
+        }
+      ],
+      "section_number": "1"
+    },
+    {
+      "title": "2 SCOPE",
+      "page_start": 3,
+      "page_end": 4,
+      "elements": [
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "This OCS is binding for all BI units within the Boehringer Ingelheim Corporation handling returned goods."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Applicable provisions in statutory laws and regulations of the different countries that are more stringent than the requirements of this OCS take precedence."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "The process described in this OCS applies to all BI Products and Drug Substances (API) that have left the control of BI and have subsequently been returned to:"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "BI warehouses/distribution centres"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Contract warehouses/distribution centres."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "The term Product includes at least the following types of Human Pharma, including Biopharmaceutical, and Animal Health Products as follows:"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Pharmaceutical products"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Medicinal products;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Medical Devices;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Combination products;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Vaccines;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Biocides;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Diagnostics;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Food supplements, Feed & Nutraceuticals;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "Cosmetic products."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "heading",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "level": 2,
+          "text": "2.1 OUT OF SCOPE"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "The following are out of scope of this OCS:"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "2 SCOPE",
+          "text": "“returned goods” received as part of a recall or technical product complaint which are covered by the processes “Handling of Quality Issues and Market Action “Animal Health: Handling of Quality Issues and Market Action” and “Handling of Technical"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": "Product Complaints” respectively; For reference to further Corporate Regulations see 028-OCS-00443-RD00"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": "Measures to prevent counterfeits;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": "Procedures for destruction of returned goods;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "2 SCOPE",
+          "text": "The return of investigational medicinal products from investigator sites."
+        }
+      ],
+      "section_number": "2"
+    },
+    {
+      "title": "3 IMPLEMENTATION AND/OR PRE-REQUISITES",
+      "page_start": 4,
+      "page_end": 4,
+      "elements": [
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "3 IMPLEMENTATION AND/OR PRE-REQUISITES",
+          "text": "This OCS must be adopted 'as is' at all sites. Implementation of additional divisional, regional and/ or local supplementing procedures must be in alignment with this OCS considering specific divisional, regional and/ or local regulations."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "3 IMPLEMENTATION AND/OR PRE-REQUISITES",
+          "text": "In every case, this OCS is the governing and prevailing document."
+        }
+      ],
+      "section_number": "3"
+    },
+    {
+      "title": "4 ROLES & RESPONSIBILITIES",
+      "page_start": 4,
+      "page_end": 4,
+      "elements": [
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": "The BI Site Management in control of Distribution of BI products is responsible for implementation of this OCS."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": "In case of outsourced distribution services the respective contract giver must ensure that the principles of this OCS are followed by the contracted partners through the establishment of Quality Assurance Agreements and should be verified during audits."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": "The Quality Unit (Qualified Person, if required) is responsible for the following;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": " to define any additional local requirements for returning products to saleable stock in line with this OCS;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": " to assess the returned units taking into account requirements defined in this OCS;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 4,
+          "section_name": "4 ROLES & RESPONSIBILITIES",
+          "text": " to provide final disposition of returned goods."
+        }
+      ],
+      "section_number": "4"
+    },
+    {
+      "title": "5 PROCEDURE",
+      "page_start": 5,
+      "page_end": 7,
+      "elements": [
+        {
+          "element_type": "heading",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "level": 2,
+          "text": "5.1 GENERAL CONSIDERATIONS AND CRITERIA"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "All returned products should be stored at least in an electronically and physically segregated area personnel. For reference to further Corporate Regulations regarding Storage see 028-OCS-00443-RD00. in the warehouse pending assessment by qualified"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "The initial inspection of returned products can be performed by qualified and/ or trained warehouse personnel."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "Returned goods may be returned to saleable stock only after final approval by a responsible person nominated by the Quality Unit. The approval has to contain the documented evidence to show that the product quality has not been compromised."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "The decision to accept or not accept returned products will be based on case-by-case assessments taking the criteria defined in chapter 5.1.1 into account."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "The rationale must be documented, together with the evidence to demonstrate that the integrity of the product has not been compromised, before the product is returned to saleable stock using 028-OCS-00443-RD01 Checklist for Return of Product into Inventory or equivalent local document."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "Products that are not accepted to be returned to saleable stock have to be destroyed according to local procedures by a certified/qualified company."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "The conditions for acceptance of product returns must be documented, for example in:"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "Quality Assurance Agreements or comparable documents;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": " standard trading terms;"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": " individual delivery documents (e.g. “Products once sold will not be replaced or exchanged”) or comparable documents."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "5.1.1 Criteria for acceptance of returned products Acceptable products may be returned to saleable stock if all the following requirements are fulfilled:"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "They are returned only from a direct account customer (e.g. refused or incorrect direct shipments) using qualified carriers whenever possible within a defined time frame. This time frame should be established upfront with regard to the complexity of the local supply chain, the local market situation and as defined within applicable local regulations."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": "A complete delivery of unopened original secondary packages was returned. Returns of incomplete deliveries of unopened original secondary packages (‘partial"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 5,
+          "section_name": "5 PROCEDURE",
+          "text": " order returns’) may be acceptable if justified with regard to local market practices (e.g. ‘overselling’, commissioned products).  Evidence that the containers have not been opened e.g. by inspection of the tamper evident seal (if applicable) must be provided."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "The returned packages are undamaged, intact and clean."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "A written confirmation of adherence to applicable labelled storage conditions, in accordance with the shipping temperature class for the product, during storage at customer and the time of transit are made available by the direct account customer."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "The remaining shelf-life is equal to or not below a defined minimum period of time. This period of time should be established upfront considering the complexity of the local supply chain and the local market situation. As a recommendation, the minimum remaining shelf-life should be between 3 months and 12 months."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "The version of the packaging and labelling of the returned products must be identical to the version of packaging and labelling that is approved at the time the product is placed back into the saleable stock."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "There is no reason to believe that the returned products have been falsified, tampered with, diverted or stolen."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "Serialized products can be successful verified. Partial or complete verification process for the returned products should be considered on a risk-based approach."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "The product is not a controlled substance/drug (i.e. narcotics or psychotropics)."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "There is no evidence of pest activity within the product or product infestation."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": ""
+        },
+        {
+          "element_type": "heading",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "level": 2,
+          "text": "5.2 ACCEPTANCE PROCEDURE"
+        },
+        {
+          "element_type": "heading",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "level": 3,
+          "text": "5.2.1 Inspection and Assessment"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "Quality Assurance staff must complete 028-OCS-00443-RD01 Checklist for Return of Product into Inventory or equivalent to document that all criteria for acceptance of the returned product have been met."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "Qualified personnel at the warehouse/distribution centre must inspect returned products for the absence of any signs of pest activity or infestation, physical damage, intact tamper evidence/seals (if applicable) and intact packaging and labelling (original containers) and provide evidence accordingly e.g. photographs.  The inspection of the product must be carried out in an appropriate area that ensures the product remains within its labelled storage conditions.  For products requiring cold chain storage, where inspection can only occur outside of refrigerated conditions, this must be carried out within pre-defined, validated times for storage outside of such conditions that are approved by the QP/Responsible Person for release. Documented evidence of adherence to this must be provided."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 6,
+          "section_name": "5 PROCEDURE",
+          "text": "Documented evidence describing the interim chain of custody and the handling and storage conditions (‘transit status documentation’) must be in place to confirm compliance with all requirements including labelled storage conditions e.g. temperature data logger print out."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "There must be reasonable, documented evidence that the product was supplied to that customer (via copies of the original delivery note or by referencing invoice numbers, etc.) and that there is no reason to believe that the product has been falsified. The original delivery note should be reviewed for details of the delivery (date, address of consignee, batch, quantity etc.) and to ensure the product is being returned from a direct customer."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "Where product serialization is in place the check of the serialization data must be documented and attached to the checklist.  Where a partial verification is undertaken a written, risk-based justification should be provided for this approach."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "Evidence to support each criteria, e.g. photographs, written statements or delivery notes should be referenced and/or attached to the checklist.   Comments should be added to the checklist to support the acceptance of each criteria where required."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "Once the checklist is complete the final disposition should be recorded on the checklist. Where part of the returned stock is to be rejected (e.g. due to partial damages) the quantities to be returned to sale and rejected should be clearly documented.  All documentation relating to the evaluation of products for return to saleable stock should be archived according to local regulations."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "An appropriately trained/qualified individual within the Quality unit must make the decision for return of products to sale."
+        },
+        {
+          "element_type": "heading",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "level": 3,
+          "text": "5.2.2 Return to saleable stock"
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "If all criteria in section 5.1.1 are met stock can be returned to a saleable status.  The “First Expired First Out” principle shall be operated effectively in the warehouse, when goods are returned to saleable stock."
+        },
+        {
+          "element_type": "paragraph",
+          "page": 7,
+          "section_name": "5 PROCEDURE",
+          "text": "Where there is insufficient evidence available to ensure the quality of the product has not been compromised, this stock should be allocated for destruction and segregated in the warehouse/distribution centre accordingly."
+        }
+      ],
+      "section_number": "5"
+    },
+    {
+      "title": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS",
+      "page_start": 7,
+      "page_end": 8,
+      "elements": [
+        {
+          "element_type": "heading",
+          "page": 7,
+          "section_name": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS",
+          "level": 2,
+          "text": "6.1 DEFINITIONS"
+        },
+        {
+          "element_type": "table",
+          "page": 7,
+          "section_name": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS",
+          "num_rows": 5,
+          "num_cols": 2,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Direct account customer",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Customers who hold receive products directly from a BI distribution center or warehouse.",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Distribution centre",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Warehouses that BI uses to store and ship product to their customers. The distribution centre may be owned by BI or may be a contract operator of BI, but they should hold a Wholesaler",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "",
+              "is_header": false
+            },
+            {
+              "row_index": 2,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "License",
+              "is_header": false
+            },
+            {
+              "row_index": 3,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Market returns",
+              "is_header": false
+            },
+            {
+              "row_index": 3,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Finished products or active substances, which have left the control of BI and are being returned by a direct account customer, BI sales reps or co-promotion company sales reps.",
+              "is_header": false
+            },
+            {
+              "row_index": 4,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Quality Unit",
+              "is_header": false
+            },
+            {
+              "row_index": 4,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Includes: Commercial Quality function Quality Compliance Officer/GDP responsible person",
+              "is_header": false
+            }
+          ]
+        },
+        {
+          "element_type": "heading",
+          "page": 8,
+          "section_name": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS",
+          "level": 2,
+          "text": "6.2 ABBREVIATIONS"
+        },
+        {
+          "element_type": "table",
+          "page": 8,
+          "section_name": "6 DEFINITIONS, ACRONYMS AND ABBREVIATIONS",
+          "num_rows": 2,
+          "num_cols": 2,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "API",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Active Pharmaceutical Ingredient",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "GDP",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Good Distribution Practice",
+              "is_header": false
+            }
+          ]
+        }
+      ],
+      "section_number": "6"
+    },
+    {
+      "title": "7 REFERENCE DOCUMENTS",
+      "page_start": 8,
+      "page_end": 8,
+      "elements": [
+        {
+          "element_type": "table",
+          "page": 8,
+          "section_name": "7 REFERENCE DOCUMENTS",
+          "num_rows": 2,
+          "num_cols": 3,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "No.",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "No. Document-ID",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 2,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Title",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "1",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "1 028-OCS-00443- RD00",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 2,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "List of referenced documents",
+              "is_header": false
+            }
+          ]
+        }
+      ],
+      "section_number": "7"
+    },
+    {
+      "title": "8 DOCUMENT HISTORY",
+      "page_start": 9,
+      "page_end": 9,
+      "elements": [
+        {
+          "element_type": "table",
+          "page": 9,
+          "section_name": "8 DOCUMENT HISTORY",
+          "num_rows": 2,
+          "num_cols": 5,
+          "cells": [
+            {
+              "row_index": 0,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Version",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Effective Date",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 2,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Description of Changes",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 3,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Author",
+              "is_header": true
+            },
+            {
+              "row_index": 0,
+              "col_index": 4,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Expert team",
+              "is_header": true
+            },
+            {
+              "row_index": 1,
+              "col_index": 0,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "1.0",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 1,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "1.0 See DMS",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 2,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "New BI Regulation 028-OCS-00443 Handling of Market Returns.  This OCS replaces 028-OCP-00122 Version 2.0 and with the following major changes: \nChange from OCP to OCS with addition of the following RDs:  RD00 List of reference documents, RD01 Checklist for return of product to inventory.\n\nUpdate to new SOP template\n\nRemoval of specific timeframe for acceptance of a return",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 3,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Liz Davidson",
+              "is_header": false
+            },
+            {
+              "row_index": 1,
+              "col_index": 4,
+              "row_span": 1,
+              "col_span": 1,
+              "text": "Heike Gottschalg, Alexander Guldan, Olivier Montet and Monika Hallman",
+              "is_header": false
+            }
+          ]
+        }
+      ],
+      "section_number": "8"
+    }
+  ]
+}

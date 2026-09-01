@@ -18,14 +18,18 @@ from app.services.hierarchy.ast_builder import ASTBuilder
 from app.services.chunking.hierarchical import HierarchicalChunker
 from app.services.chunking.semantic import SemanticChunker
 from app.services.export.migration_exporter import MigrationExporter
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.stores.sop_store import SopStore
 
 
 class JobManager:
     """Manages background processing of document extraction jobs."""
 
-    def __init__(self, settings: Settings, concurrency: int = 2):
+    def __init__(self, settings: Settings, concurrency: int = 2, sop_store: Optional["SopStore"] = None):
         self.settings = settings
         self.concurrency = concurrency
+        self.sop_store = sop_store
         self.jobs: dict[str, BatchJob] = {}
         self.queue: asyncio.Queue = asyncio.Queue()
         self.workers: list[asyncio.Task] = []
@@ -162,6 +166,29 @@ class JobManager:
             # Write to disk using clean dictionary serialization without null/empty noise
             clean_json = json.dumps(migration_output.to_clean_dict(), indent=2, ensure_ascii=False)
             await asyncio.to_thread(out_file.write_text, clean_json, encoding="utf-8")
+
+            # Upsert into sop_store if available
+            if self.sop_store:
+                try:
+                    meta = migration_output.metadata
+                    await asyncio.to_thread(
+                        self.sop_store.upsert_record,
+                        job_id=job_id,
+                        document_uid=document_id,
+                        document_number=getattr(meta, "document_number", None),
+                        document_name=getattr(meta, "document_name", None),
+                        document_title=getattr(meta, "document_title", None),
+                        document_version=getattr(meta, "document_version", None),
+                        document_type=getattr(meta, "document_type", None),
+                        file_type=getattr(meta, "file_type", "pdf"),
+                        language=getattr(meta, "language", "en") or "en",
+                        page_count=getattr(meta, "page_count", 0) or 0,
+                        source_filename=upload_path.name if upload_path else None,
+                        output_path=str(out_file),
+                        status="in_review",
+                    )
+                except Exception as store_err:
+                    logger.warning(f"Failed to upsert SOP record for {document_id}: {store_err}")
             
             doc_job.status = JobStatus.COMPLETED
             doc_job.progress_percentage = 100

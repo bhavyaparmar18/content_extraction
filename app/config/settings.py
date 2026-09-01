@@ -1,8 +1,14 @@
 # SOP Migration System — Project Configuration
 """Application-wide configuration loaded from environment or defaults."""
 
-from pydantic_settings import BaseSettings
 from pathlib import Path
+from typing import Optional
+from dotenv import load_dotenv
+from pydantic import Field, AliasChoices
+from pydantic_settings import BaseSettings
+
+# Automatically load .env into os.environ on startup
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -45,10 +51,41 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = "INFO"
 
+    # --- Migration ---
+    migration_output_dir: Path = Path("data/migrated")
+    migration_template_dir: Path = Path("data/templates")
+    skip_preamble_migration: bool = True       # Don't touch cover page / Section 0
+
+    # --- LLM (LangChain) ---
+    use_llm_section_summarizer: bool = False  # false = Mode A (programmatic), true = Mode B (LLM semantic)
+    llm_planner_model: str = "gemini/gemini-2.5-flash"
+    llm_summarizer_model: str = "gemini/gemini-2.5-flash"
+    llm_temperature: float = 0.1
+    llm_planner_max_tokens: int = 16384
+    llm_summarizer_max_tokens: int = 4096
+
+    # --- Azure OpenAI (optional — overrides llm_planner_model / llm_summarizer_model if set) ---
+    use_azure_openai: bool = False                              # Set true to route all LLM calls through Azure
+    azure_openai_endpoint: Optional[str] = None                # e.g. "https://<your-resource>.openai.azure.com/"
+    azure_openai_api_version: str = "2024-12-01-preview"       # Azure OpenAI API version
+    azure_openai_planner_deployment: str = "gpt-4o"            # Deployment name for planner (Phase 2)
+    azure_openai_summarizer_deployment: str = "gpt-4o-mini"    # Deployment name for summarizer (Mode B)
+    azure_openai_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("AZURE_OPENAI_API_KEY", "SOP_AZURE_OPENAI_API_KEY", "azure_openai_api_key")
+    )
+
+    # --- LLM Rate Limiting ---
+    llm_max_concurrent: int = 3
+    llm_min_delay_seconds: float = 0.5
+    llm_max_retries: int = 5
+    llm_base_backoff_seconds: float = 2.0
+
     model_config = {
         "env_prefix": "SOP_",
         "env_file": ".env",
-        "env_file_encoding": "utf-8"
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
     }
 
     def resolve_paths(self, base: Path) -> None:
@@ -58,6 +95,8 @@ class Settings(BaseSettings):
         self.extracted_icons_dir = base / self.extracted_icons_dir
         self.temp_dir = base / self.temp_dir
         self.output_dir = base / self.output_dir
+        self.migration_output_dir = base / self.migration_output_dir
+        self.migration_template_dir = base / self.migration_template_dir
 
     def ensure_directories(self) -> None:
         """Create all required data directories if they don't exist."""
@@ -67,6 +106,8 @@ class Settings(BaseSettings):
             self.extracted_icons_dir,
             self.temp_dir,
             self.output_dir,
+            self.migration_output_dir,
+            self.migration_template_dir,
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)
 

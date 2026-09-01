@@ -1,0 +1,26 @@
+{
+  "status": "pass_with_warnings",
+  "total_source_sections": 10,
+  "total_source_elements": 101,
+  "total_placed_elements": 101,
+  "total_skipped_elements": 0,
+  "content_coverage_pct": 100.0,
+  "sections_mapped": 8,
+  "sections_unmapped_from_source": 2,
+  "sections_with_no_content": [
+    "PROCESS",
+    "distribution of controlled prints/copies (optional)"
+  ],
+  "sections_deleted": [],
+  "blue_text_remaining": 0,
+  "heading_style_issues": [],
+  "low_confidence_warnings": [
+    "Some sections in the source document contain subsections that were integrated into their parent sections as per the rules.",
+    "Certain tables in the template were identified as vault token tables and were not populated."
+  ],
+  "validation_errors": [],
+  "recommendations": [],
+  "summarizer_mode": "programmatic",
+  "llm_calls_made": 1,
+  "llm_total_tokens": 0
+}
