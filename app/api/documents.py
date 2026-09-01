@@ -221,6 +221,41 @@ async def get_document_json_v2(
     return json.loads(output_path.read_text(encoding="utf-8"))
 
 
+@router.get("/{document_id}/file")
+async def get_document_file(
+    document_id: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Serve the original uploaded PDF or DOCX file."""
+    upload_path = _find_upload(document_id, settings)
+    media_type = "application/pdf" if upload_path.suffix.lower() == ".pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    from fastapi.responses import FileResponse
+    return FileResponse(path=str(upload_path), media_type=media_type, filename=upload_path.name)
+
+
+@router.get("/{document_id}/assets/{filename}")
+async def get_document_asset(
+    document_id: str,
+    filename: str,
+    settings: Settings = Depends(get_settings),
+):
+    """Serve extracted image or icon assets with path traversal protection."""
+    from fastapi.responses import FileResponse
+    safe_name = Path(filename).name
+
+    # Check images directory first
+    img_path = settings.get_document_image_dir(document_id) / safe_name
+    if img_path.exists() and img_path.is_file():
+        return FileResponse(path=str(img_path), media_type="image/png")
+
+    # Check icons directory next
+    icon_path = settings.get_document_icon_dir(document_id) / safe_name
+    if icon_path.exists() and icon_path.is_file():
+        return FileResponse(path=str(icon_path), media_type="image/png")
+
+    raise HTTPException(status_code=404, detail=f"Asset '{safe_name}' not found for document '{document_id}'")
+
+
 # ── Helper ──────────────────────────────────────────────────────────────
 
 def _find_upload(document_id: str, settings: Settings) -> Path:

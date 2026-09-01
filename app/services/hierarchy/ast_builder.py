@@ -66,7 +66,7 @@ class ASTBuilder:
 
     # Pattern for detecting numbered/bulleted list items
     _LIST_BULLET_RE = re.compile(
-        r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]\s"
+        r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]\s*"
     )
     _LIST_ORDERED_RE = re.compile(
         r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s|[ivxlcdm]+[.)]\s)", re.IGNORECASE
@@ -110,7 +110,7 @@ class ASTBuilder:
         while i < len(all_elements):
             element = all_elements[i]
 
-            if element.element_type == ElementType.HEADING:
+            if element.element_type == ElementType.HEADING and not self._is_heading_actually_list(element):
                 heading_el = element  # type: ExtractedHeading
                 heading_node = self._make_heading_node(heading_el, sequence)
 
@@ -122,8 +122,22 @@ class ASTBuilder:
                     source_location=self._make_source_loc(heading_el),
                 )
 
+                # Protect major section: if stack has a major section (e.g. "6 PRINCIPLES FOR DOCUMENT WRITING"),
+                # do not allow an arbitrary heading to pop back to root unless the incoming heading is also a genuine major section heading
+                content_clean = heading_el.content.strip()
+                is_incoming_major = False
+                if heading_el.level == 1:
+                    if not re.match(r"^\d+\.\d+", content_clean) and not content_clean.endswith(":"):
+                        m_ref = re.match(r"^(\d+)\s+([A-Z0-9\-_]+)", content_clean)
+                        if m_ref and (m_ref.group(2) in ("N/A", "NONE", "NO.") or m_ref.group(2).startswith("BI-")):
+                            is_incoming_major = False
+                        else:
+                            is_incoming_major = True
+
+                min_stack_len = 1 if is_incoming_major else (2 if len(stack) > 1 else 1)
+
                 # Pop stack until we find a parent with a strictly lower level
-                while len(stack) > 1 and stack[-1].level >= heading_el.level:
+                while len(stack) > min_stack_len and stack[-1].level >= heading_el.level:
                     stack.pop()
 
                 parent = stack[-1]
@@ -368,13 +382,26 @@ class ASTBuilder:
 
     # ── List Detection & Consumption ──────────────────────────────────
 
+    def _is_heading_actually_list(self, el: ExtractedElement) -> bool:
+        """Detect if an ExtractedHeading should be treated as a list item instead."""
+        text = el.content.replace("\u200b", "").strip()
+        if not text:
+            return False
+        # Any bullet character is always a list item, never a heading
+        if self._LIST_BULLET_RE.match(text):
+            return True
+        # Numbered items that end with colon (e.g. "1. Active Voice is Key:") are list items/labels
+        if self._LIST_ORDERED_RE.match(text) and text.endswith(":"):
+            return True
+        return False
+
     def _is_list_item(self, el: ExtractedElement) -> bool:
         """Check if an element looks like a list item."""
         if el.element_type == ElementType.LIST_ITEM:
             return True
         if el.element_type == ElementType.NUMBERED_STEP:
             return True
-        text = el.content.strip()
+        text = el.content.replace("\u200b", "").strip()
         if self._LIST_BULLET_RE.match(text):
             return True
         if self._LIST_ORDERED_RE.match(text):

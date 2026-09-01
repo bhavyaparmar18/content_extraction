@@ -41,6 +41,7 @@ class MigrationTableCell(BaseModel):
     icon_path: Optional[str] = None
     image_path: Optional[str] = None
     is_header: bool = False
+    background_color: Optional[str] = None  # Hex color e.g. "#FFFF00" for highlighted cells
 
     def to_clean_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -55,6 +56,8 @@ class MigrationTableCell(BaseModel):
             d["icon_path"] = self.icon_path
         if self.image_path is not None:
             d["image_path"] = self.image_path
+        if self.background_color is not None:
+            d["background_color"] = self.background_color
         return d
 
 

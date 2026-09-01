@@ -582,11 +582,16 @@ class PDFParser(BaseParser):
             return False, 0
             
         # Bullet list items are never headings
-        if re.match(r"^[\u2022\u25E6\u25A0\u2023\u2043\u2219\*\-\u25CF\u25CB](\s|$)", stripped):
+        if re.match(r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃](\s|$)", stripped):
             return False, 0
             
         # Rule 1: font-size based (works for documents with proper heading sizes)
         if max_font_size >= cls._HEADING_FONT_SIZE_THRESHOLD:
+            # If it has a numbered prefix, derive the level from numbering depth rather than raw font size
+            if cls._NUMBERED_HEADING_RE.match(stripped) and not stripped.endswith(":"):
+                prefix_match = re.match(r"^(\d+(?:\.\d+)*)", stripped)
+                depth = prefix_match.group(1).count(".") + 1 if prefix_match else 1
+                return True, min(depth, 3)
             return True, cls._font_size_to_level(max_font_size)
 
         if not is_bold:
@@ -595,7 +600,10 @@ class PDFParser(BaseParser):
         # Rule 2: numbered heading (e.g. "1. Executive Summary", "5.1 Security")
         # Require first_span_bold so list items like "1. Channels..." (where
         # "1." is rendered in plain ArialMT) are not mistakenly promoted.
+        # Exclude items ending with ":" which are list items/labels (e.g. "1. Active Voice is Key:")
         if first_span_bold and word_count <= 12 and cls._NUMBERED_HEADING_RE.match(stripped):
+            if stripped.endswith(":"):
+                return False, 0
             prefix_match = re.match(r"^(\d+(?:\.\d+)*)", stripped)
             depth = prefix_match.group(1).count(".") + 1 if prefix_match else 1
             level = min(depth, 3)

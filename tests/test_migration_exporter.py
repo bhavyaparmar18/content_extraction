@@ -161,3 +161,90 @@ def test_migration_exporter_strips_running_headers_and_footers():
     assert "1 PURPOSE" in [s.title for s in output.sections]
     assert "This guidance outlines best practices." in extracted_texts
     assert "GENERAL INFORMATION" in extracted_texts
+
+
+def test_subsections_do_not_create_separate_sections():
+    """Verify that subsections (level >= 2 or decimal numbering like 6.1) stay within their parent section."""
+    ast = DocumentNode()
+    sec6 = SectionNode(
+        heading=HeadingNode(level=1, text="6 PRINCIPLES FOR DOCUMENT WRITING"),
+        level=1,
+        children=[
+            ParagraphNode(text="Introductory text for principles."),
+            SectionNode(
+                heading=HeadingNode(level=2, text="6.1 LANGUAGE AND WORDING"),
+                level=2,
+                children=[
+                    ParagraphNode(text="Keep sentences concise."),
+                    SectionNode(
+                        heading=HeadingNode(level=3, text="6.1.1 Active Voice"),
+                        level=3,
+                        children=[
+                            ParagraphNode(text="Always use active verbs."),
+                        ],
+                    ),
+                ],
+            ),
+            SectionNode(
+                heading=HeadingNode(level=2, text="6.2 ACCESSIBILITY"),
+                level=2,
+                children=[
+                    ParagraphNode(text="Provide accessible formats."),
+                ],
+            ),
+        ],
+    )
+    sec7 = SectionNode(
+        heading=HeadingNode(level=1, text="7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS"),
+        level=1,
+        children=[
+            ParagraphNode(text="Chapter guidance text."),
+        ],
+    )
+    ast.children = [sec6, sec7]
+
+    output = MigrationExporter.export("test_subsections_doc", ast)
+    # Only 2 major sections should be created: Section 6 and Section 7
+    section_titles = [s.title for s in output.sections]
+    assert "6 PRINCIPLES FOR DOCUMENT WRITING" in section_titles
+    assert "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS" in section_titles
+    assert "6.1 LANGUAGE AND WORDING" not in section_titles
+    assert "6.2 ACCESSIBILITY" not in section_titles
+    assert len(output.sections) == 2
+
+    # Verify that subsections 6.1, 6.1.1, and 6.2 are present as heading elements inside section 6
+    sec6_out = next(s for s in output.sections if "6 PRINCIPLES" in s.title)
+    elem_texts = [e.text for e in sec6_out.elements if e.element_type == "heading"]
+    assert "6.1 LANGUAGE AND WORDING" in elem_texts
+    assert "6.1.1 Active Voice" in elem_texts
+    assert "6.2 ACCESSIBILITY" in elem_texts
+
+
+def test_list_items_do_not_create_new_sections():
+    """Verify that numbered tips ending with ':' and bullet items do not create sections and are classed as lists."""
+    ast = DocumentNode()
+    sec = SectionNode(
+        heading=HeadingNode(level=1, text="6 PRINCIPLES FOR DOCUMENT WRITING"),
+        level=1,
+        children=[
+            HeadingNode(level=1, text="1. Active Voice is Key:"),
+            ParagraphNode(text="Always pair specific role names with active verbs."),
+            HeadingNode(level=1, text="2. Brevity Matters:"),
+            ParagraphNode(text="Write short sentences."),
+            HeadingNode(level=1, text="● Important consideration"),
+            ParagraphNode(text="Details about the bullet point."),
+        ],
+    )
+    ast.children = [sec]
+
+    output = MigrationExporter.export("test_list_headings_doc", ast)
+    # Only 1 section should be created
+    assert len(output.sections) == 1
+    sec_out = output.sections[0]
+    assert sec_out.title == "6 PRINCIPLES FOR DOCUMENT WRITING"
+
+    # Verify list elements were produced instead of new top-level sections
+    list_items = [item for e in sec_out.elements if e.element_type == "list" for item in e.items]
+    assert "1. Active Voice is Key:" in list_items
+    assert "2. Brevity Matters:" in list_items
+    assert "● Important consideration" in list_items

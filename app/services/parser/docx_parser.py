@@ -66,9 +66,15 @@ class DocxParser(BaseParser):
         metadata = self._extract_metadata(doc, file_path, document_id=document_id)
         elements: list[ExtractedElement] = []
         sequence = 0
+        self._current_page = 1  # Track current page number while iterating
 
-        # --- Paragraphs ---
+        # --- Paragraphs (with page-break detection) ---
         for para in doc.paragraphs:
+            # Check for a page break BEFORE classifying so the element lands
+            # on the correct (new) page.
+            if self._paragraph_starts_new_page(para):
+                self._current_page += 1
+
             element = self._classify_paragraph(para, sequence)
             if element is not None:
                 elements.append(element)
@@ -85,21 +91,18 @@ class DocxParser(BaseParser):
         image_elements = self._extract_images(doc, sequence)
         elements.extend(image_elements)
 
-        # DOCX doesn't have real page numbers at parse time,
-        # so we model the entire document as a single logical page.
-        page = PageContent(
-            page_number=1,
-            elements=elements,
-        )
+        # Group elements into per-page PageContent objects.
+        pages = self._group_elements_into_pages(elements)
 
         self.logger.info(
-            f"DocxParser: extracted {len(elements)} element(s) from {file_path}"
+            f"DocxParser: extracted {len(elements)} element(s) across "
+            f"{len(pages)} page(s) from {file_path}"
         )
 
         return RawDocument(
             source=file_path,
             metadata=metadata,
-            pages=[page],
+            pages=pages,
         )
 
     # ── Metadata ────────────────────────────────────────────────────
@@ -137,6 +140,67 @@ class DocxParser(BaseParser):
             duplicate_upload_count=upload_count,
         )
 
+    # ── Page-break detection ─────────────────────────────────────────
+
+    def _paragraph_starts_new_page(self, para) -> bool:
+        """Return True if *para* triggers a new page in the rendered document.
+
+        python-docx doesn't expose page breaks through its high-level API, so
+        we inspect the raw OOXML directly.  We check three sources (in order of
+        reliability):
+
+        1. ``<w:lastRenderedPageBreak/>`` — inserted by Word/LibreOffice when
+           the document is saved after a full render.  Marks *layout-driven*
+           overflow breaks as well as explicit ones.  Most accurate when present.
+        2. Explicit run break: ``<w:br w:type="page"/>`` or ``<w:br w:type="column"/>``
+        3. Section break: ``<w:sectPr>`` whose ``<w:type>`` is NOT "continuous"
+           (nextPage / evenPage / oddPage all start a new page).
+        """
+        from docx.oxml.ns import qn
+
+        pPr = para._element.find(qn('w:pPr'))
+
+        # ── 1. Layout-driven breaks: <w:lastRenderedPageBreak/> ──────────
+        # Word / LibreOffice embed this tag inside runs when saving a rendered
+        # document.  It covers both explicit and overflow page breaks, making
+        # it the most complete signal when available.
+        for _ in para._element.iter(qn('w:lastRenderedPageBreak')):
+            return True
+
+        # ── 2. Explicit <w:br w:type="page"/> in any run ─────────────────
+        for br in para._element.iter(qn('w:br')):
+            br_type = br.get(qn('w:type'), '')
+            if br_type in ('page', 'column'):
+                return True
+
+        # ── 3. Section break via <w:sectPr> in paragraph props ───────────
+        if pPr is not None:
+            sectPr = pPr.find(qn('w:sectPr'))
+            if sectPr is not None:
+                type_el = sectPr.find(qn('w:type'))
+                sect_type = type_el.get(qn('w:val'), 'nextPage') if type_el is not None else 'nextPage'
+                # 'continuous' does NOT start a new page; everything else does
+                if sect_type != 'continuous':
+                    return True
+
+        return False
+
+    def _group_elements_into_pages(self, elements: list[ExtractedElement]) -> list[PageContent]:
+        """Group a flat list of elements into PageContent objects keyed by page number."""
+        from collections import defaultdict
+        page_map: dict[int, list[ExtractedElement]] = defaultdict(list)
+        for el in elements:
+            page_map[el.page].append(el)
+
+        if not page_map:
+            # Return a single empty page so downstream code always gets at least one page.
+            return [PageContent(page_number=1, elements=[])]
+
+        return [
+            PageContent(page_number=pnum, elements=page_map[pnum])
+            for pnum in sorted(page_map)
+        ]
+
     # ── Paragraph classification ────────────────────────────────────
 
     def _classify_paragraph(
@@ -162,11 +226,13 @@ class DocxParser(BaseParser):
             self.logger.debug(f"DocxParser: Ignored watermark: {text[:30]}")
             return None
 
+        current_page = getattr(self, '_current_page', 1)
+
         # Check if it's a heading
         if style_name in self._HEADING_STYLES:
             return ExtractedHeading(
                 content=text,
-                page=1,
+                page=current_page,
                 sequence=sequence,
                 level=self._HEADING_STYLES[style_name],
             )
@@ -180,7 +246,7 @@ class DocxParser(BaseParser):
             return ExtractedElement(
                 element_type=element_type,
                 content=text,
-                page=1,
+                page=current_page,
                 sequence=sequence,
             )
 
@@ -188,7 +254,7 @@ class DocxParser(BaseParser):
         return ExtractedElement(
             element_type=ElementType.PARAGRAPH,
             content=text,
-            page=1,
+            page=current_page,
             sequence=sequence,
         )
 
@@ -262,7 +328,7 @@ class DocxParser(BaseParser):
 
         return ExtractedTable(
             content=f"[Table: {len(headers)} cols × {len(data_rows)} rows]",
-            page=1,
+            page=getattr(self, '_current_page', 1),
             sequence=sequence,
             grid_cols=max_cols,
             headers=headers,
@@ -300,7 +366,7 @@ class DocxParser(BaseParser):
                 images.append(
                     ExtractedImage(
                         content=f"[Image: {filename}]",
-                        page=1,
+                        page=getattr(self, '_current_page', 1),
                         sequence=sequence,
                         image_path=str(save_path),
                     )

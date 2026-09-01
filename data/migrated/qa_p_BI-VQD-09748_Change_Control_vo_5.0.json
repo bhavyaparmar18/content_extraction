@@ -1,0 +1,24 @@
+{
+  "status": "pass_with_warnings",
+  "total_source_sections": 9,
+  "total_source_elements": 76,
+  "total_placed_elements": 76,
+  "total_skipped_elements": 0,
+  "content_coverage_pct": 100.0,
+  "sections_mapped": 9,
+  "sections_unmapped_from_source": 0,
+  "sections_with_no_content": [
+    "distribution of controlled prints/copies (optional)"
+  ],
+  "sections_deleted": [],
+  "blue_text_remaining": 0,
+  "heading_style_issues": [],
+  "low_confidence_warnings": [
+    "Some sections had ambiguous mappings due to similar headings."
+  ],
+  "validation_errors": [],
+  "recommendations": [],
+  "summarizer_mode": "programmatic",
+  "llm_calls_made": 1,
+  "llm_total_tokens": 0
+}

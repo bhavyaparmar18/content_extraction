@@ -10,7 +10,7 @@
     "title": "o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0",
     "language": "en",
     "page_count": 15,
-    "duplicate_upload_count": 18
+    "duplicate_upload_count": 29
   },
   "sections": [
     {
@@ -300,16 +300,10 @@
           "element_type": "paragraph",
           "page": 3,
           "section_name": "1 PURPOSE",
-          "text": "This Guidance:"
-        },
-        {
-          "element_type": "paragraph",
-          "page": 3,
-          "section_name": "1 PURPOSE",
-          "text": "Outlines the writing of Boehringer Ingelheim Governance and Procedure Documents (GP Docs) with a focus on human learning principles, readability, and accessibility.",
+          "text": "This Guidance:",
           "icons": [
             {
-              "icon_id": "ebd3c229-d514-48db-b0bd-637876335e58",
+              "icon_id": "e0d8ad68-47f0-4467-b38e-f4110900488a",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec0_b84e825f3a.png",
               "semantic_meaning": "unknown"
             }
@@ -319,14 +313,20 @@
           "element_type": "paragraph",
           "page": 3,
           "section_name": "1 PURPOSE",
-          "text": "Aims to make GP Docs clearer, leading to a better understanding and practical application.",
+          "text": "Outlines the writing of Boehringer Ingelheim Governance and Procedure Documents (GP Docs) with a focus on human learning principles, readability, and accessibility.",
           "icons": [
             {
-              "icon_id": "834e6862-00f6-4abc-9bd3-0446621f63a5",
+              "icon_id": "b464b58d-b452-44bb-9f08-6d954de255de",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec1_e07401b561.png",
               "semantic_meaning": "unknown"
             }
           ]
+        },
+        {
+          "element_type": "paragraph",
+          "page": 3,
+          "section_name": "1 PURPOSE",
+          "text": "Aims to make GP Docs clearer, leading to a better understanding and practical application."
         }
       ],
       "section_number": "1"
@@ -340,7 +340,14 @@
           "element_type": "paragraph",
           "page": 3,
           "section_name": "2 APPLICABILITY",
-          "text": "This Guidance is applicable:"
+          "text": "This Guidance is applicable:",
+          "icons": [
+            {
+              "icon_id": "4feb4ace-4eb4-4b28-a923-e4b1346eb554",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec2_21593c97d0.png",
+              "semantic_meaning": "unknown"
+            }
+          ]
         },
         {
           "element_type": "paragraph",
@@ -349,8 +356,8 @@
           "text": "To all authors who write GP Docs, except Policies.",
           "icons": [
             {
-              "icon_id": "73a6dd5c-8d3d-4f28-9751-41f80b836436",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec2_21593c97d0.png",
+              "icon_id": "94f98ea0-c369-4a0b-a402-579b68253d0e",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec3_2e32076307.png",
               "semantic_meaning": "unknown"
             }
           ]
@@ -362,8 +369,8 @@
           "text": "All business units/divisions and departments writing GP Docs, except Policies.",
           "icons": [
             {
-              "icon_id": "248aa81d-2be6-4ad3-9e51-5821502fa2cf",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec3_2e32076307.png",
+              "icon_id": "471549cb-08c6-4db6-bdde-8032d19357fc",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec4_f197689508.png",
               "semantic_meaning": "unknown"
             }
           ]
@@ -372,14 +379,7 @@
           "element_type": "paragraph",
           "page": 3,
           "section_name": "2 APPLICABILITY",
-          "text": "World-wide",
-          "icons": [
-            {
-              "icon_id": "bcca6895-c114-44fd-a313-945e28a39859",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page3_vec4_f197689508.png",
-              "semantic_meaning": "unknown"
-            }
-          ]
+          "text": "World-wide"
         }
       ],
       "section_number": "2"
@@ -880,11 +880,12 @@
           "text": "To make GP Docs more accessible, employ simple language:"
         },
         {
-          "element_type": "heading",
-          "page": 5,
+          "element_type": "list",
+          "page": 0,
           "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
-          "level": 1,
-          "text": "1. Active Voice is Key:"
+          "items": [
+            "Active Voice is Key:"
+          ]
         },
         {
           "element_type": "paragraph",
@@ -893,11 +894,12 @@
           "text": "Always pair specific role names with active verbs. Use formulations like \"GQ authors write new Governance and Procedures Documents\" and \"The System Owner must perform a system review annually\". Avoid passive constructions."
         },
         {
-          "element_type": "heading",
-          "page": 5,
+          "element_type": "list",
+          "page": 0,
           "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
-          "level": 1,
-          "text": "2. Brevity Matters:"
+          "items": [
+            "Brevity Matters:"
+          ]
         },
         {
           "element_type": "paragraph",
@@ -906,11 +908,12 @@
           "text": "Write short, straightforward sentences, ideally not longer than two lines. Avoid superfluous words and repetitions."
         },
         {
-          "element_type": "heading",
-          "page": 5,
+          "element_type": "list",
+          "page": 0,
           "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
-          "level": 1,
-          "text": "3. Global Language:"
+          "items": [
+            "Global Language:"
+          ]
         },
         {
           "element_type": "paragraph",
@@ -919,11 +922,12 @@
           "text": "Avoid idioms or jargon."
         },
         {
-          "element_type": "heading",
-          "page": 5,
+          "element_type": "list",
+          "page": 0,
           "section_name": "6 PRINCIPLES FOR DOCUMENT WRITING",
-          "level": 1,
-          "text": "4. Stay on Topic:"
+          "items": [
+            "Stay on Topic:"
+          ]
         },
         {
           "element_type": "paragraph",
@@ -1474,16 +1478,10 @@
           "element_type": "paragraph",
           "page": 11,
           "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
-          "text": "Clarify for the reader the purpose of the document at the beginning. Explain the document subject (“what is described”) and the intention (“why you are writing the document”; “what do you want to achieve”). Use the following two green symbols as described:"
-        },
-        {
-          "element_type": "paragraph",
-          "page": 11,
-          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
-          "text": "Brief description of what the document is about? What process is described in the document?",
+          "text": "Clarify for the reader the purpose of the document at the beginning. Explain the document subject (“what is described”) and the intention (“why you are writing the document”; “what do you want to achieve”). Use the following two green symbols as described:",
           "icons": [
             {
-              "icon_id": "8834903e-63d6-4d8c-91ab-4c353b2df3ad",
+              "icon_id": "68ac3ba8-c3a7-4248-8a88-5971997bf81e",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec0_c5e304d3e4.png",
               "semantic_meaning": "unknown"
             }
@@ -1493,14 +1491,20 @@
           "element_type": "paragraph",
           "page": 11,
           "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
-          "text": "Brief description of the intention. What do you want to achieve?",
+          "text": "Brief description of what the document is about? What process is described in the document?",
           "icons": [
             {
-              "icon_id": "12078b3e-0cc1-4910-b1a4-13e4397a5606",
+              "icon_id": "3c3a7ba0-a4a0-4801-b4f0-dbd252165a68",
               "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec1_26b2fb9e92.png",
               "semantic_meaning": "unknown"
             }
           ]
+        },
+        {
+          "element_type": "paragraph",
+          "page": 11,
+          "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
+          "text": "Brief description of the intention. What do you want to achieve?"
         },
         {
           "element_type": "paragraph",
@@ -1519,7 +1523,14 @@
           "element_type": "paragraph",
           "page": 11,
           "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
-          "text": "Clarify in short sentences for whom this GP Doc is applicable in this section. Use the following four green symbols in your text as described:"
+          "text": "Clarify in short sentences for whom this GP Doc is applicable in this section. Use the following four green symbols in your text as described:",
+          "icons": [
+            {
+              "icon_id": "5b512e5a-1341-47ee-88a9-76f5495205b6",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec2_4bbcb3fe7e.png",
+              "semantic_meaning": "unknown"
+            }
+          ]
         },
         {
           "element_type": "paragraph",
@@ -1528,8 +1539,8 @@
           "text": "Explain which target Roles must follow this document, ensuring accurate training assignment. The more specific you are in describing the Roles where this document is applicable, the better training assignment can be performed.",
           "icons": [
             {
-              "icon_id": "3de1a436-7c5c-48a6-8dbd-885caf2f5635",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec2_4bbcb3fe7e.png",
+              "icon_id": "0e7a9abc-4210-4c39-a787-11d0a6bad97f",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec3_90041eaf44.png",
               "semantic_meaning": "unknown"
             }
           ]
@@ -1541,8 +1552,8 @@
           "text": "In which business units, group functions, departments the document applies, according to the applicability defined for impacted divisions and departments in the eDMS.",
           "icons": [
             {
-              "icon_id": "a7c40dd4-7f92-4678-94d9-b0f26cb5560b",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec3_90041eaf44.png",
+              "icon_id": "f5b146bb-cbcf-4f00-bfde-d6e04642c76d",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec4_c283a6222c.png",
               "semantic_meaning": "unknown"
             }
           ]
@@ -1554,8 +1565,8 @@
           "text": "The applicable geography, e.g., world-wide, R/OPU, country/countries, or site(s).",
           "icons": [
             {
-              "icon_id": "47f950c4-ea08-4df9-b2e6-ac77cb96c82e",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page11_vec4_c283a6222c.png",
+              "icon_id": "d877e1e2-edbc-4b34-ace8-45aac3400e51",
+              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page12_vec0_920298b5e7.png",
               "semantic_meaning": "unknown"
             }
           ]
@@ -1564,14 +1575,7 @@
           "element_type": "paragraph",
           "page": 12,
           "section_name": "7 GUIDANCE FOR SPECIFIC DOCUMENT CHAPTERS",
-          "text": "If applicable, list affected processes/systems and/or materials (if none, delete).",
-          "icons": [
-            {
-              "icon_id": "45d1ef31-8b81-47cc-9978-3824be9a9fbb",
-              "path": "C:\\Users\\Bhavya\\Desktop\\Content Extraction\\data\\extracted_icons\\o_BI-VQD-24416_Good_Writing_Practice_for_Governance_and_Procedure_Documents_vC_3.0\\page12_vec0_920298b5e7.png",
-              "semantic_meaning": "unknown"
-            }
-          ]
+          "text": "If applicable, list affected processes/systems and/or materials (if none, delete)."
         },
         {
           "element_type": "paragraph",
