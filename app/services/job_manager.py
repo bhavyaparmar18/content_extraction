@@ -76,7 +76,7 @@ class JobManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Worker {name} encountered error: {e}")
+                logger.exception(f"Worker {name} encountered error: {e}")
 
     async def _process_document(self, job_id: str, document_id: str):
         """Process a single document through the extraction pipeline."""
@@ -88,98 +88,111 @@ class JobManager:
         if not doc_job:
             return
             
-        doc_job.status = JobStatus.PROCESSING
-        doc_job.started_at = datetime.utcnow()
-        doc_job.message = "Started processing"
-        if job.status == JobStatus.QUEUED:
-            job.status = JobStatus.PROCESSING
-            job.started_at = datetime.utcnow()
-            
-        try:
-            # 1. Locate file
-            upload_path = None
-            for ext in self.settings.allowed_extensions:
-                candidate = self.settings.upload_dir / f"{document_id}{ext}"
-                if candidate.exists():
-                    upload_path = candidate
-                    break
-                    
-            if not upload_path:
-                raise FileNotFoundError(f"File for document {document_id} not found.")
-                
-            doc_job.filename = upload_path.name
-            doc_job.progress_percentage = 20
-            
-            # 2. Parse
-            doc_job.message = "Parsing document..."
-            factory = ParserFactory(settings=self.settings)
-            parser = factory.get_parser(str(upload_path))
-            # In a real async environment we might run this in a threadpool if it's blocking
-            raw_document = await asyncio.to_thread(parser.parse, str(upload_path), document_id=document_id)
-            doc_job.progress_percentage = 40
-            
-            # 3. Extraction
-            doc_job.message = "Running extraction pipeline..."
-            table_ext = TableExtractor(settings=self.settings)
-            stitch_ext = CrossPageTableStitcher(settings=self.settings)
-            icon_ext = IconExtractor(settings=self.settings)
-            caption_ext = CaptionExtractor(settings=self.settings)
+        # Stamp every log line emitted anywhere in this pipeline (including inside
+        # worker threads spawned by asyncio.to_thread, which copy the contextvars)
+        # with the job / document identifiers.
+        with logger.contextualize(job_id=job_id, document_id=document_id, stage="init"):
+            doc_job.status = JobStatus.PROCESSING
+            doc_job.started_at = datetime.utcnow()
+            doc_job.message = "Started processing"
+            if job.status == JobStatus.QUEUED:
+                job.status = JobStatus.PROCESSING
+                job.started_at = datetime.utcnow()
 
-            raw_document = await asyncio.to_thread(table_ext.extract, raw_document)
-            raw_document = await asyncio.to_thread(stitch_ext.extract, raw_document)
-            raw_document = await asyncio.to_thread(icon_ext.extract, raw_document, document_id=document_id)
-            raw_document = await asyncio.to_thread(caption_ext.extract, raw_document)
-            doc_job.progress_percentage = 65
-            
-            # 4. AST Build
-            doc_job.message = "Building Abstract Syntax Tree..."
-            ast_builder = ASTBuilder(settings=self.settings)
-            ast = await asyncio.to_thread(ast_builder.build, raw_document)
-            doc_job.progress_percentage = 80
+            logger.info("Pipeline started for document '{doc}'.", doc=document_id)
 
-            # 5. Chunking
-            doc_job.message = "Generating hierarchical and semantic chunks..."
-            hierarchical_chunker = HierarchicalChunker(settings=self.settings)
-            semantic_chunker = SemanticChunker(settings=self.settings)
-            chunks = await asyncio.to_thread(hierarchical_chunker.chunk, ast)
-            chunks = await asyncio.to_thread(semantic_chunker.chunk, chunks)
-            doc_job.progress_percentage = 90
-            
-            # 6. Output packaging
-            doc_job.message = "Finalizing output..."
-            assets_manifest = self._build_asset_manifest(document_id, ast)
-            migration_output = MigrationExporter.export(
-                document_id=document_id,
-                ast=ast,
-                assets_manifest=assets_manifest,
-            )
-            
-            # Save to disk
-            output_dir = self.settings.output_dir
-            output_dir.mkdir(parents=True, exist_ok=True)
-            out_file = output_dir / f"{document_id}_v2.json"
-            
-            # Write to disk using clean dictionary serialization without null/empty noise
-            clean_json = json.dumps(migration_output.to_clean_dict(), indent=2, ensure_ascii=False)
-            await asyncio.to_thread(out_file.write_text, clean_json, encoding="utf-8")
-            
-            doc_job.status = JobStatus.COMPLETED
-            doc_job.progress_percentage = 100
-            doc_job.message = "Successfully extracted document."
-            doc_job.completed_at = datetime.utcnow()
-            
-        except Exception as e:
-            logger.exception(f"Job {job_id} failed on doc {document_id}: {e}")
-            doc_job.status = JobStatus.FAILED
-            doc_job.error = str(e)
-            doc_job.message = f"Failed: {str(e)}"
-            doc_job.completed_at = datetime.utcnow()
-            
-        # Check if entire batch is complete
-        all_done = all(d.status in (JobStatus.COMPLETED, JobStatus.FAILED) for d in job.documents)
-        if all_done:
-            job.status = JobStatus.COMPLETED if job.failed_documents == 0 else JobStatus.FAILED
-            job.completed_at = datetime.utcnow()
+            try:
+                # 1. Locate file
+                with logger.contextualize(stage="locate"):
+                    upload_path = None
+                    for ext in self.settings.allowed_extensions:
+                        candidate = self.settings.upload_dir / f"{document_id}{ext}"
+                        if candidate.exists():
+                            upload_path = candidate
+                            break
+
+                    if not upload_path:
+                        raise FileNotFoundError(f"File for document {document_id} not found.")
+
+                    doc_job.filename = upload_path.name
+                    doc_job.progress_percentage = 20
+
+                # 2. Parse
+                with logger.contextualize(stage="parse"):
+                    doc_job.message = "Parsing document..."
+                    factory = ParserFactory(settings=self.settings)
+                    parser = factory.get_parser(str(upload_path))
+                    raw_document = await asyncio.to_thread(parser.parse, str(upload_path), document_id=document_id)
+                    doc_job.progress_percentage = 40
+
+                # 3. Extraction
+                doc_job.message = "Running extraction pipeline..."
+                table_ext = TableExtractor(settings=self.settings)
+                stitch_ext = CrossPageTableStitcher(settings=self.settings)
+                icon_ext = IconExtractor(settings=self.settings)
+                caption_ext = CaptionExtractor(settings=self.settings)
+
+                with logger.contextualize(stage="tables"):
+                    raw_document = await asyncio.to_thread(table_ext.extract, raw_document)
+                with logger.contextualize(stage="stitch"):
+                    raw_document = await asyncio.to_thread(stitch_ext.extract, raw_document)
+                with logger.contextualize(stage="icons"):
+                    raw_document = await asyncio.to_thread(icon_ext.extract, raw_document, document_id=document_id)
+                with logger.contextualize(stage="captions"):
+                    raw_document = await asyncio.to_thread(caption_ext.extract, raw_document)
+                doc_job.progress_percentage = 65
+
+                # 4. AST Build
+                with logger.contextualize(stage="ast"):
+                    doc_job.message = "Building Abstract Syntax Tree..."
+                    ast_builder = ASTBuilder(settings=self.settings)
+                    ast = await asyncio.to_thread(ast_builder.build, raw_document)
+                    doc_job.progress_percentage = 80
+
+                # 5. Chunking
+                with logger.contextualize(stage="chunk"):
+                    doc_job.message = "Generating hierarchical and semantic chunks..."
+                    hierarchical_chunker = HierarchicalChunker(settings=self.settings)
+                    semantic_chunker = SemanticChunker(settings=self.settings)
+                    chunks = await asyncio.to_thread(hierarchical_chunker.chunk, ast)
+                    chunks = await asyncio.to_thread(semantic_chunker.chunk, chunks)
+                    doc_job.progress_percentage = 90
+
+                # 6. Output packaging
+                with logger.contextualize(stage="export"):
+                    doc_job.message = "Finalizing output..."
+                    assets_manifest = self._build_asset_manifest(document_id, ast)
+                    migration_output = MigrationExporter.export(
+                        document_id=document_id,
+                        ast=ast,
+                        assets_manifest=assets_manifest,
+                    )
+
+                    output_dir = self.settings.output_dir
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    out_file = output_dir / f"{document_id}_v2.json"
+
+                    clean_json = json.dumps(migration_output.to_clean_dict(), indent=2, ensure_ascii=False)
+                    await asyncio.to_thread(out_file.write_text, clean_json, encoding="utf-8")
+
+                doc_job.status = JobStatus.COMPLETED
+                doc_job.progress_percentage = 100
+                doc_job.message = "Successfully extracted document."
+                doc_job.completed_at = datetime.utcnow()
+                logger.success("Pipeline completed for document '{doc}'.", doc=document_id)
+
+            except Exception as e:
+                logger.exception(f"Job {job_id} failed on doc {document_id}: {e}")
+                doc_job.status = JobStatus.FAILED
+                doc_job.error = str(e)
+                doc_job.message = f"Failed: {str(e)}"
+                doc_job.completed_at = datetime.utcnow()
+
+            # Check if entire batch is complete
+            all_done = all(d.status in (JobStatus.COMPLETED, JobStatus.FAILED) for d in job.documents)
+            if all_done:
+                job.status = JobStatus.COMPLETED if job.failed_documents == 0 else JobStatus.FAILED
+                job.completed_at = datetime.utcnow()
 
     def _build_asset_manifest(self, document_id: str, ast) -> AssetManifest:
         """Build an asset manifest for images and icons in the document's asset directories."""

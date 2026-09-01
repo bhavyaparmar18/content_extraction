@@ -2,6 +2,7 @@
 
 import asyncio
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
+from loguru import logger
 
 from app.schemas.jobs import BatchJob
 
@@ -14,6 +15,7 @@ async def get_job_status(job_id: str, request: Request):
     job_manager = request.app.state.job_manager
     job = job_manager.get_job(job_id)
     if not job:
+        logger.warning("Job status requested for unknown job '{j}'.", j=job_id)
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return job
 
@@ -43,6 +45,7 @@ async def websocket_job_progress(websocket: WebSocket, job_id: str):
             
     except WebSocketDisconnect:
         # Client disconnected
-        pass
-    except Exception as e:
+        logger.debug("WebSocket client disconnected from job '{j}' progress.", j=job_id)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("WebSocket progress stream failed for job '{j}'.", j=job_id)
         await websocket.close(code=1011, reason=str(e))
