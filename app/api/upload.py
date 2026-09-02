@@ -7,6 +7,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, Request
 from loguru import logger
 
 from app.config.settings import Settings, get_settings
+from app.core import sop_store
 from app.core.exceptions import BadRequestError
 from app.schemas.jobs import BatchJob, RejectedFile
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
@@ -82,13 +83,21 @@ async def upload_documents_batch(
             temp_path = settings.temp_dir / f"temp_{uuid.uuid4()}{extension}"
             try:
                 temp_path.write_bytes(contents)
-                doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
+                doc_title, doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
                     str(temp_path), fallback_filename=file.filename
                 )
+                # document_id generation only knows a single "name" slot; fall back to
+                # the title so documents identified only by title keep a stable id.
                 document_id = SOPMetadataExtractor.generate_document_id(
-                    doc_name, doc_num, doc_ver, fallback_filename=file.filename
+                    doc_name or doc_title, doc_num, doc_ver, fallback_filename=file.filename
                 )
-                already_uploaded, upload_count = SOPMetadataExtractor.record_upload(document_id)
+                # Preview the version this upload will become once processed. The
+                # authoritative value is (re)computed from sop_records history at
+                # parse time; this is purely informational for the log line.
+                try:
+                    next_version = sop_store.next_version(document_id)
+                except Exception:  # noqa: BLE001 - store may not be ready; not fatal
+                    next_version = 1
 
                 dest = settings.upload_dir / f"{document_id}{extension}"
                 dest.write_bytes(contents)
@@ -97,7 +106,7 @@ async def upload_documents_batch(
                 logger.info(
                     "Accepted '{f}' → document_id '{d}' ({kb:.1f} KB){dup}.",
                     f=filename, d=document_id, kb=size_bytes / 1024,
-                    dup=f", re-upload #{upload_count}" if already_uploaded else "",
+                    dup=f", re-upload (version #{next_version})" if next_version > 1 else "",
                 )
             except Exception as e:  # noqa: BLE001
                 logger.exception("Rejected '{f}': processing failed.", f=filename)

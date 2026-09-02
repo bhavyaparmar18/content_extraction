@@ -14,6 +14,7 @@ from docx import Document as DocxDocument
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from app.config.settings import Settings
+from app.core import sop_store
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.schemas.document import (
     BoundingBox,
@@ -111,10 +112,10 @@ class DocxParser(BaseParser):
         props = doc.core_properties
         file_stat = Path(file_path).stat()
 
-        doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
+        doc_title, doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
             file_path, fallback_filename=Path(file_path).name
         )
-        upload_count = SOPMetadataExtractor.get_upload_count(document_id) if document_id else 0
+        gpdat_version = self._resolve_gpdat_version(document_id)
 
         return DocumentMetadata(
             title=props.title or "",
@@ -130,12 +131,25 @@ class DocxParser(BaseParser):
             page_count=0,  # Not available at parse time in python-docx
             file_type="docx",
             file_size_bytes=file_stat.st_size,
-            document_name=doc_name,
+            document_title=doc_title,
+            # No dedicated "Document Name" field on some SOPs — fall back to the
+            # document number (which itself may come from a "Document ID" row).
+            document_name=doc_name or doc_num,
             document_number=doc_num,
             document_version=doc_ver,
             document_type=doc_type,
-            duplicate_upload_count=upload_count,
+            duplicate_upload_count=gpdat_version,
         )
+
+    def _resolve_gpdat_version(self, document_id: str | None) -> int:
+        """Look up the next version number for this document from sop_records history."""
+        if not document_id:
+            return 1
+        try:
+            return sop_store.next_version(document_id)
+        except Exception as e:  # noqa: BLE001 - store may be uninitialized (e.g. in tests)
+            self.logger.debug(f"Could not resolve gpdat_version for '{document_id}': {e}")
+            return 1
 
     # ── Paragraph classification ────────────────────────────────────
 

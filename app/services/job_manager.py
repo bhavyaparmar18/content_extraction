@@ -18,6 +18,7 @@ from app.services.hierarchy.ast_builder import ASTBuilder
 from app.services.chunking.hierarchical import HierarchicalChunker
 from app.services.chunking.semantic import SemanticChunker
 from app.services.export.migration_exporter import MigrationExporter
+from app.core import sop_store
 
 
 class JobManager:
@@ -174,6 +175,30 @@ class JobManager:
 
                     clean_json = json.dumps(migration_output.to_clean_dict(), indent=2, ensure_ascii=False)
                     await asyncio.to_thread(out_file.write_text, clean_json, encoding="utf-8")
+
+                    meta = migration_output.metadata
+                    try:
+                        await asyncio.to_thread(
+                            sop_store.upsert_record,
+                            job_id=job_id,
+                            document_uid=meta.document_uid,
+                            document_number=meta.document_number,
+                            document_name=meta.document_name,
+                            document_title=meta.document_title,
+                            document_version=meta.document_version,
+                            document_type=meta.document_type,
+                            file_type=meta.file_type,
+                            language=meta.language,
+                            page_count=meta.page_count,
+                            gpdat_version=meta.gpdat_version,
+                            source_filename=doc_job.filename,
+                            output_path=str(out_file),
+                        )
+                    except Exception as e:  # noqa: BLE001 - a DB hiccup must not fail extraction
+                        logger.opt(exception=True).warning(
+                            "Failed to upsert SOP record for '{doc}': {e}. Extraction output was still saved.",
+                            doc=document_id, e=e,
+                        )
 
                 doc_job.status = JobStatus.COMPLETED
                 doc_job.progress_percentage = 100

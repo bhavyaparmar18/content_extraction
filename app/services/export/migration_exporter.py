@@ -66,7 +66,7 @@ class MigrationExporter:
 
         return DocxMigrationOutput(
             version="3.1",
-            document_id=document_id,
+            document_uid=document_id,
             metadata=metadata,
             sections=sections,
         )
@@ -105,19 +105,19 @@ class MigrationExporter:
     def _extract_metadata(cls, document_id: str, ast: DocumentNode) -> MigrationMetadata:
         doc_meta = getattr(ast, "doc_metadata", None)
         if not doc_meta:
-            return MigrationMetadata(document_id=document_id)
+            return MigrationMetadata(document_uid=document_id)
 
-        title = getattr(doc_meta, "title", None) or getattr(doc_meta, "document_name", None)
         return MigrationMetadata(
-            document_id=document_id,
+            document_uid=document_id,
             document_number=getattr(doc_meta, "document_number", None),
             document_name=getattr(doc_meta, "document_name", None),
+            document_title=getattr(doc_meta, "document_title", None) or None,
             document_version=getattr(doc_meta, "document_version", None),
             document_type=getattr(doc_meta, "document_type", None) or None,
-            title=title,
+            file_type=getattr(doc_meta, "file_type", ""),
             language=getattr(doc_meta, "language", "en"),
             page_count=getattr(doc_meta, "page_count", 0),
-            duplicate_upload_count=getattr(doc_meta, "duplicate_upload_count", 0),
+            gpdat_version=getattr(doc_meta, "duplicate_upload_count", 0),
         )
 
     @classmethod

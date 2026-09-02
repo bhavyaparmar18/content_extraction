@@ -8,20 +8,23 @@ designed specifically for migrating extracted SOP content into Microsoft Word
 from __future__ import annotations
 
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MigrationMetadata(BaseModel):
     """Clean metadata summary for a document."""
-    document_id: str = ""
+    model_config = ConfigDict(populate_by_name=True)
+
+    document_uid: str = Field(default="", alias="document_Uid")
     document_number: Optional[str] = None
     document_name: Optional[str] = None
+    document_title: Optional[str] = None
     document_version: Optional[str] = None
     document_type: Optional[str] = None   # Type/Subtype from preamble table
-    title: Optional[str] = None
+    file_type: str = ""
     language: str = "en"
     page_count: int = 0
-    duplicate_upload_count: int = 0
+    gpdat_version: int = 0
 
 
 class MigrationIconRef(BaseModel):
@@ -144,15 +147,17 @@ class MigrationSection(BaseModel):
 
 class DocxMigrationOutput(BaseModel):
     """Top-level Clean .docx Document Migration Output envelope."""
+    model_config = ConfigDict(populate_by_name=True)
+
     version: str = "3.1"
-    document_id: str
+    document_uid: str = Field(alias="document_Uid")
     metadata: MigrationMetadata = Field(default_factory=MigrationMetadata)
     sections: list[MigrationSection] = Field(default_factory=list)
 
     def to_clean_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
-            "document_id": self.document_id,
-            "metadata": self.metadata.model_dump(exclude_none=True),
+            "document_Uid": self.document_uid,
+            "metadata": self.metadata.model_dump(exclude_none=True, by_alias=True),
             "sections": [s.to_clean_dict() for s in self.sections],
         }

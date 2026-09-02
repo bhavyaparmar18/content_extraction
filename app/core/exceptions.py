@@ -71,3 +71,10 @@ class ParsingError(AppError):
     status_code = 422
     error_code = "parsing_error"
     log_level = "ERROR"
+
+
+class SopRecordNotFoundError(AppError):
+    """No SOP record exists for the requested id."""
+    status_code = 404
+    error_code = "sop_record_not_found"
+    log_level = "WARNING"

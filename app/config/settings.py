@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     log_file_path: Path = Path("data/logs/app.log")
     error_file_path: Path = Path("data/logs/error.log")
     log_db_path: Path = Path("data/logs/logs.db")
+    sop_db_path: Path = Path("data/sop_records.db")
 
     # --- Processing ---
     max_upload_size_mb: int = 50
@@ -66,6 +67,7 @@ class Settings(BaseSettings):
         self.log_file_path = base / self.log_file_path
         self.error_file_path = base / self.error_file_path
         self.log_db_path = base / self.log_db_path
+        self.sop_db_path = base / self.sop_db_path
 
     def ensure_directories(self) -> None:
         """Create all required data directories if they don't exist."""

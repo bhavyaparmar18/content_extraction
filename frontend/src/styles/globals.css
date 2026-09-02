@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --primary: #00e47c;
+  --primary-dark: #00c86d;
+  --bg-main: #08312a;
+  --bg-card: #0a3d34;
+  --text-main: #ffffff;
+  --text-muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.06);
+  --sidebar-bg: #062621;
+  --nav-active-bg: rgba(0, 228, 124, 0.15);
+  --button-bg: var(--primary);
+  --button-text: #1f1f1f;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --primary: #169949;
+  --primary-dark: #00c86d;
+  --bg-main: #ffffff;
+  --bg-card: #f8f8f8;
+  --text-main: #0f172a;
+  --text-muted: #3a474e;
+  --border: #e2e8f0;
+  --sidebar-bg: #ffffff;
+  --nav-active-bg: rgba(0, 228, 124, 0.1);
+}
+
+body {
+  font-family: 'Inter', 'Poppins', sans-serif;
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+@layer components {
+  .dashboard-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    transition: all 200ms ease;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: var(--button-text);
+    font-weight: 600;
+    border-radius: 0.5rem;
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-dark);
+  }
+}
+
+/* Slim scrollbars for the SOP table and modal on WebKit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}

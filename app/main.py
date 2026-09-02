@@ -8,12 +8,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.config.settings import get_settings
 from app.core.exceptions import AppError
 from app.core.logging_config import setup_logging, shutdown_logging
+from app.core.sop_store import init_sop_store
 from app.api import health, upload, extract, documents
 
 
@@ -30,9 +32,22 @@ async def lifespan(application: FastAPI):
         dir=settings.upload_dir,
     )
     settings.ensure_directories()
-    
-    # Initialize JobManager
-    job_manager = JobManager(settings, concurrency=3)
+    init_sop_store(settings)
+
+    # Initialize JobManager.
+    #
+    # concurrency=1 is deliberate, not a placeholder: every pipeline stage
+    # (parsing, table extraction, AST build, chunking, ...) is pure-Python,
+    # CPU-bound work dispatched via asyncio.to_thread. Python threads don't
+    # get real parallelism for that under the GIL — running N documents
+    # "concurrently" just makes the GIL bounce between their threads, so
+    # wall-clock throughput for the batch doesn't improve but each individual
+    # document's stages take ~2x+ longer (measured: two documents' table
+    # extraction alone went from ~6s each run sequentially to ~11s each run
+    # concurrently, for the same total wall time). The FastAPI event loop
+    # (and therefore /jobs polling) stays fully responsive regardless of this
+    # value, since only the worker pool that drains the queue is affected.
+    job_manager = JobManager(settings, concurrency=1)
     application.state.job_manager = job_manager
     await job_manager.start()
     
@@ -52,6 +67,17 @@ app = FastAPI(
     ),
     version="0.1.0",
     lifespan=lifespan,
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    # The Vite dev server for the SOP Repository frontend. Add the deployed
+    # frontend origin here too once it has a real host.
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -143,3 +169,5 @@ from app.api import jobs
 app.include_router(jobs.router)
 from app.api import logs
 app.include_router(logs.router)
+from app.api import sops
+app.include_router(sops.router)

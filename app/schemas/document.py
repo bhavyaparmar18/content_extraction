@@ -131,6 +131,7 @@ class DocumentMetadata(BaseModel):
     page_count: int = 0
     file_type: str = ""
     file_size_bytes: int = 0
+    document_title: str = ""  # "Document Title"/"Title" row from the preamble table
     document_name: str = ""
     document_number: str = ""
     document_version: str = ""

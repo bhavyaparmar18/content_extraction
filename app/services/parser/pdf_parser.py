@@ -13,6 +13,7 @@ from pathlib import Path
 import fitz  # PyMuPDF
 
 from app.config.settings import Settings
+from app.core import sop_store
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.schemas.document import (
     BoundingBox,
@@ -81,10 +82,10 @@ class PDFParser(BaseParser):
         meta = doc.metadata or {}
         file_stat = Path(file_path).stat()
 
-        doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
+        doc_title, doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
             file_path, fallback_filename=Path(file_path).name
         )
-        upload_count = SOPMetadataExtractor.get_upload_count(document_id) if document_id else 0
+        gpdat_version = self._resolve_gpdat_version(document_id)
 
         return DocumentMetadata(
             title=meta.get("title", "") or Path(file_path).stem,
@@ -96,12 +97,25 @@ class PDFParser(BaseParser):
             page_count=len(doc),
             file_type="pdf",
             file_size_bytes=file_stat.st_size,
-            document_name=doc_name,
+            document_title=doc_title,
+            # No dedicated "Document Name" field on some SOPs — fall back to the
+            # document number (which itself may come from a "Document ID" row).
+            document_name=doc_name or doc_num,
             document_number=doc_num,
             document_version=doc_ver,
             document_type=doc_type,
-            duplicate_upload_count=upload_count,
+            duplicate_upload_count=gpdat_version,
         )
+
+    def _resolve_gpdat_version(self, document_id: str | None) -> int:
+        """Look up the next version number for this document from sop_records history."""
+        if not document_id:
+            return 1
+        try:
+            return sop_store.next_version(document_id)
+        except Exception as e:  # noqa: BLE001 - store may be uninitialized (e.g. in tests)
+            self.logger.debug(f"Could not resolve gpdat_version for '{document_id}': {e}")
+            return 1
 
     # ── Single page extraction ──────────────────────────────────────
 
@@ -143,7 +157,6 @@ class PDFParser(BaseParser):
                                 prev_text = current_logical_line[0].get("text", "").strip()
                                 if re.match(r"^([\u2022\u25E6\u25A0\u2023\u2043\u2219\*\-\u25CF\u25CB]|\d+(?:\.\d+)*\.?|\([a-zA-Z0-9]{1,3}\)|[a-zA-Z]\.)(\s|$)", prev_text):
                                     is_list_tab = True
-                                print(f"DEBUG pdf_parser: gap={gap} prev_text={repr(prev_text)} is_list_tab={is_list_tab}")
                             
                             if not is_list_tab:
                                 if current_logical_line:

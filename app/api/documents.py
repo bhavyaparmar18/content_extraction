@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 from loguru import logger
 
 from app.config.settings import Settings, get_settings
@@ -157,7 +158,9 @@ async def get_document_json_v2(
     """Export the fully processed document AST as JSON (v2).
 
     This retrieves the completed extraction from the background job queue's
-    saved disk output.
+    saved disk output. ``image_path`` / ``icon_path`` fields are rewritten
+    from absolute on-disk paths into ``/documents/{document_id}/assets/...``
+    URLs so the frontend content viewer can load them directly.
     """
     with logger.contextualize(document_id=document_id):
         output_path = settings.output_dir / f"{document_id}_v2.json"
@@ -168,12 +171,38 @@ async def get_document_json_v2(
             )
 
         try:
-            return json.loads(output_path.read_text(encoding="utf-8"))
+            data = json.loads(output_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as e:
             logger.exception("Failed to read v2 JSON for '{d}'.", d=document_id)
             raise ParsingError(
                 f"Stored v2 JSON for '{document_id}' could not be read.", detail=str(e)
             )
+
+        return _rewrite_asset_paths(data, document_id)
+
+
+@router.get("/{document_id}/assets/{filename}")
+async def get_document_asset(
+    document_id: str,
+    filename: str,
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    """Serve an extracted image or icon file referenced by the v2 JSON.
+
+    Looks under both ``extracted_images_dir`` and ``extracted_icons_dir`` for
+    ``{document_id}/{filename}`` since a v2 element doesn't say which one it
+    came from. ``filename`` is reduced to its basename first so a crafted
+    value like ``../../secrets.txt`` can't escape either directory.
+    """
+    safe_name = Path(filename).name
+    for base_dir in (settings.extracted_images_dir, settings.extracted_icons_dir):
+        candidate = base_dir / document_id / safe_name
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+    raise DocumentNotFoundError(
+        f"Asset '{filename}' not found for document '{document_id}'."
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -208,3 +237,27 @@ def _find_upload(document_id: str, settings: Settings) -> Path:
     raise DocumentNotFoundError(
         f"No uploaded file found for document_id '{document_id}'."
     )
+
+
+_ASSET_PATH_KEYS = ("image_path", "icon_path", "path")
+
+
+def _rewrite_asset_paths(node: Any, document_id: str) -> Any:
+    """Recursively rewrite absolute on-disk asset paths into servable URLs.
+
+    Walks the raw v2 JSON dict/list structure in place and replaces any
+    ``image_path`` / ``icon_path`` / ``path`` string value with
+    ``/documents/{document_id}/assets/{basename}``, matching
+    ``get_document_asset`` below.
+    """
+    if isinstance(node, dict):
+        for key in _ASSET_PATH_KEYS:
+            value = node.get(key)
+            if isinstance(value, str) and value:
+                node[key] = f"/documents/{document_id}/assets/{Path(value).name}"
+        for value in node.values():
+            _rewrite_asset_paths(value, document_id)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_asset_paths(item, document_id)
+    return node
