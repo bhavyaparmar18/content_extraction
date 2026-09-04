@@ -530,43 +530,72 @@ class ASTBuilder:
         return overlap / min_height
 
     def _reorder_icons(self, elements: list[ExtractedElement]) -> list[ExtractedElement]:
-        """Move misplaced icons so each sits before its associated text element.
+        """Place each icon immediately before the text it vertically overlaps.
 
-        An icon is "misplaced" when it appears *after* a text element that it
-        vertically overlaps with (≥30% of the smaller box's height).  In that
-        case the icon is pulled out and re-inserted just before that element.
+        Looks both forward and backward so a left-rail icon that was read
+        before its paragraph still binds to that paragraph, not to a heading
+        that happens to share the page.
         """
-        result = list(elements)
-        i = 0
-        while i < len(result):
-            el = result[i]
-            if el.element_type != ElementType.ICON or el.bbox is None:
-                i += 1
+        icons = [el for el in elements if el.element_type == ElementType.ICON]
+        if not icons:
+            return list(elements)
+
+        rest = [el for el in elements if el.element_type != ElementType.ICON]
+        text_types = (
+            ElementType.PARAGRAPH,
+            ElementType.LIST_ITEM,
+            ElementType.NUMBERED_STEP,
+        )
+        texts = [el for el in rest if el.element_type in text_types and el.bbox]
+        assigned: set[int] = set()
+        icon_to_text: dict[int, int] = {}
+
+        for icon in icons:
+            if icon.bbox is None:
                 continue
+            best = None
+            best_score: tuple[float, float] | None = None
+            for text in texts:
+                if id(text) in assigned or text.bbox is None:
+                    continue
+                if text.page != icon.page:
+                    continue
+                overlap = self._vertical_overlap(icon.bbox, text.bbox)
+                if overlap < 0.3:
+                    continue
+                if text.bbox.x1 < icon.bbox.x0:
+                    continue
+                hdist = max(0.0, text.bbox.x0 - icon.bbox.x1)
+                score = (overlap, -hdist)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best = text
+            if best is not None:
+                icon_to_text[id(icon)] = id(best)
+                assigned.add(id(best))
 
-            # Look backward for a text element on the same page that overlaps
-            best_j: int | None = None
-            for j in range(i - 1, -1, -1):
-                candidate = result[j]
-                if candidate.bbox is None or candidate.page != el.page:
-                    break  # different page or no bbox — stop scanning
-                if candidate.element_type in (
-                    ElementType.PARAGRAPH, ElementType.HEADING,
-                    ElementType.LIST_ITEM, ElementType.NUMBERED_STEP,
-                ):
-                    if self._vertical_overlap(el.bbox, candidate.bbox) >= 0.3:
-                        best_j = j
+        out: list[ExtractedElement] = []
+        used: set[int] = set()
+        for el in rest:
+            matching = [ic for ic in icons if icon_to_text.get(id(ic)) == id(el)]
+            matching.sort(key=lambda i: i.bbox.x0 if i.bbox else 0)
+            out.extend(matching)
+            used.update(id(i) for i in matching)
+            out.append(el)
+
+        leftover = [ic for ic in icons if id(ic) not in used]
+        leftover.sort(key=lambda i: (i.page, i.bbox.y0 if i.bbox else 0, i.bbox.x0 if i.bbox else 0))
+        for ic in leftover:
+            inserted = False
+            if ic.bbox is not None:
+                for i, el in enumerate(out):
+                    if el.bbox and el.page == ic.page and el.bbox.y0 > ic.bbox.y0:
+                        out.insert(i, ic)
+                        inserted = True
                         break
-
-            if best_j is not None:
-                # Pull icon out and insert before the overlapping text element
-                icon = result.pop(i)
-                result.insert(best_j, icon)
-                # Don't increment i — the next element slid into position i
-            else:
-                i += 1
-
-        return result
+            if not inserted:
+                out.append(ic)
+        return out
 
     @staticmethod
     def _make_source_loc(el: ExtractedElement) -> SourceLocation:

@@ -15,6 +15,7 @@ from app.schemas.document import (
     BoundingBox,
 )
 from app.services.extraction.base_extractor import BaseExtractor
+from app.services.extraction.tables import _merge_continuation_rows
 
 
 class CrossPageTableStitcher(BaseExtractor):
@@ -34,51 +35,85 @@ class CrossPageTableStitcher(BaseExtractor):
 
         self.logger.info(f"CrossPageTableStitcher: processing {document.source}")
 
-        for i in range(len(document.pages) - 1):
+        i = 0
+        while i < len(document.pages) - 1:
             page_n = document.pages[i]
-            page_n1 = document.pages[i + 1]
-
-            # Get the last table on page N
             tables_n = [el for el in page_n.elements if el.element_type == ElementType.TABLE]
             if not tables_n:
+                i += 1
                 continue
             last_table_n = tables_n[-1]
 
-            # Get the first table on page N+1
-            tables_n1 = [el for el in page_n1.elements if el.element_type == ElementType.TABLE]
-            if not tables_n1:
-                continue
-            first_table_n1 = tables_n1[0]
-
-            if self._should_stitch(last_table_n, first_table_n1, page_n, page_n1):
-                self._stitch_tables(last_table_n, first_table_n1, page_n1)
+            for j in range(i + 1, len(document.pages)):
+                page_j = document.pages[j]
+                tables_j = [el for el in page_j.elements if el.element_type == ElementType.TABLE]
+                if not tables_j:
+                    continue
+                first_table_j = tables_j[0]
+                if self._should_stitch(
+                    last_table_n, first_table_j, page_n, page_j, document.pages
+                ):
+                    self._stitch_tables(last_table_n, first_table_j, page_j)
+                    continue
+                break
+            i += 1
 
         return document
+
+    def _last_row_bbox(self, table: ExtractedTable) -> BoundingBox | None:
+        """Bbox of the last data row (page-local), not the composite stitched table."""
+        if table.rows:
+            cells = table.rows[-1]
+        elif table.headers:
+            cells = table.headers
+        else:
+            return table.bbox
+        bboxes = [c.bbox for c in cells if getattr(c, "bbox", None)]
+        if not bboxes:
+            return table.bbox
+        return BoundingBox(
+            x0=min(b.x0 for b in bboxes),
+            y0=min(b.y0 for b in bboxes),
+            x1=max(b.x1 for b in bboxes),
+            y1=max(b.y1 for b in bboxes),
+            page=bboxes[0].page,
+        )
 
     def _should_stitch(
         self,
         table_n: ExtractedTable,
         table_n1: ExtractedTable,
         page_n,
-        page_n1
+        page_n1,
+        pages=None,
     ) -> bool:
         """Evaluate if two tables are fragments of the same logical table."""
         # 1. Spatial Position Check
         if not table_n.bbox or not table_n1.bbox:
             return False
 
-        page_height_n = page_n.height or 792.0
+        end = self._last_row_bbox(table_n)
+        if end is None:
+            return False
+
+        end_page = page_n
+        if pages and end.page:
+            for p in pages:
+                if p.page_number == end.page:
+                    end_page = p
+                    break
+        page_height_end = end_page.height or 792.0
         page_height_n1 = page_n1.height or 792.0
 
-        if table_n.bbox.y1 < page_height_n * self.settings.table_stitch_bottom_zone_pct:
+        if end.y1 < page_height_end * self.settings.table_stitch_bottom_zone_pct:
             return False
-            
+
         if table_n1.bbox.y0 > page_height_n1 * self.settings.table_stitch_top_zone_pct:
             return False
 
-        # Check for headings between the end of table_n and end of page_n
-        for el in page_n.elements:
-            if el.element_type == ElementType.HEADING and el.bbox and el.bbox.y0 > table_n.bbox.y1:
+        # Headings after the last row on the page where the table actually ends
+        for el in end_page.elements:
+            if el.element_type == ElementType.HEADING and el.bbox and el.bbox.y0 > end.y1:
                 return False
 
         # Check for headings before table_n1 on page_n1
@@ -113,8 +148,6 @@ class CrossPageTableStitcher(BaseExtractor):
         score += header_score * 0.2
 
         if score >= self.settings.table_stitch_score_threshold:
-            # Store repeated header decision on table_n1 temporarily for the stitcher
-            table_n1._is_repeated_header = is_repeated
             return True
 
         return False
@@ -189,7 +222,7 @@ class CrossPageTableStitcher(BaseExtractor):
         """Merge continuation_table into base_table."""
         self.logger.info(f"Stitching table from page {page_n1.page_number} into base table.")
 
-        is_repeated = getattr(continuation_table, "_is_repeated_header", False)
+        is_repeated, _ = self._check_repeated_header(base_table, continuation_table)
         
         rows_to_append = []
         if is_repeated:
@@ -206,6 +239,14 @@ class CrossPageTableStitcher(BaseExtractor):
             rows_to_append.extend(continuation_table.rows)
 
         base_table.rows.extend(rows_to_append)
+
+        if base_table.headers:
+            combined = [base_table.headers] + list(base_table.rows)
+            combined = _merge_continuation_rows(combined)
+            base_table.headers = combined[0]
+            base_table.rows = combined[1:]
+        else:
+            base_table.rows = _merge_continuation_rows(base_table.rows)
 
         # Update composite bounding box
         if base_table.bbox and continuation_table.bbox:

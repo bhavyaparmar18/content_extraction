@@ -14,6 +14,20 @@ from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
+def _preview_gpdat_version(settings: Settings, document_id: str) -> int:
+    """Return the gpdat_version this upload will become once processed."""
+    try:
+        from app.stores.sop_store import SopStore
+
+        sop_store = getattr(settings, "_sop_store", None)
+        if sop_store is None:
+            db_path = settings.project_root / "data" / "sop_records.db"
+            sop_store = SopStore(db_path, settings)
+        return sop_store.get_next_version(document_id)
+    except Exception:
+        return 1
+
+
 class UploadResponse(BaseModel):
     """Schema returned after a successful upload."""
     document_id: str
@@ -57,13 +71,14 @@ async def upload_document(
     with open(temp_path, "wb") as f:
         f.write(contents)
 
-    doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
+    doc_title, doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
         str(temp_path), fallback_filename=file.filename
     )
     document_id = SOPMetadataExtractor.generate_document_id(
-        doc_name, doc_num, doc_ver, fallback_filename=file.filename
+        doc_name or doc_title, doc_num, doc_ver, fallback_filename=file.filename
     )
-    already_uploaded, upload_count = SOPMetadataExtractor.record_upload(document_id)
+    upload_count = _preview_gpdat_version(settings, document_id)
+    already_uploaded = upload_count > 1
 
     dest = settings.upload_dir / f"{document_id}{extension}"
     with open(dest, "wb") as f:
@@ -114,13 +129,12 @@ async def upload_documents_batch(
         with open(temp_path, "wb") as f:
             f.write(contents)
 
-        doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
+        doc_title, doc_name, doc_num, doc_ver, _ = SOPMetadataExtractor.extract_from_file(
             str(temp_path), fallback_filename=file.filename
         )
         document_id = SOPMetadataExtractor.generate_document_id(
-            doc_name, doc_num, doc_ver, fallback_filename=file.filename
+            doc_name or doc_title, doc_num, doc_ver, fallback_filename=file.filename
         )
-        SOPMetadataExtractor.record_upload(document_id)
 
         dest = settings.upload_dir / f"{document_id}{extension}"
         with open(dest, "wb") as f:

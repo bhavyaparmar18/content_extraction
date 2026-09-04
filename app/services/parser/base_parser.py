@@ -40,3 +40,17 @@ class BaseParser(ABC):
                 f"Unsupported file extension '{path.suffix}'. "
                 f"Allowed: {self.settings.allowed_extensions}"
             )
+
+    def _next_gpdat_version(self, document_id: str | None) -> int:
+        """Preview the gpdat_version this extract will receive from sop_records."""
+        if not document_id:
+            return 0
+        try:
+            from app.stores.sop_store import SopStore
+
+            db_path = getattr(self.settings, "sop_db_path", None)
+            if db_path is None:
+                db_path = self.settings.project_root / "data" / "sop_records.db"
+            return SopStore(db_path, self.settings).get_next_version(document_id)
+        except Exception:
+            return 1

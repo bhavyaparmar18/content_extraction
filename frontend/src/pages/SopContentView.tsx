@@ -95,6 +95,23 @@ export const SopContentView: React.FC = () => {
     );
   }
 
+  if (contentError) {
+    return (
+      <div className="content-pane space-y-4">
+        <Button variant="ghost" onClick={() => navigate('/')} leftIcon={<ArrowLeft className="size-4" />}>
+          Back to Repository
+        </Button>
+        <div className="dashboard-card p-8 text-center text-red-400">
+          <AlertCircle className="size-10 mx-auto mb-3" />
+          <h2 className="text-base font-semibold">Could not load SOP content</h2>
+          <p className="text-xs text-text-muted mt-1">
+            {(contentError as Error).message || 'The extracted JSON could not be loaded.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const sections = v2Content?.sections || [];
   const activeSection = sections[activeSectionIdx] || sections[0];
   const title = getDisplayTitle(sopRecord);

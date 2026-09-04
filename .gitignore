@@ -34,3 +34,4 @@ Thumbs.db
 
 # Data files (optional - remove if you want to track these)
 # data/
+frontend/package-lock.json

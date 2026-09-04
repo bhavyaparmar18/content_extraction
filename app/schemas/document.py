@@ -131,11 +131,13 @@ class DocumentMetadata(BaseModel):
     page_count: int = 0
     file_type: str = ""
     file_size_bytes: int = 0
+    document_title: str = ""  # "Document Title"/"Title" row from the preamble table
     document_name: str = ""
     document_number: str = ""
     document_version: str = ""
     document_type: str = ""   # Type/Subtype from the preamble table (e.g. "Governance and Procedure > Guidance")
-    duplicate_upload_count: int = 0
+    gpdat_version: int = 0
+    duplicate_upload_count: int = 0  # deprecated alias of gpdat_version; kept for older callers
 
 
 class RawDocument(BaseModel):

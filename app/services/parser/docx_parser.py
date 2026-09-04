@@ -114,13 +114,13 @@ class DocxParser(BaseParser):
         props = doc.core_properties
         file_stat = Path(file_path).stat()
 
-        doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
+        doc_title, doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
             file_path, fallback_filename=Path(file_path).name
         )
-        upload_count = SOPMetadataExtractor.get_upload_count(document_id) if document_id else 0
+        gpdat_version = self._next_gpdat_version(document_id)
 
         return DocumentMetadata(
-            title=props.title or "",
+            title=doc_title or props.title or "",
             author=props.author or "",
             subject=props.subject or "",
             creator=props.last_modified_by or "",
@@ -133,11 +133,12 @@ class DocxParser(BaseParser):
             page_count=0,  # Not available at parse time in python-docx
             file_type="docx",
             file_size_bytes=file_stat.st_size,
+            document_title=doc_title,
             document_name=doc_name,
             document_number=doc_num,
             document_version=doc_ver,
             document_type=doc_type,
-            duplicate_upload_count=upload_count,
+            gpdat_version=gpdat_version,
         )
 
     # ── Page-break detection ─────────────────────────────────────────

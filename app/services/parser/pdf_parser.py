@@ -81,13 +81,13 @@ class PDFParser(BaseParser):
         meta = doc.metadata or {}
         file_stat = Path(file_path).stat()
 
-        doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
+        doc_title, doc_name, doc_num, doc_ver, doc_type = SOPMetadataExtractor.extract_from_file(
             file_path, fallback_filename=Path(file_path).name
         )
-        upload_count = SOPMetadataExtractor.get_upload_count(document_id) if document_id else 0
+        gpdat_version = self._next_gpdat_version(document_id)
 
         return DocumentMetadata(
-            title=meta.get("title", "") or Path(file_path).stem,
+            title=doc_title or meta.get("title", "") or Path(file_path).stem,
             author=meta.get("author", "") or "",
             subject=meta.get("subject", "") or "",
             creator=meta.get("creator", "") or "",
@@ -96,11 +96,12 @@ class PDFParser(BaseParser):
             page_count=len(doc),
             file_type="pdf",
             file_size_bytes=file_stat.st_size,
+            document_title=doc_title,
             document_name=doc_name,
             document_number=doc_num,
             document_version=doc_ver,
             document_type=doc_type,
-            duplicate_upload_count=upload_count,
+            gpdat_version=gpdat_version,
         )
 
     # ── Single page extraction ──────────────────────────────────────
