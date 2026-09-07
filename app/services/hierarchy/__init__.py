@@ -1,4 +1,4 @@
 # hierarchy package
-from .tree_builder import TreeBuilder
+from .ast_builder import ASTBuilder
 
-__all__ = ["TreeBuilder"]
+__all__ = ["ASTBuilder"]

@@ -95,6 +95,28 @@ export const SopContentView: React.FC = () => {
     );
   }
 
+  if (contentError) {
+    const errMsg = (contentError as any)?.message || 'Unknown error';
+    return (
+      <div className="content-pane space-y-4">
+        <Button variant="ghost" onClick={() => navigate('/')} leftIcon={<ArrowLeft className="size-4" />}>
+          Back to Repository
+        </Button>
+        <div className="dashboard-card p-8 text-center text-amber-400">
+          <AlertCircle className="size-10 mx-auto mb-3" />
+          <h2 className="text-base font-semibold">Extracted Content Not Available</h2>
+          <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
+            The v2 extraction JSON for this document could not be loaded. The processing job may not have
+            completed, or this document was processed with an older pipeline version.
+          </p>
+          <p className="text-xs font-mono text-red-400/70 mt-3 bg-black/20 rounded px-3 py-1.5 inline-block">
+            {errMsg}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const sections = v2Content?.sections || [];
   const activeSection = sections[activeSectionIdx] || sections[0];
   const title = getDisplayTitle(sopRecord);
@@ -178,6 +200,15 @@ export const SopContentView: React.FC = () => {
             leftIcon={<Download className="size-3.5" />}
           >
             JSON
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate(`/review/${sopRecord.id}?mode=migration`)}
+            leftIcon={<ArrowRightLeft className="size-3.5 text-emerald-400" />}
+          >
+            Migrate
           </Button>
 
           <Button

@@ -12,9 +12,10 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.config.settings import get_settings
-from app.api import health, upload, extract, documents, jobs, migration, sops, review
+from app.api import health, upload, extract, documents, jobs, migration, sops, review, auth
 from app.services.job_manager import JobManager
 from app.stores.sop_store import SopStore
+from app.stores.auth_store import AuthStore
 
 
 @asynccontextmanager
@@ -32,6 +33,11 @@ async def lifespan(application: FastAPI):
     sop_db_path = settings.project_root / "data" / "sop_records.db"
     sop_store = SopStore(sop_db_path, settings)
     application.state.sop_store = sop_store
+
+    # Initialize AuthStore
+    auth_db_path = settings.auth_db_path or (settings.project_root / "data" / "auth.db")
+    auth_store = AuthStore(auth_db_path, settings)
+    application.state.auth_store = auth_store
 
     # Initialize JobManager
     job_manager = JobManager(settings, concurrency=1, sop_store=sop_store)
@@ -67,7 +73,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-Correlation-ID", "Idempotency-Key", "Authorization"],
 )
 
 
@@ -94,3 +100,4 @@ app.include_router(jobs.router)
 app.include_router(migration.router)
 app.include_router(sops.router)
 app.include_router(review.router)
+app.include_router(auth.router)

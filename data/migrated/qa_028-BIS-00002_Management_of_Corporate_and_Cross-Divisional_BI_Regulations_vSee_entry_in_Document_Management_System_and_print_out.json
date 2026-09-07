@@ -1,0 +1,35 @@
+{
+  "status": "pass_with_warnings",
+  "total_source_sections": 0,
+  "total_source_elements": 0,
+  "total_placed_elements": 0,
+  "total_skipped_elements": 0,
+  "content_coverage_pct": 100.0,
+  "sections_mapped": 0,
+  "sections_unmapped_from_source": 0,
+  "sections_with_no_content": [
+    "GENERAL INFORMATION",
+    "PURPOSE",
+    "APPLICABILITY",
+    "DEFINITIONS & ABBREVIATIONS",
+    "IMPLEMENTATION AND/OR PRE-REQUISITES",
+    "ROLES & RESPONSIBILITIES",
+    "PROCESS",
+    "ASSOCIATED DOCUMENTS",
+    "REFERENCES",
+    "DOCUMENT HISTORY"
+  ],
+  "sections_deleted": [
+    "distribution of controlled prints/copies (optional)"
+  ],
+  "blue_text_remaining": 0,
+  "heading_style_issues": [],
+  "low_confidence_warnings": [
+    "No content sections were provided in the CONTENT_SUMMARY, resulting in no source content mapping."
+  ],
+  "validation_errors": [],
+  "recommendations": [],
+  "summarizer_mode": "programmatic",
+  "llm_calls_made": 1,
+  "llm_total_tokens": 0
+}

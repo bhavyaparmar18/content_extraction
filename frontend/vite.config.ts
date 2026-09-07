@@ -13,10 +13,25 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/sops': 'http://localhost:8000',
+      '/api': 'http://localhost:8000',
+      '/sops': {
+        target: 'http://localhost:8000',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) {
+            return '/index.html';
+          }
+        },
+      },
       '/documents': 'http://localhost:8000',
       '/jobs': 'http://localhost:8000',
-      '/review': 'http://localhost:8000',
+      '/review': {
+        target: 'http://localhost:8000',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) {
+            return '/index.html';
+          }
+        },
+      },
       '/migrations': 'http://localhost:8000',
       '/translations': 'http://localhost:8000',
       '/issues': 'http://localhost:8000',

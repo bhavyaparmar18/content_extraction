@@ -4,10 +4,12 @@ from docx import Document
 from docx.shared import Pt, Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.enum.table import WD_ALIGN_VERTICAL
 from loguru import logger
 
 from app.schemas.migration import MigrationElement
 from app.services.migration.schemas import CalloutStyleDef
+from app.services.migration.docx_styler import DocxStyler
 
 
 class CalloutBuilder:
@@ -74,6 +76,7 @@ class CalloutBuilder:
         self._set_cell_shading(tc_pr, bg_hex)
         self._set_left_border(tc_pr, border_hex, width_pt=3.5)
         self._set_cell_margins(tc_pr, top=140, bottom=140, left=180, right=180)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
         # Extract text and icons from source element
         para = cell.paragraphs[0]
@@ -94,6 +97,7 @@ class CalloutBuilder:
 
         if icon_path and Path(icon_path).exists():
             try:
+                DocxStyler._vertically_center_paragraph_content(para)
                 icon_run = para.add_run()
                 icon_run.add_picture(str(icon_path), width=Pt(26.0), height=Pt(26.0))
                 para.add_run("\u2003\u2003")

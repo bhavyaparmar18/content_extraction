@@ -19,6 +19,84 @@ from app.services.migration.schemas import MigrationResult
 router = APIRouter(prefix="/documents", tags=["Migration"])
 
 
+def _find_extracted_json(document_id: str, settings: Settings, request: Request) -> Path:
+    """Resolve the extracted JSON file by document ID or UID."""
+    # 1. Exact match with _v2.json
+    v2_path = settings.output_dir / f"{document_id}_v2.json"
+    if v2_path.exists():
+        return v2_path
+
+    # 2. Exact match with .json
+    exact_path = settings.output_dir / f"{document_id}.json"
+    if exact_path.exists():
+        return exact_path
+
+    # 3. Lookup in sop_store by id or uid
+    sop_store = getattr(request.app.state, "sop_store", None)
+    if sop_store:
+        record = None
+        if document_id.isdigit():
+            record = sop_store.get_record_by_id(int(document_id))
+        if not record:
+            record = sop_store.get_record_by_uid(document_id)
+        if record:
+            doc_uid = record.get("document_Uid") or record.get("document_uid")
+            if doc_uid:
+                candidate_v2 = settings.output_dir / f"{doc_uid}_v2.json"
+                if candidate_v2.exists():
+                    return candidate_v2
+                candidate_reg = settings.output_dir / f"{doc_uid}.json"
+                if candidate_reg.exists():
+                    return candidate_reg
+            if record.get("output_path"):
+                rec_path = Path(record["output_path"])
+                if rec_path.exists():
+                    return rec_path
+
+    # 4. Glob candidate search
+    candidates = list(settings.output_dir.glob(f"*{document_id}*.json"))
+    if candidates:
+        return candidates[0]
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Extracted JSON not found for document_id '{document_id}' in {settings.output_dir}",
+    )
+
+
+def _find_migration_file(
+    dir_path: Path,
+    prefix: str,
+    document_id: str,
+    suffix: str,
+    request: Request,
+) -> Optional[Path]:
+    """Find a saved migration artifact (.docx, plan JSON, qa JSON)."""
+    exact = dir_path / f"{prefix}{document_id}{suffix}"
+    if exact.exists():
+        return exact
+
+    sop_store = getattr(request.app.state, "sop_store", None)
+    if sop_store:
+        record = None
+        if document_id.isdigit():
+            record = sop_store.get_record_by_id(int(document_id))
+        if not record:
+            record = sop_store.get_record_by_uid(document_id)
+        if record:
+            doc_uid = record.get("document_Uid") or record.get("document_uid")
+            if doc_uid:
+                rec_file = dir_path / f"{prefix}{doc_uid}{suffix}"
+                if rec_file.exists():
+                    return rec_file
+
+    candidates = list(dir_path.glob(f"{prefix}*{document_id}*{suffix}"))
+    if candidates:
+        return candidates[0]
+
+    return None
+
+
 @router.post("/migrate", response_model=MigrationResult)
 async def migrate_document(
     request: Request,
@@ -28,23 +106,13 @@ async def migrate_document(
 ):
     """Migrate an extracted document JSON into a .docx template.
 
-    - **document_id**: ID of previously extracted document.
+    - **document_id**: ID or UID of previously extracted document.
     - **template_file**: Optional custom .docx template file. If omitted, uses default template.
     """
     logger.info(f"Migration request received for document_id='{document_id}'")
 
     # Locate extracted JSON
-    json_path = settings.output_dir / f"{document_id}.json"
-    if not json_path.exists():
-        # Try matching files starting with or containing document_id
-        candidates = list(settings.output_dir.glob(f"*{document_id}*.json"))
-        if candidates:
-            json_path = candidates[0]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Extracted JSON not found for document_id '{document_id}' in {settings.output_dir}",
-            )
+    json_path = _find_extracted_json(document_id, settings, request)
 
     # Load extracted JSON into DocxMigrationOutput
     try:
@@ -100,6 +168,7 @@ async def migrate_document(
         with open(qa_save_path, "w", encoding="utf-8") as f:
             json.dump(result.qa_report.model_dump(), f, indent=2)
 
+        result.download_url = f"/documents/{document_id}/download-docx"
         return result
 
     except Exception as exc:
@@ -113,19 +182,18 @@ async def migrate_document(
 @router.get("/{document_id}/migration-plan")
 async def get_migration_plan(
     document_id: str,
+    request: Request,
     settings: Settings = Depends(get_settings),
 ):
     """Retrieve the LLM-generated MigrationPlan for a document."""
-    plan_path = settings.migration_output_dir / f"plan_{document_id}.json"
-    if not plan_path.exists():
-        candidates = list(settings.migration_output_dir.glob(f"plan_*{document_id}*.json"))
-        if candidates:
-            plan_path = candidates[0]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Migration plan not found for document_id '{document_id}'",
-            )
+    plan_path = _find_migration_file(
+        settings.migration_output_dir, "plan_", document_id, ".json", request
+    )
+    if not plan_path or not plan_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Migration plan not found for document_id '{document_id}'",
+        )
 
     with open(plan_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -134,19 +202,18 @@ async def get_migration_plan(
 @router.get("/{document_id}/migration-status")
 async def get_migration_status(
     document_id: str,
+    request: Request,
     settings: Settings = Depends(get_settings),
 ):
     """Retrieve migration status and QA report for a document."""
-    qa_path = settings.migration_output_dir / f"qa_{document_id}.json"
-    if not qa_path.exists():
-        candidates = list(settings.migration_output_dir.glob(f"qa_*{document_id}*.json"))
-        if candidates:
-            qa_path = candidates[0]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"QA report not found for document_id '{document_id}'",
-            )
+    qa_path = _find_migration_file(
+        settings.migration_output_dir, "qa_", document_id, ".json", request
+    )
+    if not qa_path or not qa_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"QA report not found for document_id '{document_id}'",
+        )
 
     with open(qa_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -155,19 +222,18 @@ async def get_migration_status(
 @router.get("/{document_id}/download-docx")
 async def download_migrated_docx(
     document_id: str,
+    request: Request,
     settings: Settings = Depends(get_settings),
 ):
     """Download the final migrated .docx file."""
-    docx_path = settings.migration_output_dir / f"migrated_{document_id}.docx"
-    if not docx_path.exists():
-        candidates = list(settings.migration_output_dir.glob(f"migrated_*{document_id}*.docx"))
-        if candidates:
-            docx_path = candidates[0]
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Migrated .docx not found for document_id '{document_id}'",
-            )
+    docx_path = _find_migration_file(
+        settings.migration_output_dir, "migrated_", document_id, ".docx", request
+    )
+    if not docx_path or not docx_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Migrated .docx not found for document_id '{document_id}'",
+        )
 
     return FileResponse(
         path=docx_path,

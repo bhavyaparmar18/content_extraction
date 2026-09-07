@@ -6,7 +6,11 @@ import {
   Issue,
   ReprocessingRequest,
   WorkflowVersion,
+  MigrationResult,
+  MigrationPlan,
+  MigrationQAReport,
 } from '@/types';
+import { useAuthStore } from './authStore';
 
 const API_BASE = ''; // empty means relative path, forwarded by Vite proxy to http://localhost:8000
 
@@ -21,15 +25,57 @@ export class ApiError extends Error {
   }
 }
 
+// Prevent concurrent refresh attempts
+let _refreshPromise: Promise<void> | null = null;
+
+async function _ensureFreshToken(): Promise<void> {
+  const { accessToken, expiresAt, setAuthenticatedSession, clearSession } = useAuthStore.getState();
+
+  // If token is missing or expiring within 60 seconds, refresh it
+  const needsRefresh = !accessToken || (expiresAt != null && expiresAt - Date.now() < 60_000);
+  if (!needsRefresh) return;
+
+  // Deduplicate concurrent refresh calls
+  if (!_refreshPromise) {
+    _refreshPromise = (async () => {
+      try {
+        const res = await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' });
+        if (!res.ok) throw new Error('Refresh failed');
+        const data = await res.json();
+        setAuthenticatedSession(data.data.user, data.data.authentication);
+      } catch {
+        clearSession(); // Force redirect to login via ProtectedRoute
+      } finally {
+        _refreshPromise = null;
+      }
+    })();
+  }
+
+  return _refreshPromise;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Proactively refresh the token if it's expired or about to expire
+  await _ensureFreshToken();
+
   const url = `${API_BASE}${path}`;
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const res = await fetch(url, { ...options, headers });
+  // Inject Bearer token if available
+  const token = useAuthStore.getState().accessToken;
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const res = await fetch(url, { credentials: 'include', ...options, headers });
   if (!res.ok) {
+    // If still a 401 after refresh attempt, clear session to force re-login
+    if (res.status === 401) {
+      useAuthStore.getState().clearSession();
+    }
     let errData: any;
     try {
       errData = await res.json();
@@ -205,24 +251,24 @@ export const api = {
   },
 
   // --- Migration Engine ---
-  async migrateDocument(documentId: string, templateFile?: File): Promise<any> {
+  async migrateDocument(documentId: string, templateFile?: File): Promise<MigrationResult> {
     const formData = new FormData();
     formData.append('document_id', documentId);
     if (templateFile) {
       formData.append('template_file', templateFile);
     }
-    return request<any>('/documents/migrate', {
+    return request<MigrationResult>('/documents/migrate', {
       method: 'POST',
       body: formData,
     });
   },
 
-  async getMigrationStatus(documentId: string): Promise<any> {
-    return request<any>(`/documents/${encodeURIComponent(documentId)}/migration-status`);
+  async getMigrationStatus(documentId: string): Promise<MigrationQAReport> {
+    return request<MigrationQAReport>(`/documents/${encodeURIComponent(documentId)}/migration-status`);
   },
 
-  async getMigrationPlan(documentId: string): Promise<any> {
-    return request<any>(`/documents/${encodeURIComponent(documentId)}/migration-plan`);
+  async getMigrationPlan(documentId: string): Promise<MigrationPlan> {
+    return request<MigrationPlan>(`/documents/${encodeURIComponent(documentId)}/migration-plan`);
   },
 
   getDownloadDocxUrl(documentId: string): string {

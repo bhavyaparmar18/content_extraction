@@ -6,10 +6,12 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.enum.table import WD_ALIGN_VERTICAL
 from loguru import logger
 
 from app.schemas.migration import MigrationElement, DocxMigrationOutput, MigrationTableCell
 from app.services.migration.schemas import PlaceholderTablePlan
+from app.services.migration.docx_styler import DocxStyler
 
 
 class TableMigrator:
@@ -347,6 +349,8 @@ class TableMigrator:
             p = Path(icon_path)
             if p.exists():
                 try:
+                    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                    DocxStyler._vertically_center_paragraph_content(para)
                     icon_run = para.add_run()
                     icon_run.add_picture(str(p), width=Pt(24.0), height=Pt(24.0))
                     if text.strip():
@@ -359,6 +363,8 @@ class TableMigrator:
             p = Path(image_path)
             if p.exists():
                 try:
+                    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                    DocxStyler._vertically_center_paragraph_content(para)
                     img_run = para.add_run()
                     img_run.add_picture(str(p), width=Pt(36.0), height=Pt(36.0))
                     if text.strip():
