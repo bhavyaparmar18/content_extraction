@@ -1,0 +1,386 @@
+{
+  "template_name": "upload_Template Main GP Docs.docx",
+  "document_type_detected": "STANDARD OPERATING PROCEDURE",
+  "font_family": "Arial",
+  "font_size_body_pt": 10.0,
+  "font_size_heading1_pt": 12.0,
+  "font_size_heading2_pt": 11.0,
+  "font_size_heading3_pt": 10.0,
+  "preserve_headers_footers": true,
+  "toc_auto_generated": true,
+  "skip_cover_page": true,
+  "section_plans": [
+    {
+      "template_section_heading": "GENERAL INFORMATION",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "PURPOSE",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "APPLICABILITY",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "DEFINITIONS & ABBREVIATIONS",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "IMPLEMENTATION AND/OR PRE-REQUISITES",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "ROLES & RESPONSIBILITIES",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "PROCESS",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "ASSOCIATED DOCUMENTS",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_na",
+      "fallback_text": "N/A",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "REFERENCES",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "distribution of controlled prints/copies (optional)",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "delete_section",
+      "fallback_text": null,
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    },
+    {
+      "template_section_heading": "DOCUMENT HISTORY",
+      "template_heading_level": 1,
+      "template_paragraph_indices_to_delete": [],
+      "source_sections_mapped": [],
+      "elements": [],
+      "has_source_content": false,
+      "fallback_action": "insert_none",
+      "fallback_text": "(None)",
+      "is_unmapped_source": false,
+      "insertion_after_section": null
+    }
+  ],
+  "placeholder_tables": [
+    {
+      "table_index": 0,
+      "table_purpose": "Scope and metadata",
+      "parent_section_heading": "GENERAL INFORMATION",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Vault token table, not to be populated."
+    },
+    {
+      "table_index": 1,
+      "table_purpose": "Applicability and impacted divisions",
+      "parent_section_heading": "APPLICABILITY",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Vault token table, not to be populated."
+    },
+    {
+      "table_index": 2,
+      "table_purpose": "Purpose instructional table",
+      "parent_section_heading": "PURPOSE",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 3,
+      "table_purpose": "Applicability instructional table",
+      "parent_section_heading": "APPLICABILITY",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 4,
+      "table_purpose": "Definitions table",
+      "parent_section_heading": "DEFINITIONS & ABBREVIATIONS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    },
+    {
+      "table_index": 5,
+      "table_purpose": "Abbreviations table",
+      "parent_section_heading": "DEFINITIONS & ABBREVIATIONS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    },
+    {
+      "table_index": 6,
+      "table_purpose": "Infographics table",
+      "parent_section_heading": "DEFINITIONS & ABBREVIATIONS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    },
+    {
+      "table_index": 7,
+      "table_purpose": "Competence description table",
+      "parent_section_heading": "ROLES & RESPONSIBILITIES",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 8,
+      "table_purpose": "Roles and responsibilities table",
+      "parent_section_heading": "ROLES & RESPONSIBILITIES",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 9,
+      "table_purpose": "Process steps table",
+      "parent_section_heading": "ROLES & RESPONSIBILITIES",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 10,
+      "table_purpose": "Executive summary table",
+      "parent_section_heading": "PROCESS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 11,
+      "table_purpose": "Explanation section table",
+      "parent_section_heading": "PROCESS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 12,
+      "table_purpose": "Attention section table",
+      "parent_section_heading": "PROCESS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 13,
+      "table_purpose": "Key-take-away section table",
+      "parent_section_heading": "PROCESS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "Instructional table, not to be populated."
+    },
+    {
+      "table_index": 14,
+      "table_purpose": "Associated documents table",
+      "parent_section_heading": "ASSOCIATED DOCUMENTS",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    },
+    {
+      "table_index": 15,
+      "table_purpose": "References table",
+      "parent_section_heading": "REFERENCES",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    },
+    {
+      "table_index": 16,
+      "table_purpose": "Document history table",
+      "parent_section_heading": "DOCUMENT HISTORY",
+      "action": "delete",
+      "source_section_title": null,
+      "source_element_index": null,
+      "column_mapping": null,
+      "sort_alphabetically": false,
+      "population_notes": "No content available for this table."
+    }
+  ],
+  "tables_to_delete": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "callout_styles": [
+    {
+      "callout_type": "Executive Summary",
+      "display_name": "Executive Summary",
+      "background_color_hex": "#0000FF",
+      "left_border_color_hex": "#0000FF",
+      "icon_description": "Educational introduction"
+    },
+    {
+      "callout_type": "Explanation",
+      "display_name": "Explanation",
+      "background_color_hex": "#00FF00",
+      "left_border_color_hex": "#00FF00",
+      "icon_description": "Detailed information"
+    },
+    {
+      "callout_type": "Attention",
+      "display_name": "Attention",
+      "background_color_hex": "#FFC0CB",
+      "left_border_color_hex": "#FFC0CB",
+      "icon_description": "Important notice"
+    },
+    {
+      "callout_type": "Key Takeaway",
+      "display_name": "Key Takeaway",
+      "background_color_hex": "#FFFF00",
+      "left_border_color_hex": "#FFFF00",
+      "icon_description": "Main learning points"
+    }
+  ],
+  "overall_confidence": 0.95,
+  "warnings": [
+    "No content sections were provided in the CONTENT_SUMMARY, resulting in no source content mapping."
+  ],
+  "reasoning_summary": "The migration plan was created based on the provided TEMPLATE_PROFILE and CONTENT_SUMMARY. Since the CONTENT_SUMMARY lacked sections, the plan focuses on handling unmapped template sections and placeholder tables appropriately."
+}

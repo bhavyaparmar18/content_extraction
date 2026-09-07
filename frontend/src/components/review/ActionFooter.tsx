@@ -16,6 +16,7 @@ interface ActionFooterProps {
   availableActions: string[];
   isSaving?: boolean;
   isApproving?: boolean;
+  isMigrating?: boolean;
   onSave?: () => void;
   onApprove?: () => void;
   onRequestReprocessing?: () => void;
@@ -30,6 +31,7 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
   availableActions = [],
   isSaving = false,
   isApproving = false,
+  isMigrating = false,
   onSave,
   onApprove,
   onRequestReprocessing,
@@ -108,9 +110,11 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
             variant="secondary"
             size="sm"
             onClick={onAiMigrate}
+            isLoading={isMigrating}
+            disabled={isMigrating}
             leftIcon={<ArrowRightLeft className="size-3.5 text-primary" />}
           >
-            AI Auto-Map
+            {isMigrating ? 'Migrating Document...' : 'Migrate with AI'}
           </Button>
         )}
 

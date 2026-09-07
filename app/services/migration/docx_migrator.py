@@ -588,9 +588,10 @@ class DocxMigrator:
 
             case "insert_list":
                 icon_paths = [ref.path for ref in source_elem.icons] if (placement.embed_icons_inline and source_elem.icons) else []
+                raw_items = source_elem.items or ([source_elem.text] if source_elem.text else [])
                 paras = self.styler.insert_list(
                     doc=doc,
-                    items=source_elem.items or [],
+                    items=raw_items,
                     font_family=plan.font_family,
                     font_size_pt=plan.font_size_body_pt,
                     icon_paths=icon_paths,

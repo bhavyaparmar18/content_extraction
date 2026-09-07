@@ -238,3 +238,38 @@ async def test_unmapped_subsection_merging(tmp_path, mock_chain_factory, sample_
     assert not any("6.1.1 Nested Rule" in t for t in all_texts)
     assert any("Details of the rule." in t for t in all_texts)
     assert any("1. Active voice:" in t for t in all_texts)
+
+
+@pytest.mark.asyncio
+async def test_reclassified_heading_as_list(tmp_path, mock_chain_factory, sample_template):
+    """Verify that a heading with bullet/list format is reclassified to insert_list and its text is not dropped."""
+    settings = Settings()
+    migrator = DocxMigrator(settings, mock_chain_factory)
+    output_path = tmp_path / "migrated_reclassified.docx"
+
+    extracted = DocxMigrationOutput(
+        document_id="test_doc_reclassified",
+        sections=[
+            MigrationSection(
+                title="1 PURPOSE",
+                elements=[
+                    MigrationElement(element_type="paragraph", text="Purpose statement."),
+                    MigrationElement(element_type="heading", text="• Always wear PPE:"),
+                ],
+            ),
+        ],
+    )
+
+    result = await migrator.migrate(
+        extracted=extracted,
+        template_path=sample_template,
+        output_path=output_path,
+    )
+
+    migrated_doc = Document(str(output_path))
+    all_texts = [p.text for p in migrated_doc.paragraphs]
+
+    # Verify that 'Always wear PPE:' is not lost and is rendered as a list item
+    assert any("Always wear PPE:" in t for t in all_texts)
+    assert any("•\tAlways wear PPE:" in t for t in all_texts)
+

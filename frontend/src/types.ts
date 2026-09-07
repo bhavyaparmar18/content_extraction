@@ -234,3 +234,54 @@ export interface WorkflowProgressEnvelope {
     details?: Record<string, unknown>;
   };
 }
+
+export interface ElementPlacement {
+  source_section_title: string;
+  source_element_index: number;
+  source_element_type: string;
+  target_section_heading: string;
+  placement_order: number;
+  action: string;
+  embed_icons_inline?: boolean;
+  notes?: string;
+}
+
+export interface SectionPlan {
+  template_section_heading: string;
+  template_heading_level?: number;
+  source_sections_mapped: string[];
+  elements: ElementPlacement[];
+  has_source_content: boolean;
+  is_unmapped_source?: boolean;
+}
+
+export interface MigrationPlan {
+  template_name: string;
+  document_type_detected: string;
+  font_family: string;
+  font_size_body_pt?: number;
+  overall_confidence?: number;
+  section_plans: SectionPlan[];
+  warnings?: string[];
+  reasoning_summary?: string;
+}
+
+export interface MigrationQAReport {
+  status: string;
+  total_source_sections: number;
+  total_source_elements: number;
+  total_placed_elements: number;
+  total_skipped_elements: number;
+  content_coverage_pct: number;
+  sections_mapped: number;
+  low_confidence_warnings: string[];
+  validation_errors: string[];
+}
+
+export interface MigrationResult {
+  output_path: string;
+  plan: MigrationPlan;
+  qa_report: MigrationQAReport;
+  download_url?: string;
+}
+
