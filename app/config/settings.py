@@ -81,6 +81,21 @@ class Settings(BaseSettings):
     llm_max_retries: int = 5
     llm_base_backoff_seconds: float = 2.0
 
+    # --- Authentication & JWT ---
+    jwt_secret_key: str = "sop-governance-auth-secret-key-development-2026"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_seconds: int = 900
+    jwt_issuer: str = "governance-sop-api"
+    jwt_audience: str = "governance-sop-web"
+    auth_db_path: Optional[Path] = None
+    auth_refresh_token_expire_days: int = 1
+    auth_remember_me_expire_days: int = 30
+    auth_max_failed_attempts: int = 5
+    auth_lockout_duration_minutes: int = 15
+    auth_ip_rate_limit_max_attempts: int = 10
+    auth_ip_rate_limit_window_minutes: int = 15
+    auth_cookie_secure: bool = False
+
     model_config = {
         "env_prefix": "SOP_",
         "env_file": ".env",

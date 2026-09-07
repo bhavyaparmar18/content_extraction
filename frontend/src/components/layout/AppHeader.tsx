@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Bell, HelpCircle, ChevronRight, User } from 'lucide-react';
+import { Bell, HelpCircle, ChevronRight, User, LogOut } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { Button } from '@/components/ui/Button';
+import { useAuthStore } from '@/lib/authStore';
 
 interface AppHeaderProps {
   breadcrumbExtra?: React.ReactNode;
@@ -10,6 +11,14 @@ interface AppHeaderProps {
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ breadcrumbExtra }) => {
   const location = useLocation();
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+
+  const initials = user
+    ? ((user.firstName?.[0] || '') + (user.lastName?.[0] || '')).toUpperCase() || 'U'
+    : 'BP';
+  const fullName = user ? `${user.firstName} ${user.lastName}` : 'Bhavya P.';
+  const roleDisplay = user?.role ? user.role.replace('_', ' ') : 'Lead Reviewer';
 
   // Compute breadcrumb from path
   const pathParts = location.pathname.split('/').filter(Boolean);
@@ -75,15 +84,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ breadcrumbExtra }) => {
 
         <div className="h-4 w-px bg-border mx-1" />
 
-        {/* User Account Avatar */}
+        {/* User Account Avatar & Actions */}
         <div className="flex items-center gap-2.5 pl-1">
           <div className="grid size-8 place-items-center rounded-full bg-primary/20 text-primary border border-primary/30 font-semibold text-xs">
-            BP
+            {initials}
           </div>
           <div className="hidden text-left sm:block">
-            <div className="text-xs font-medium text-text-main leading-tight">Bhavya P.</div>
-            <div className="text-[10px] text-text-muted">Lead Reviewer</div>
+            <div className="text-xs font-medium text-text-main leading-tight">{fullName}</div>
+            <div className="text-[10px] text-text-muted">{roleDisplay}</div>
           </div>
+
+          <Button
+            variant="icon"
+            onClick={() => logout()}
+            aria-label="Sign out"
+            title="Sign out"
+            className="text-text-muted hover:text-red-500 hover:bg-red-500/10 ml-1"
+          >
+            <LogOut className="size-4" />
+          </Button>
         </div>
       </div>
     </header>

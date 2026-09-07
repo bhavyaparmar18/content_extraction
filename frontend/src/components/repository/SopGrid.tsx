@@ -81,6 +81,16 @@ export const SopGrid: React.FC<SopGridProps> = ({ sops, onDelete }) => {
                 <Button
                   variant="icon"
                   size="sm"
+                  onClick={() => navigate(`/review/${sop.id}?mode=migration`)}
+                  title="Start Migration"
+                  aria-label="Migrate"
+                >
+                  <ArrowRightLeft className="size-3.5 text-emerald-400" />
+                </Button>
+
+                <Button
+                  variant="icon"
+                  size="sm"
                   onClick={() => navigate(`/review/${sop.id}?mode=review`)}
                   title="Open Review"
                   aria-label="Review"

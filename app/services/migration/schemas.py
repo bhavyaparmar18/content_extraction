@@ -247,3 +247,4 @@ class MigrationResult(BaseModel):
     output_path: str
     plan: MigrationPlan
     qa_report: MigrationQAReport
+    download_url: Optional[str] = None

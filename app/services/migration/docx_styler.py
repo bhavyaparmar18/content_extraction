@@ -10,8 +10,30 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from loguru import logger
 
 
+import re
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+
 class DocxStyler:
     """Low-level python-docx / OXML element insertion and styling."""
+
+    ORDERED_PREFIX_RE = re.compile(
+        r"^(?:\(?\d{1,3}[.)]|\(?[a-zA-Z][.)]|\(?[ivxIVX]{1,5}[.)])\s+"
+    )
+    UNORDERED_PREFIX_RE = re.compile(
+        r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃\*\-]\s*"
+    )
+
+    @staticmethod
+    def _vertically_center_paragraph_content(para):
+        """Align inline images/icons and text along the line's horizontal midline."""
+        pPr = para._element.get_or_add_pPr()
+        text_align = pPr.find(qn("w:textAlignment"))
+        if text_align is None:
+            text_align = OxmlElement("w:textAlignment")
+            pPr.append(text_align)
+        text_align.set(qn("w:val"), "center")
 
     def insert_heading(
         self,
@@ -39,6 +61,7 @@ class DocxStyler:
 
         # 1. Embed icon on the LEFT if present
         if icon_paths:
+            self._vertically_center_paragraph_content(heading)
             for ipath in icon_paths:
                 p = Path(ipath)
                 if p.exists():
@@ -75,6 +98,7 @@ class DocxStyler:
 
         # 1. Embed icon on the LEFT first
         if icon_paths:
+            self._vertically_center_paragraph_content(para)
             for ipath in icon_paths:
                 p = Path(ipath)
                 if p.exists():
@@ -98,35 +122,75 @@ class DocxStyler:
         items: list[str],
         font_family: str = "Arial",
         font_size_pt: float = 10.0,
-        style: str = "List Bullet",
+        style: Optional[str] = None,
+        is_ordered: Optional[bool] = None,
         icon_paths: Optional[list[str | Path]] = None,
         icon_size_pt: float = 20.0,
     ) -> list[Any]:
-        """Insert a bulleted list and return all created paragraphs."""
-        list_style = style if style in [s.name for s in doc.styles] else "List Bullet"
+        """Insert a bulleted or numbered list with clean hanging indents and stripped prefix markers."""
+        if not items:
+            return []
+
+        # Determine if ordered or unordered (if not explicitly given)
+        if is_ordered is None:
+            if style and "number" in style.lower():
+                is_ordered = True
+            elif style and "bullet" in style.lower():
+                is_ordered = False
+            else:
+                ordered_matches = sum(1 for it in items if self.ORDERED_PREFIX_RE.match((it or "").strip()))
+                is_ordered = ordered_matches >= max(1, len(items) // 2)
+
         paras = []
+        valid_items = [it for it in items if (it or "").strip()]
+        total_items = len(valid_items)
 
-        for idx, item_text in enumerate(items):
+        for idx, raw_item in enumerate(valid_items):
+            item_text = raw_item.strip()
             para = doc.add_paragraph()
-            if list_style in [s.name for s in doc.styles]:
-                para.style = doc.styles[list_style]
 
-            para.paragraph_format.space_after = Pt(2.0)
+            # Detect sub-level (e.g. leading tabs/spaces or lettered item a), b))
+            sub_level = 0
+            if is_ordered and re.match(r"^\(?[a-zA-Z][.)]", item_text):
+                sub_level = 1
+            elif raw_item.startswith("\t") or raw_item.startswith("    "):
+                sub_level = 1
+
+            # Strip prefixes to prevent double bullets/numbers
+            if is_ordered:
+                cleaned_text = self.ORDERED_PREFIX_RE.sub("", item_text).strip()
+                prefix_label = f"{idx + 1}.\t" if sub_level == 0 else f"{chr(97 + (idx % 26))}.\t"
+            else:
+                cleaned_text = self.UNORDERED_PREFIX_RE.sub("", item_text).strip()
+                prefix_label = "•\t"
+
+            # Hanging indent layout
+            base_indent = 0.25 * (sub_level + 1)
+            para.paragraph_format.left_indent = Inches(base_indent)
+            para.paragraph_format.first_line_indent = Inches(-0.25)
+            para.paragraph_format.space_before = Pt(0.0)
+            para.paragraph_format.space_after = Pt(6.0 if idx == total_items - 1 else 2.0)
             para.paragraph_format.line_spacing = 1.15
 
-            # If icons provided, embed on first list item
+            # If icons provided, embed on first list item and center vertically
             if idx == 0 and icon_paths:
+                self._vertically_center_paragraph_content(para)
                 for ipath in icon_paths:
                     p = Path(ipath)
                     if p.exists():
                         try:
                             icon_run = para.add_run()
                             icon_run.add_picture(str(p), width=Pt(icon_size_pt), height=Pt(icon_size_pt))
-                            para.add_run("\u2003\u2002")
+                            para.add_run("\u2003")
                         except Exception as exc:
                             logger.warning(f"Failed to embed icon in list item: {exc}")
 
-            text_run = para.add_run(item_text)
+            lbl_run = para.add_run(prefix_label)
+            lbl_run.font.name = font_family
+            lbl_run.font.size = Pt(font_size_pt)
+            lbl_run.bold = is_ordered
+
+            text_run = para.add_run(cleaned_text)
             text_run.font.name = font_family
             text_run.font.size = Pt(font_size_pt)
             paras.append(para)
@@ -146,6 +210,7 @@ class DocxStyler:
             return
 
         try:
+            self._vertically_center_paragraph_content(paragraph)
             # If paragraph has runs, insert at start
             if paragraph.runs:
                 first_run = paragraph.runs[0]

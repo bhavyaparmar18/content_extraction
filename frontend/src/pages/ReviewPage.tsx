@@ -33,6 +33,8 @@ export const ReviewPage: React.FC = () => {
   const [isReprocessingOpen, setIsReprocessingOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [customTemplateFile, setCustomTemplateFile] = useState<File | null>(null);
 
   // Local state for AI suggestions and issues
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([
@@ -195,6 +197,23 @@ export const ReviewPage: React.FC = () => {
     );
   }
 
+  // AI Migration execution
+  const handleTriggerMigration = async () => {
+    if (!bootstrap?.document?.documentUid) return;
+    setIsMigrating(true);
+    try {
+      toastInfo('Running AI template migration & DOCX generation...', 'Migrating');
+      await api.migrateDocument(bootstrap.document.documentUid, customTemplateFile || undefined);
+      queryClient.invalidateQueries({ queryKey: ['migrationStatus', bootstrap.document.documentUid] });
+      queryClient.invalidateQueries({ queryKey: ['migrationPlan', bootstrap.document.documentUid] });
+      toastSuccess('AI migration complete! DOCX template generated.', 'Migration Ready');
+    } catch (err: any) {
+      toastError(err.message || 'Migration pipeline encountered an issue.');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-app">
       {/* Top Review Header */}
@@ -244,6 +263,10 @@ export const ReviewPage: React.FC = () => {
             onAcceptSuggestion={handleAcceptSuggestion}
             onRejectSuggestion={handleRejectSuggestion}
             onGenerateSuggestion={handleGenerateSuggestion}
+            customTemplateFile={customTemplateFile}
+            onSelectTemplateFile={setCustomTemplateFile}
+            isMigrating={isMigrating}
+            onTriggerMigration={handleTriggerMigration}
           />
         )}
       </div>
@@ -253,6 +276,7 @@ export const ReviewPage: React.FC = () => {
         availableActions={bootstrap.availableActions}
         isSaving={isSaving}
         isApproving={isApproving}
+        isMigrating={isMigrating}
         onSave={handleSaveDraft}
         onApprove={handleApprove}
         onRequestReprocessing={() => setIsReprocessingOpen(true)}
@@ -268,16 +292,7 @@ export const ReviewPage: React.FC = () => {
         onAiTranslate={() => {
           toastSuccess('AI Translation complete with GxP terminology enforcement.', 'Translated');
         }}
-        onAiMigrate={async () => {
-          try {
-            toastInfo('Running AI template migration & DOCX generation...', 'Migrating');
-            await api.migrateDocument(bootstrap.document.documentUid);
-            queryClient.invalidateQueries({ queryKey: ['migrationStatus', bootstrap.document.documentUid] });
-            toastSuccess('AI migration complete! DOCX template generated.', 'Migration Ready');
-          } catch (err: any) {
-            toastError(err.message || 'Migration pipeline encountered an issue.');
-          }
-        }}
+        onAiMigrate={handleTriggerMigration}
       />
 
       {/* Reprocessing Request Dialog */}
