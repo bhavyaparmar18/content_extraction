@@ -52,7 +52,9 @@ export const SopGrid: React.FC<SopGridProps> = ({ sops, onDelete }) => {
               <h3 className="font-semibold text-text-main group-hover:text-primary transition line-clamp-2 text-sm leading-snug">
                 {title}
               </h3>
-              <p className="text-xs text-text-muted mt-1 line-clamp-1">{subline}</p>
+              <p className="text-xs text-text-muted mt-1 line-clamp-1" title={subline}>
+                {subline}
+              </p>
 
               {/* Badges / pills */}
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">

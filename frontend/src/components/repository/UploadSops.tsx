@@ -5,11 +5,6 @@ import {
   FileText,
   X,
   AlertCircle,
-  CheckCircle2,
-  Settings2,
-  Sparkles,
-  ArrowRightLeft,
-  Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { formatBytes } from '@/lib/format';
@@ -39,9 +34,6 @@ export const UploadSops: React.FC<UploadSopsProps> = ({
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [workflowType, setWorkflowType] = useState<'extraction' | 'translation' | 'migration'>('extraction');
-  const [targetLang, setTargetLang] = useState('fr');
-  const [targetTemplate, setTargetTemplate] = useState('Corporate SOP Template v2.1');
   const [rejectedBackendFiles, setRejectedBackendFiles] = useState<RejectedFile[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -207,92 +199,6 @@ export const UploadSops: React.FC<UploadSopsProps> = ({
             <div className="text-xs text-text-muted mt-1">
               Supports .PDF and .DOCX files up to 50 MB each
             </div>
-          </div>
-
-          {/* Workflow Target Select */}
-          <div className="rounded-lg border border-border bg-black/10 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-text-main">
-              <Settings2 className="size-4 text-primary" />
-              <span>Target Workflow</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setWorkflowType('extraction')}
-                className={`flex flex-col items-start p-3 rounded-lg border text-left transition ${
-                  workflowType === 'extraction'
-                    ? 'border-primary bg-primary/15 text-primary'
-                    : 'border-border bg-card hover:bg-white/5 text-text-muted'
-                }`}
-              >
-                <FileText className="size-4 mb-1.5" />
-                <span className="text-xs font-semibold text-text-main">Extraction Only</span>
-                <span className="text-[10px] text-text-muted mt-0.5">Parse & extract to v2 AST</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setWorkflowType('translation')}
-                className={`flex flex-col items-start p-3 rounded-lg border text-left transition ${
-                  workflowType === 'translation'
-                    ? 'border-primary bg-primary/15 text-primary'
-                    : 'border-border bg-card hover:bg-white/5 text-text-muted'
-                }`}
-              >
-                <Languages className="size-4 mb-1.5" />
-                <span className="text-xs font-semibold text-text-main">Translate</span>
-                <span className="text-[10px] text-text-muted mt-0.5">AI multilingual translation</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setWorkflowType('migration')}
-                className={`flex flex-col items-start p-3 rounded-lg border text-left transition ${
-                  workflowType === 'migration'
-                    ? 'border-primary bg-primary/15 text-primary'
-                    : 'border-border bg-card hover:bg-white/5 text-text-muted'
-                }`}
-              >
-                <ArrowRightLeft className="size-4 mb-1.5" />
-                <span className="text-xs font-semibold text-text-main">Migrate</span>
-                <span className="text-[10px] text-text-muted mt-0.5">Map to target template</span>
-              </button>
-            </div>
-
-            {/* Translation Options */}
-            {workflowType === 'translation' && (
-              <div className="pt-2 flex items-center gap-3">
-                <label className="text-xs text-text-muted shrink-0">Target Language:</label>
-                <select
-                  value={targetLang}
-                  onChange={(e) => setTargetLang(e.target.value)}
-                  className="field h-8 text-xs max-w-xs"
-                >
-                  <option value="fr">French (Français)</option>
-                  <option value="de">German (Deutsch)</option>
-                  <option value="es">Spanish (Español)</option>
-                  <option value="it">Italian (Italiano)</option>
-                  <option value="ja">Japanese (日本語)</option>
-                </select>
-              </div>
-            )}
-
-            {/* Migration Options */}
-            {workflowType === 'migration' && (
-              <div className="pt-2 flex items-center gap-3">
-                <label className="text-xs text-text-muted shrink-0">Target Template:</label>
-                <select
-                  value={targetTemplate}
-                  onChange={(e) => setTargetTemplate(e.target.value)}
-                  className="field h-8 text-xs max-w-xs"
-                >
-                  <option value="Corporate SOP Template v2.1">Corporate SOP Template v2.1</option>
-                  <option value="Global Lab Standard v3.0">Global Lab Standard v3.0</option>
-                  <option value="GxP Regulatory Guideline v1.4">GxP Regulatory Guideline v1.4</option>
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Staged File List */}
