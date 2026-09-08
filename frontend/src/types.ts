@@ -58,6 +58,12 @@ export interface BatchJob {
   failed_documents?: number;
 }
 
+export interface MigrationIconRef {
+  icon_id?: string;
+  path?: string;
+  semantic_meaning?: string | null;
+}
+
 export interface MigrationTableCell {
   row_index: number;
   col_index: number;
@@ -65,17 +71,19 @@ export interface MigrationTableCell {
   col_span: number;
   text: string;
   is_header?: boolean;
+  icon_path?: string | null;
+  image_path?: string | null;
   raw_bbox?: number[];
 }
 
 export interface MigrationElement {
   id?: string;
-  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon";
+  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon" | string;
   page: number;
   section_name?: string;
   level?: number;
   text?: string;
-  icons?: string[];
+  icons?: Array<string | MigrationIconRef>;
   items?: string[];
   title?: string;
   num_rows?: number;

@@ -12,7 +12,10 @@ from app.schemas.ast_nodes import (
     TableRowNode,
     TableCellNode,
     IconNode,
+    ImageNode,
+    SourceLocation,
 )
+from app.schemas.document import BoundingBox, DocumentMetadata
 from app.services.export.migration_exporter import MigrationExporter
 
 
@@ -37,6 +40,32 @@ def test_migration_exporter_basic_sections():
     assert sec.elements[1].text == "Outlines the writing of GP Docs."
 
 
+def test_migration_exporter_metadata_field_names():
+    ast = DocumentNode(
+        doc_metadata=DocumentMetadata(
+            document_title="Good Writing Practice",
+            document_name="BI-VQD-24416-G",
+            document_number="BI-VQD-24416",
+            document_version="3.0",
+            document_type="Guidance",
+            file_type="pdf",
+            gpdat_version=2,
+            page_count=15,
+        )
+    )
+    output = MigrationExporter.export("BI-VQD-24416_BI-VQD-24416-G_v3.0", ast)
+    dumped = output.to_clean_dict()
+    assert dumped["document_Uid"] == "BI-VQD-24416_BI-VQD-24416-G_v3.0"
+    meta = dumped["metadata"]
+    assert meta["document_Uid"] == "BI-VQD-24416_BI-VQD-24416-G_v3.0"
+    assert meta["document_title"] == "Good Writing Practice"
+    assert meta["document_name"] == "BI-VQD-24416-G"
+    assert meta["file_type"] == "pdf"
+    assert meta["gpdat_version"] == 2
+    assert "duplicate_upload_count" not in meta
+    assert "title" not in meta
+
+
 def test_migration_exporter_inline_icons_and_clean_dict():
     """Test that IconNode items are attached to adjacent paragraphs and clean_dict omits nulls."""
     ast = DocumentNode()
@@ -50,22 +79,36 @@ def test_migration_exporter_inline_icons_and_clean_dict():
     output = MigrationExporter.export("test_icons_doc", ast)
     assert len(output.sections) == 1
     sec = output.sections[0]
-    # No standalone 'icon' elements should be in sec.elements
     assert all(e.element_type != "icon" for e in sec.elements)
     assert len(sec.elements) == 3  # heading, para1, para2
 
-    # Verify icon was attached to para1 (most recent element before icon1)
-    assert len(sec.elements[1].icons) == 1
-    assert sec.elements[1].icons[0].path == "data/icons/vec1.png"
+    # Icon precedes the text it annotates in SOP layout — bind to the next element.
+    assert len(sec.elements[1].icons) == 0
+    assert len(sec.elements[2].icons) == 1
+    assert sec.elements[2].icons[0].path == "data/icons/vec1.png"
 
-    # Verify clean_dict strips empty arrays and null values
     clean = output.to_clean_dict()
     assert clean["version"] == "3.1"
     clean_sec = clean["sections"][0]
     assert "num_rows" not in clean_sec["elements"][0]
     assert "cells" not in clean_sec["elements"][0]
-    assert "icons" in clean_sec["elements"][1]
-    assert "icons" not in clean_sec["elements"][2]
+    assert "icons" not in clean_sec["elements"][1]
+    assert "icons" in clean_sec["elements"][2]
+
+
+def test_migration_exporter_spreads_left_rail_icons():
+    ast = DocumentNode()
+    ast.children = [
+        HeadingNode(level=1, text="1 PURPOSE"),
+        IconNode(asset_path="data/icons/a.png"),
+        IconNode(asset_path="data/icons/b.png"),
+        ParagraphNode(text="First."),
+        ParagraphNode(text="Second."),
+    ]
+    sec = MigrationExporter.export("test_spread", ast).sections[0]
+    paras = [e for e in sec.elements if e.element_type == "paragraph"]
+    assert [i.path for i in paras[0].icons] == ["data/icons/a.png"]
+    assert [i.path for i in paras[1].icons] == ["data/icons/b.png"]
 
 
 def test_migration_exporter_table_with_merged_cells_and_icons():
@@ -248,3 +291,128 @@ def test_list_items_do_not_create_new_sections():
     assert "1. Active Voice is Key:" in list_items
     assert "2. Brevity Matters:" in list_items
     assert "● Important consideration" in list_items
+
+
+def _loc(page: int, y0: float, y1: float, x0: float = 72, x1: float = 500) -> SourceLocation:
+    return SourceLocation(
+        page=page,
+        bbox=BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1, page=page),
+    )
+
+
+def test_migration_exporter_reclaims_purpose_continuation():
+    """Lowercase leftover after the next heading stays in PURPOSE."""
+    ast = DocumentNode()
+    ast.children = [
+        HeadingNode(level=1, text="1 PURPOSE", source_location=_loc(3, 80, 100)),
+        ParagraphNode(text="This SOP", source_location=_loc(3, 110, 125, x1=150)),
+        HeadingNode(level=1, text="2 APPLICABILITY", source_location=_loc(3, 200, 220)),
+        ParagraphNode(text="This SOP is applicable:", source_location=_loc(3, 230, 245)),
+        ParagraphNode(
+            text="defines the change control process which is implemented in GOTrack.",
+            source_location=_loc(3, 140, 180, x0=120),
+        ),
+        ParagraphNode(
+            text="Employees who perform change control.",
+            source_location=_loc(3, 260, 300, x0=120),
+        ),
+    ]
+    output = MigrationExporter.export("test_purpose_reclaim", ast)
+    titles = [s.title for s in output.sections]
+    assert titles[:2] == ["1 PURPOSE", "2 APPLICABILITY"]
+    purpose = next(s for s in output.sections if s.section_number == "1")
+    purpose_text = [e.text for e in purpose.elements if e.element_type == "paragraph"]
+    assert purpose_text[0] == "This SOP"
+    assert purpose_text[1].startswith("defines the change control")
+    appl = next(s for s in output.sections if s.section_number == "2")
+    appl_text = [e.text for e in appl.elements if e.element_type == "paragraph"]
+    assert appl_text[0] == "This SOP is applicable:"
+    assert all(not (t or "").startswith("defines the change") for t in appl_text)
+
+
+def test_migration_exporter_rebinds_icons_by_y_overlap():
+    """Sequential next-element pairing is corrected using bounding boxes."""
+    ast = DocumentNode()
+    ast.children = [
+        HeadingNode(level=1, text="2 APPLICABILITY", source_location=_loc(3, 80, 100)),
+        ParagraphNode(text="This SOP is applicable:", source_location=_loc(3, 110, 125)),
+        IconNode(asset_path="data/icons/buildings.png", source_location=_loc(3, 200, 240, 72, 110)),
+        IconNode(asset_path="data/icons/person.png", source_location=_loc(3, 140, 180, 72, 110)),
+        ParagraphNode(
+            text="Employees who perform change control.",
+            source_location=_loc(3, 140, 180, 120, 500),
+        ),
+        ParagraphNode(
+            text="All areas where changes are processed.",
+            source_location=_loc(3, 200, 240, 120, 500),
+        ),
+    ]
+    sec = MigrationExporter.export("test_icon_y", ast).sections[0]
+    paras = [e for e in sec.elements if e.element_type == "paragraph"]
+    by_text = {e.text: [i.path for i in e.icons] for e in paras}
+    assert by_text["This SOP is applicable:"] == []
+    assert by_text["Employees who perform change control."] == ["data/icons/person.png"]
+    assert by_text["All areas where changes are processed."] == ["data/icons/buildings.png"]
+
+
+def test_migration_exporter_collapses_sparse_infographic_table():
+    """Colored-row pdfplumber grids collapse to icon | description."""
+    ast = DocumentNode()
+    table = TableNode(caption=None, grid_cols=6)
+
+    def cell(r, c, text="", image=None, header=False, span=1):
+        node = TableCellNode(
+            row_index=r, col_index=c, row_span=1, col_span=span, is_merge_origin=True
+        )
+        content = []
+        if text:
+            content.append(ParagraphNode(text=text))
+        if image:
+            content.append(ImageNode(asset_path=image))
+        node.content = content
+        return node
+
+    rows = []
+    # Header
+    rows.append(TableRowNode(row_index=0, is_header=True, cells=[
+        cell(0, 0, ""),
+        cell(0, 1, "Infographics", span=2),
+        cell(0, 3, ""),
+        cell(0, 4, "Description", span=2),
+    ]))
+    rows.append(TableRowNode(row_index=1, cells=[
+        cell(1, 0, ""),
+        cell(1, 1, image="data/extracted_images/checklist.png"),
+        cell(1, 4, "o\nExecutive Summary/Introduction – short description of", span=2),
+    ]))
+    rows.append(TableRowNode(row_index=2, cells=[
+        cell(2, 4, "Executive Summary/Introduction – short description of what you can expect from the following chapter.", span=2),
+    ]))
+    rows.append(TableRowNode(row_index=3, cells=[
+        cell(3, 1, image="data/extracted_images/question.png"),
+        cell(3, 3, "Explanation – additional information to the topic", span=2),
+    ]))
+    rows.append(TableRowNode(row_index=4, cells=[
+        cell(4, 1, image="data/extracted_images/warning.png"),
+        cell(4, 4, "Attention – notice taken of something interesting or", span=2),
+    ]))
+    rows.append(TableRowNode(row_index=5, cells=[
+        cell(5, 4, "Attention – notice taken of something interesting or important", span=2),
+    ]))
+    table.rows = rows
+    ast.children = [HeadingNode(level=1, text="3 DEFINITIONS & ABBREVIATIONS"), table]
+
+    output = MigrationExporter.export("test_infographic", ast)
+    tbl = next(e for s in output.sections for e in s.elements if e.element_type == "table")
+    assert tbl.num_cols == 2
+    assert tbl.num_rows == 4  # header + 3 legend rows
+    texts = {(c.row_index, c.col_index): c.text for c in tbl.cells}
+    assert texts[(0, 0)] == "Infographics"
+    assert texts[(0, 1)] == "Description"
+    assert "expect from the following chapter" in texts[(1, 1)]
+    assert texts[(1, 1)].startswith("Executive Summary")
+    assert "o" not in texts[(1, 1)][:3]
+    assert texts[(2, 1)].startswith("Explanation")
+    assert texts[(3, 1)].endswith("important")
+    icons = [c.icon_path for c in tbl.cells if c.icon_path]
+    assert len(icons) == 3

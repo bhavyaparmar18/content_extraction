@@ -48,6 +48,11 @@ class PDFLayoutAnalyzer:
     # Default percentage of page height considered header/footer zone
     _DEFAULT_HEADER_FOOTER_PCT = 0.08  # 8% of page height
 
+    # Left-rail SOP icons are small images. Including them in XY-cut makes the
+    # icon strip look like its own column, so headings and left fragments are
+    # read before the right-hand paragraphs they belong with.
+    _RAIL_ICON_MAX_PT = 90.0
+
     def __init__(self, settings: Settings, logger=None) -> None:
         self.settings = settings
         self.logger = logger or _default_logger
@@ -80,8 +85,11 @@ class PDFLayoutAnalyzer:
             page.elements, page_height, is_first_page=is_first_page
         )
 
-        # Step 2: run reading order analysis on body elements
-        ro_blocks = self._elements_to_blocks(body_elements)
+        # Left-rail icons are overlays, not a text column. Drop them from XY-cut.
+        text_body = [el for el in body_elements if not self._is_rail_icon(el)]
+
+        # Step 2: run reading order analysis on body text only
+        ro_blocks = self._elements_to_blocks(text_body)
         ro_result = self._reading_order.compute_reading_order(
             ro_blocks, page_width, page_height
         )
@@ -89,7 +97,7 @@ class PDFLayoutAnalyzer:
         # Map ordered blocks back to elements
         block_id_to_element = {
             self._element_block_id(el, i): el
-            for i, el in enumerate(body_elements)
+            for i, el in enumerate(text_body)
         }
         ordered_body_elements = []
         for block in ro_result.ordered_blocks:
@@ -187,6 +195,8 @@ class PDFLayoutAnalyzer:
             # 3. Footers (kept at bottom if strip_headers_footers is False)
             reordered: list[ExtractedElement] = []
             strip_hf = getattr(self.settings, "strip_headers_footers", True)
+            header_ids = {id(el) for el in layout.headers}
+            footer_ids = {id(el) for el in layout.footers}
             if not strip_hf:
                 reordered.extend(layout.headers)
             for region in layout.regions:
@@ -194,7 +204,16 @@ class PDFLayoutAnalyzer:
             if not strip_hf:
                 reordered.extend(layout.footers)
 
-            # 4. Group inline icons with text
+            # 4. Re-insert left-rail icons immediately before the text they overlap.
+            present_ids = {id(el) for el in reordered}
+            rail_icons = [
+                el for el in page.elements
+                if self._is_rail_icon(el)
+                and id(el) not in header_ids
+                and id(el) not in footer_ids
+                and id(el) not in present_ids
+            ]
+            reordered = self._insert_icons_before_text(reordered, rail_icons)
             reordered = self._group_inline_icons(reordered)
 
             # Re-sequence
@@ -310,68 +329,109 @@ class PDFLayoutAnalyzer:
 
     # ── Inline Icon Spatial Grouping ──────────────────────────────────
 
-    def _group_inline_icons(self, elements: list[ExtractedElement]) -> list[ExtractedElement]:
-        """Group inline icons with their horizontally adjacent text blocks."""
-        icons = []
-        texts = []
-        others = []
-        
-        # 1. Identify Icon Candidates
-        for el in elements:
-            if el.element_type in ("image", "icon") or getattr(el, "element_type", None) in (ElementType.IMAGE, getattr(ElementType, 'ICON', 'icon')):
-                if el.bbox and (el.bbox.x1 - el.bbox.x0) < 50 and (el.bbox.y1 - el.bbox.y0) < 50:
-                    icons.append(el)
-                    continue
-            # Treat paragraphs, list items, headings, and table cells as text
-            if el.element_type in ("paragraph", "list_item", "heading", "table") or getattr(el, "element_type", None) in (ElementType.PARAGRAPH, getattr(ElementType, 'LIST_ITEM', 'list_item'), ElementType.HEADING, ElementType.TABLE):
-                texts.append(el)
-                continue
-            others.append(el)
-            
+    def _is_rail_icon(self, el: ExtractedElement) -> bool:
+        """True for small left-rail images/icons that should not form a column."""
+        et = el.element_type
+        is_media = et in (ElementType.IMAGE, ElementType.ICON, "image", "icon")
+        if not is_media or el.bbox is None:
+            return False
+        width = el.bbox.x1 - el.bbox.x0
+        height = el.bbox.y1 - el.bbox.y0
+        return width <= self._RAIL_ICON_MAX_PT and height <= self._RAIL_ICON_MAX_PT
+
+    @staticmethod
+    def _y_overlap_ratio(a: BoundingBox, b: BoundingBox) -> float:
+        overlap = max(0.0, min(a.y1, b.y1) - max(a.y0, b.y0))
+        if overlap <= 0:
+            return 0.0
+        min_h = min(a.y1 - a.y0, b.y1 - b.y0)
+        if min_h <= 0:
+            return 0.0
+        return overlap / min_h
+
+    def _is_icon_text_target(self, el: ExtractedElement) -> bool:
+        et = el.element_type
+        return et in (
+            ElementType.PARAGRAPH,
+            ElementType.LIST_ITEM,
+            ElementType.NUMBERED_STEP,
+            ElementType.LIST_ORDERED,
+            ElementType.LIST_UNORDERED,
+            "paragraph",
+            "list_item",
+            "numbered_step",
+        )
+
+    def _insert_icons_before_text(
+        self,
+        elements: list[ExtractedElement],
+        icons: list[ExtractedElement],
+    ) -> list[ExtractedElement]:
+        """Place each rail icon immediately before the text it vertically overlaps."""
         if not icons:
             return elements
 
-        # 2. Horizontal Band Matching & 3. Proximity Check
-        icon_to_text = {}
+        texts = [el for el in elements if self._is_icon_text_target(el) and el.bbox]
+        assigned_text_ids: set[int] = set()
+        icon_to_text: dict[int, int] = {}
+
         for icon in icons:
-            best_text = None
-            min_dist = float('inf')
-            for text in texts:
-                if not text.bbox:
-                    continue
-                # Check vertical overlap
-                overlap = max(0, min(icon.bbox.y1, text.bbox.y1) - max(icon.bbox.y0, text.bbox.y0))
-                if overlap > 0:
-                    # Calculate horizontal distance
-                    dist = min(abs(icon.bbox.x1 - text.bbox.x0), abs(icon.bbox.x0 - text.bbox.x1))
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_text = text
-            if best_text:
-                icon_to_text[id(icon)] = id(best_text)
-                
-        # 4. Group Binding
-        text_to_icons = {}
-        for icon in icons:
-            tid = icon_to_text.get(id(icon))
-            if tid:
-                if tid not in text_to_icons:
-                    text_to_icons[tid] = []
-                text_to_icons[tid].append(icon)
-                
-        # Reconstruct the ordered list
-        grouped_elements = []
-        for el in elements:
-            if id(el) in icon_to_text:
+            if icon.bbox is None:
                 continue
-                
-            grouped_elements.append(el)
-            
-            if id(el) in text_to_icons:
-                bound_icons = sorted(text_to_icons[id(el)], key=lambda i: i.bbox.x0 if i.bbox else 0)
-                grouped_elements.extend(bound_icons)
-            
-        return grouped_elements
+            best = None
+            best_score: tuple[float, float] | None = None
+            for text in texts:
+                if id(text) in assigned_text_ids or text.bbox is None:
+                    continue
+                if text.page != icon.page:
+                    continue
+                overlap = self._y_overlap_ratio(icon.bbox, text.bbox)
+                if overlap < 0.25:
+                    continue
+                # Rail icons sit to the left of their text, not after it.
+                if text.bbox.x1 < icon.bbox.x0:
+                    continue
+                hdist = max(0.0, text.bbox.x0 - icon.bbox.x1)
+                score = (overlap, -hdist)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best = text
+            if best is not None:
+                icon_to_text[id(icon)] = id(best)
+                assigned_text_ids.add(id(best))
+
+        out: list[ExtractedElement] = []
+        used: set[int] = set()
+        for el in elements:
+            matching = [ic for ic in icons if icon_to_text.get(id(ic)) == id(el)]
+            matching.sort(key=lambda i: i.bbox.x0 if i.bbox else 0)
+            out.extend(matching)
+            used.update(id(i) for i in matching)
+            out.append(el)
+
+        leftover = [ic for ic in icons if id(ic) not in used]
+        leftover.sort(key=lambda i: (i.bbox.y0 if i.bbox else 0, i.bbox.x0 if i.bbox else 0))
+        for ic in leftover:
+            if ic.bbox is None:
+                out.append(ic)
+                continue
+            inserted = False
+            for i, el in enumerate(out):
+                if el.bbox and el.bbox.y0 > ic.bbox.y0:
+                    out.insert(i, ic)
+                    inserted = True
+                    break
+            if not inserted:
+                out.append(ic)
+        return out
+
+    def _group_inline_icons(self, elements: list[ExtractedElement]) -> list[ExtractedElement]:
+        """Pull rail icons out of reading order and bind them to overlapping text."""
+        icons = [el for el in elements if self._is_rail_icon(el)]
+        if not icons:
+            return elements
+        rest = [el for el in elements if not self._is_rail_icon(el)]
+        return self._insert_icons_before_text(rest, icons)
 
     # ── Conversion Helpers ────────────────────────────────────────────
 

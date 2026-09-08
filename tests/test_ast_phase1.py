@@ -24,6 +24,7 @@ from app.schemas.document import (
     ExtractedElement,
     ExtractedHeading,
     ExtractedImage,
+    ExtractedIcon,
     ExtractedTable,
     ExtractedTableCell,
     PageContent,
@@ -362,6 +363,37 @@ class TestASTBuilder:
         assert isinstance(section.children[2], TableNode)
         assert isinstance(section.children[3], ImageNode)
 
+    def test_reorder_icons_binds_forward_overlapping_text(self, ast_builder):
+        def box(x0, y0, x1, y1):
+            return BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1, page=1)
+
+        elements = [
+            ExtractedHeading(content="2 APPLICABILITY", level=1, page=1, sequence=0, bbox=box(72, 80, 500, 100)),
+            ExtractedIcon(
+                icon_id="buildings", image_path="b.png", page=1, sequence=1,
+                bbox=box(72, 200, 110, 240),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH,
+                content="Employees who perform change control.",
+                page=1, sequence=2, bbox=box(120, 140, 500, 180),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH,
+                content="All areas where changes are processed.",
+                page=1, sequence=3, bbox=box(120, 200, 500, 240),
+            ),
+        ]
+        ordered = ast_builder._reorder_icons(elements)
+        contents = []
+        for el in ordered:
+            if el.element_type == ElementType.ICON:
+                contents.append(el.image_path)
+            else:
+                contents.append(el.content)
+        assert contents.index("b.png") == contents.index("All areas where changes are processed.") - 1
+        assert contents.index("Employees who perform change control.") < contents.index("All areas where changes are processed.")
+
 
 # ── Reading Order Tests ──────────────────────────────────────────────
 
@@ -459,6 +491,67 @@ class TestPDFLayoutAnalyzer:
         # After reorder, element with y0=100 should come first
         assert doc.pages[0].elements[0].content == "A"
         assert doc.pages[0].elements[1].content == "B"
+
+    def test_rail_icons_keep_purpose_text_before_next_heading(self, settings):
+        analyzer = PDFLayoutAnalyzer(settings)
+
+        def box(x0, y0, x1, y1):
+            return BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1, page=1)
+
+        elements = [
+            ExtractedHeading(
+                content="1 PURPOSE", level=1, page=1, sequence=0,
+                bbox=box(72, 80, 500, 100),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH, content="This SOP",
+                page=1, sequence=1, bbox=box(72, 110, 150, 125),
+            ),
+            ExtractedImage(
+                image_path="target.png", page=1, sequence=2,
+                bbox=box(72, 140, 110, 180),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH,
+                content="defines the change control process.",
+                page=1, sequence=3, bbox=box(120, 140, 500, 185),
+            ),
+            ExtractedHeading(
+                content="2 APPLICABILITY", level=1, page=1, sequence=4,
+                bbox=box(72, 210, 500, 230),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH, content="This SOP is applicable:",
+                page=1, sequence=5, bbox=box(72, 240, 400, 255),
+            ),
+            ExtractedImage(
+                image_path="person.png", page=1, sequence=6,
+                bbox=box(72, 270, 110, 310),
+            ),
+            ExtractedElement(
+                element_type=ElementType.PARAGRAPH,
+                content="Employees who perform change control.",
+                page=1, sequence=7, bbox=box(120, 270, 500, 320),
+            ),
+        ]
+        doc = _make_raw_doc(elements)
+        analyzer.reorder_document(doc)
+        texts = [
+            el.content for el in doc.pages[0].elements
+            if el.element_type in (ElementType.HEADING, ElementType.PARAGRAPH)
+        ]
+        assert texts.index("defines the change control process.") < texts.index("2 APPLICABILITY")
+
+        define_idx = next(
+            i for i, el in enumerate(doc.pages[0].elements)
+            if el.content == "defines the change control process."
+        )
+        assert getattr(doc.pages[0].elements[define_idx - 1], "image_path", "").endswith("target.png")
+        emp_idx = next(
+            i for i, el in enumerate(doc.pages[0].elements)
+            if "Employees" in (el.content or "")
+        )
+        assert getattr(doc.pages[0].elements[emp_idx - 1], "image_path", "").endswith("person.png")
 
 
 # ── Output Schema Tests ──────────────────────────────────────────────

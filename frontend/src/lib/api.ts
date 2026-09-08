@@ -149,6 +149,16 @@ export const api = {
     return `${API_BASE}/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(filename)}`;
   },
 
+  /** Basename of a Windows/POSIX path, object `{path}`, or already-rewritten URL. */
+  assetFileName(value: unknown): string {
+    if (value && typeof value === 'object' && 'path' in (value as object)) {
+      value = (value as { path?: unknown }).path;
+    }
+    if (typeof value !== 'string' || !value) return '';
+    const normalized = value.replace(/\\/g, '/');
+    return normalized.split('/').filter(Boolean).pop() || '';
+  },
+
   getFileUrl(documentId: string): string {
     return `${API_BASE}/documents/${encodeURIComponent(documentId)}/file`;
   },

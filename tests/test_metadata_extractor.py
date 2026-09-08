@@ -1,7 +1,5 @@
-"""Unit tests for SOP metadata extraction, ID generation, and upload counter."""
+"""Unit tests for SOP metadata extraction and ID generation."""
 
-import os
-from pathlib import Path
 import pytest
 
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
@@ -31,19 +29,41 @@ def test_generate_document_id():
     assert doc_id_fallback == "DOC_safety_guidelines_v1.0"
 
 
-def test_record_upload_and_counter(tmp_path, monkeypatch):
-    test_reg = tmp_path / "upload_counters.json"
-    monkeypatch.setattr(SOPMetadataExtractor, "REGISTRY_PATH", test_reg)
+def test_clean_cell_value_strips_watermark_fragments():
+    dirty = "o\nBI-VQD-24416"
+    assert SOPMetadataExtractor._clean_cell_value(dirty) == "BI-VQD-24416"
+    assert SOPMetadataExtractor._clean_cell_value("y\np\nBI-VQD-24416-G") == "BI-VQD-24416-G"
+    assert SOPMetadataExtractor._clean_cell_value("3.0") == "3.0"
 
-    doc_id = "SOP-001_Test_Doc_v1.0"
-    assert SOPMetadataExtractor.get_upload_count(doc_id) == 0
 
-    already, count = SOPMetadataExtractor.record_upload(doc_id)
-    assert already is False
-    assert count == 1
-    assert SOPMetadataExtractor.get_upload_count(doc_id) == 1
+def test_matches_uses_word_boundaries():
+    assert SOPMetadataExtractor._matches("version", SOPMetadataExtractor._VERSION_KEYS)
+    assert not SOPMetadataExtractor._matches("reviewer", SOPMetadataExtractor._VERSION_KEYS)
+    assert SOPMetadataExtractor._matches("document id", SOPMetadataExtractor._NUMBER_KEYS)
+    assert SOPMetadataExtractor._matches("title", SOPMetadataExtractor._TITLE_KEYS)
+    assert not SOPMetadataExtractor._matches("title", SOPMetadataExtractor._NAME_KEYS)
 
-    already2, count2 = SOPMetadataExtractor.record_upload(doc_id)
-    assert already2 is True
-    assert count2 == 2
-    assert SOPMetadataExtractor.get_upload_count(doc_id) == 2
+
+def test_classify_row_splits_title_and_name():
+    values = {"title": "", "name": "", "number": "", "version": "", "type": ""}
+    SOPMetadataExtractor._classify_row(["Title", "Good Writing Practice"], values)
+    SOPMetadataExtractor._classify_row(["Document Name", "BI-VQD-24416-G"], values)
+    SOPMetadataExtractor._classify_row(["Document Number", "o\nBI-VQD-24416"], values)
+    SOPMetadataExtractor._classify_row(["Version", "3.0"], values)
+    assert values["title"] == "Good Writing Practice"
+    assert values["name"] == "BI-VQD-24416-G"
+    assert values["number"] == "BI-VQD-24416"
+    assert values["version"] == "3.0"
+
+
+def test_classify_row_document_id_fills_number():
+    values = {"title": "", "name": "", "number": "", "version": "", "type": ""}
+    SOPMetadataExtractor._classify_row(["Document ID", "028-OCS-00443"], values)
+    assert values["number"] == "028-OCS-00443"
+
+
+def test_row_pairs_splits_packed_label_value():
+    pairs = SOPMetadataExtractor._row_pairs(
+        ["Document ID", "SOP-1", "Version: 2.0"]
+    )
+    assert pairs == [("Document ID", "SOP-1"), ("Version", "2.0")]

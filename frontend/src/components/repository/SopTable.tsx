@@ -8,8 +8,6 @@ import {
   Download,
   Trash2,
   MoreVertical,
-  Layers,
-  FileText,
 } from 'lucide-react';
 import { SopRecord } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -45,10 +43,8 @@ export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChan
           <thead>
             <tr>
               <th className="table-header-cell min-w-[280px]">SOP DOCUMENT</th>
-              <th className="table-header-cell w-28">TYPE</th>
               <th className="table-header-cell w-20 text-center">PAGES</th>
               <th className="table-header-cell w-32">REVIEW STATUS</th>
-              <th className="table-header-cell w-28">EXTRACTION</th>
               <th className="table-header-cell w-28">VERSION</th>
               <th className="table-header-cell w-32">UPDATED</th>
               <th className="table-header-cell w-16 text-right pr-5">ACTIONS</th>
@@ -74,18 +70,14 @@ export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChan
                         <div className="font-semibold text-text-main group-hover:text-primary transition truncate max-w-sm sm:max-w-md">
                           {title}
                         </div>
-                        <div className="text-xs text-text-muted mt-0.5 truncate max-w-sm">
+                        <div
+                          className="text-xs text-text-muted mt-0.5 truncate max-w-sm cursor-default"
+                          title={subline}
+                        >
                           {subline}
                         </div>
                       </div>
                     </div>
-                  </td>
-
-                  {/* Document Type */}
-                  <td className="table-cell">
-                    <span className="text-xs text-text-muted capitalize">
-                      {sop.document_type || 'Guidance'}
-                    </span>
                   </td>
 
                   {/* Page Count */}
@@ -96,13 +88,6 @@ export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChan
                   {/* Review Status */}
                   <td className="table-cell">
                     <StatusBadge status={sop.status} size="sm" />
-                  </td>
-
-                  {/* Extraction State */}
-                  <td className="table-cell">
-                    <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                      <Layers className="size-3" /> v2 JSON
-                    </span>
                   </td>
 
                   {/* Database Version */}

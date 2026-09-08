@@ -1,5 +1,6 @@
 """Document detail endpoints — retrieve parsed content by document_id."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -216,9 +217,16 @@ async def get_document_json_v2(
             status_code=404,
             detail=f"v2 JSON for document '{document_id}' not found. Did the job complete?",
         )
-        
-    import json
-    return json.loads(output_path.read_text(encoding="utf-8"))
+
+    try:
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Stored v2 JSON for '{document_id}' could not be read: {e}",
+        )
+
+    return _rewrite_asset_paths(data, document_id)
 
 
 @router.get("/{document_id}/file")
@@ -257,6 +265,28 @@ async def get_document_asset(
 
 
 # ── Helper ──────────────────────────────────────────────────────────────
+
+_ASSET_PATH_KEYS = ("image_path", "icon_path", "path")
+
+
+def _rewrite_asset_paths(node: Any, document_id: str) -> Any:
+    """Rewrite absolute on-disk asset paths into servable URLs.
+
+    Walks the v2 JSON in place and replaces ``image_path`` / ``icon_path`` /
+    ``path`` string values with ``/documents/{document_id}/assets/{basename}``.
+    """
+    if isinstance(node, dict):
+        for key in _ASSET_PATH_KEYS:
+            value = node.get(key)
+            if isinstance(value, str) and value:
+                node[key] = f"/documents/{document_id}/assets/{Path(value).name}"
+        for value in node.values():
+            _rewrite_asset_paths(value, document_id)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_asset_paths(item, document_id)
+    return node
+
 
 def _find_upload(document_id: str, settings: Settings) -> Path:
     """Locate the uploaded file for *document_id* or raise 404."""
