@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
       items: [
         { label: 'SOP Repository', path: '/', icon: FileText },
         { label: 'Dashboard', path: '/#dashboard', icon: LayoutDashboard },
-        { label: 'Templates', path: '/#templates', icon: Layers },
+        { label: 'Templates', path: '/templates', icon: Layers },
         { label: 'Glossary', path: '/#glossary', icon: BookOpen },
         { label: 'AI Instructions', path: '/#ai-prompts', icon: Sparkles },
       ],

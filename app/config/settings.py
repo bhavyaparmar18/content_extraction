@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     migration_template_dir: Path = Path("data/templates")
     skip_preamble_migration: bool = True       # Don't touch cover page / Section 0
 
+    # --- Template Management ---
+    template_upload_dir: Path = Path("data/template_uploads")
+    template_output_dir: Path = Path("data/template_output")
+    template_extracted_images_dir: Path = Path("data/template_images")
+    template_extracted_icons_dir: Path = Path("data/template_icons")
+    template_allowed_extensions: list[str] = [".docx"]
+
     # --- LLM (LangChain) ---
     use_llm_section_summarizer: bool = False  # false = Mode A (programmatic), true = Mode B (LLM semantic)
     llm_planner_model: str = "gemini/gemini-2.5-flash"
@@ -116,6 +123,10 @@ class Settings(BaseSettings):
         self.output_dir = base / self.output_dir
         self.migration_output_dir = base / self.migration_output_dir
         self.migration_template_dir = base / self.migration_template_dir
+        self.template_upload_dir = base / self.template_upload_dir
+        self.template_output_dir = base / self.template_output_dir
+        self.template_extracted_images_dir = base / self.template_extracted_images_dir
+        self.template_extracted_icons_dir = base / self.template_extracted_icons_dir
         self.log_dir = base / self.log_dir
         self.log_file_path = base / self.log_file_path
         self.error_file_path = base / self.error_file_path
@@ -131,6 +142,10 @@ class Settings(BaseSettings):
             self.output_dir,
             self.migration_output_dir,
             self.migration_template_dir,
+            self.template_upload_dir,
+            self.template_output_dir,
+            self.template_extracted_images_dir,
+            self.template_extracted_icons_dir,
             self.log_dir,
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)
@@ -144,6 +159,18 @@ class Settings(BaseSettings):
     def get_document_icon_dir(self, document_id: str) -> Path:
         """Return (and create) the icon directory for a specific document."""
         p = self.extracted_icons_dir / str(document_id)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def get_template_image_dir(self, template_id: str) -> Path:
+        """Return (and create) the image directory for a specific template."""
+        p = self.template_extracted_images_dir / str(template_id)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def get_template_icon_dir(self, template_id: str) -> Path:
+        """Return (and create) the icon directory for a specific template."""
+        p = self.template_extracted_icons_dir / str(template_id)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

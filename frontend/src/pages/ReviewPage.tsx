@@ -198,12 +198,12 @@ export const ReviewPage: React.FC = () => {
   }
 
   // AI Migration execution
-  const handleTriggerMigration = async () => {
+  const handleTriggerMigration = async (templateId?: string) => {
     if (!bootstrap?.document?.documentUid) return;
     setIsMigrating(true);
     try {
       toastInfo('Running AI template migration & DOCX generation...', 'Migrating');
-      await api.migrateDocument(bootstrap.document.documentUid, customTemplateFile || undefined);
+      await api.migrateDocument(bootstrap.document.documentUid, templateId, customTemplateFile || undefined);
       queryClient.invalidateQueries({ queryKey: ['migrationStatus', bootstrap.document.documentUid] });
       queryClient.invalidateQueries({ queryKey: ['migrationPlan', bootstrap.document.documentUid] });
       toastSuccess('AI migration complete! DOCX template generated.', 'Migration Ready');

@@ -102,15 +102,17 @@ def _find_migration_file(
 async def migrate_document(
     request: Request,
     document_id: str = Form(...),
+    template_id: Optional[str] = Form(None),
     template_file: Optional[UploadFile] = File(None),
     settings: Settings = Depends(get_settings),
 ):
     """Migrate an extracted document JSON into a .docx template.
 
     - **document_id**: ID or UID of previously extracted document.
-    - **template_file**: Optional custom .docx template file. If omitted, uses default template.
+    - **template_id**: Optional registered template UID or ID.
+    - **template_file**: Optional custom .docx template file. If omitted, uses registered or default template.
     """
-    logger.info(f"Migration request received for document_id='{document_id}'")
+    logger.info(f"Migration request received for document_id='{document_id}', template_id='{template_id}'")
 
     # Locate extracted JSON
     json_path = _find_extracted_json(document_id, settings, request)
@@ -127,8 +129,31 @@ async def migrate_document(
             message="Failed to parse extracted JSON.",
         )
 
-    # Handle template file
-    if template_file and template_file.filename:
+    # Handle template selection / file
+    target_template_path = None
+    template_store = getattr(request.app.state, "template_store", None)
+    if template_id:
+        record = None
+        if template_store:
+            if template_id.isdigit():
+                record = template_store.get_record_by_id(int(template_id))
+            if not record:
+                record = template_store.get_record_by_uid(template_id)
+        if record and record.get("upload_path"):
+            target_template_path = Path(record["upload_path"])
+            if not target_template_path.exists():
+                raise AppError(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    code="TEMPLATE_FILE_NOT_FOUND",
+                    message=f"Template file not found at: {record['upload_path']}",
+                )
+        else:
+            raise AppError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="TEMPLATE_NOT_FOUND",
+                message=f"Template '{template_id}' not found in template records.",
+            )
+    elif template_file and template_file.filename:
         template_save_path = settings.migration_template_dir / f"upload_{template_file.filename}"
         with open(template_save_path, "wb") as f:
             content = await template_file.read()
@@ -143,7 +168,7 @@ async def migrate_document(
             raise AppError(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 code="TEMPLATE_NOT_FOUND",
-                message="No template_file provided and no default .docx found in data/templates/",
+                message="No template selected or uploaded and no default .docx found in data/templates/",
             )
 
     output_docx_path = settings.migration_output_dir / f"migrated_{document_id}.docx"

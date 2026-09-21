@@ -23,6 +23,14 @@ export default defineConfig({
         },
       },
       '/documents': 'http://localhost:8000',
+      '/templates': {
+        target: 'http://localhost:8000',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) {
+            return '/index.html';
+          }
+        },
+      },
       '/jobs': 'http://localhost:8000',
       '/review': {
         target: 'http://localhost:8000',
