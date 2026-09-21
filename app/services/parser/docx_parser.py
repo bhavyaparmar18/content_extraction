@@ -68,27 +68,43 @@ class DocxParser(BaseParser):
         sequence = 0
         self._current_page = 1  # Track current page number while iterating
 
-        # --- Paragraphs (with page-break detection) ---
-        for para in doc.paragraphs:
-            # Check for a page break BEFORE classifying so the element lands
-            # on the correct (new) page.
-            if self._paragraph_starts_new_page(para):
-                self._current_page += 1
+        # --- Iterate body in document order (paragraphs + tables interleaved) ---
+        from docx.table import Table as DocxTable
+        from docx.text.paragraph import Paragraph
+        from docx.oxml.ns import qn
 
-            element = self._classify_paragraph(para, sequence)
-            if element is not None:
-                elements.append(element)
-                sequence += 1
+        extracted_image_hashes: set[str] = set()  # track inline-extracted images to avoid duplicates
+        self._extracted_hash_paths: dict[str, Path] = {}
 
-        # --- Tables ---
-        for table in doc.tables:
-            table_element = self._extract_table(table, sequence)
-            if table_element is not None:
-                elements.append(table_element)
-                sequence += 1
+        for block in doc.element.body:
+            tag = block.tag
+            if tag == qn('w:p'):
+                para = Paragraph(block, doc)
+                # Check for a page break BEFORE classifying so the element lands
+                # on the correct (new) page.
+                if self._paragraph_starts_new_page(para):
+                    self._current_page += 1
 
-        # --- Images ---
-        image_elements = self._extract_images(doc, sequence)
+                element = self._classify_paragraph(para, sequence)
+                if element is not None:
+                    elements.append(element)
+                    sequence += 1
+
+                # Extract inline images from this paragraph in document order
+                inline_images = self._extract_inline_images(block, doc, sequence, extracted_image_hashes)
+                for img_el in inline_images:
+                    elements.append(img_el)
+                    sequence += 1
+
+            elif tag == qn('w:tbl'):
+                table = DocxTable(block, doc)
+                table_element = self._extract_table(table, sequence, doc=doc, extracted_hashes=extracted_image_hashes)
+                if table_element is not None:
+                    elements.append(table_element)
+                    sequence += 1
+
+        # --- Images fallback (relationship-based, catches images not found inline) ---
+        image_elements = self._extract_images(doc, sequence, skip_hashes=extracted_image_hashes)
         elements.extend(image_elements)
 
         # Group elements into per-page PageContent objects.
@@ -262,9 +278,10 @@ class DocxParser(BaseParser):
     # ── Table extraction ────────────────────────────────────────────
 
     def _extract_table(
-        self, table, sequence: int
+        self, table, sequence: int, doc: Optional[DocxDocument] = None,
+        extracted_hashes: set[str] | None = None,
     ) -> Optional[ExtractedTable]:
-        """Convert a python-docx table into an ExtractedTable with merged cell detection."""
+        """Convert a python-docx table into an ExtractedTable with merged cell detection and cell media extraction."""
         from docx.oxml.ns import qn
         from app.schemas.document import ExtractedTableCell
         
@@ -291,7 +308,12 @@ class DocxParser(BaseParser):
                         val = vMerge.get(qn('w:val'), 'continue')
                         merge_status = val if val == 'restart' else 'continue'
                         
-                # Just get text for now; we could also check images in paragraphs here
+                # Extract inline images from table cell
+                cell_media = []
+                if doc is not None and extracted_hashes is not None:
+                    cell_media = self._extract_inline_images(cell._element, doc, sequence, extracted_hashes)
+                    sequence += len(cell_media)
+
                 text = cell.text.strip()
                 
                 ext_cell = ExtractedTableCell(
@@ -299,6 +321,7 @@ class DocxParser(BaseParser):
                     col_span=col_span,
                     row_span=1,  # will resolve below
                     is_merge_origin=(merge_status != "continue"),
+                    media_nodes=cell_media,
                 )
                 if merge_status == "continue":
                     ext_cell.merge_origin_ref = "vertical"
@@ -338,10 +361,113 @@ class DocxParser(BaseParser):
 
     # ── Image extraction ────────────────────────────────────────────
 
-    def _extract_images(
-        self, doc: DocxDocument, start_sequence: int
+    def _extract_inline_images(
+        self, paragraph_element, doc: DocxDocument, start_sequence: int,
+        extracted_hashes: set[str],
     ) -> list[ExtractedImage]:
-        """Extract embedded images from the DOCX media folder."""
+        """Extract images embedded inline within a paragraph or cell XML element.
+
+        Looks for ``<w:drawing>`` and ``<w:pict>`` elements containing image
+        relationship references (``r:embed`` or ``r:id``), and resolves them
+        to actual image data via the document's relationship table.
+        """
+        from docx.oxml.ns import qn
+
+        images: list[ExtractedImage] = []
+        sequence = start_sequence
+
+        # Namespace for relationships
+        r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+        # Collect all rId references from inline drawings/pictures
+        rids: list[str] = []
+
+        # <w:drawing> -> <wp:inline> or <wp:anchor> -> <a:graphic> -> <a:graphicData> -> <pic:pic> -> <pic:blipFill> -> <a:blip r:embed="rId...">
+        for blip in paragraph_element.iter('{http://schemas.openxmlformats.org/drawingml/2006/main}blip'):
+            embed = blip.get(f'{{{r_ns}}}embed')
+            if embed:
+                rids.append(embed)
+            # Register svgBlip partners so vector duplicates are skipped by fallback
+            for s in blip.xpath('.//*[local-name()="svgBlip"]'):
+                s_embed = s.get(f'{{{r_ns}}}embed')
+                if s_embed and s_embed in doc.part.rels:
+                    try:
+                        s_bytes = doc.part.rels[s_embed].target_part.blob
+                        extracted_hashes.add(hashlib.md5(s_bytes).hexdigest()[:10])
+                    except Exception:
+                        pass
+
+        # <w:pict> -> <v:shape> -> <v:imagedata r:id="rId...">
+        for imagedata in paragraph_element.iter('{urn:schemas-microsoft-com:vml}imagedata'):
+            rid = imagedata.get(f'{{{r_ns}}}id')
+            if rid:
+                rids.append(rid)
+
+        for rid in rids:
+            try:
+                rel = doc.part.rels.get(rid)
+                if rel is None or "image" not in rel.reltype:
+                    continue
+
+                image_part = rel.target_part
+                image_bytes = image_part.blob
+                img_hash = hashlib.md5(image_bytes).hexdigest()[:10]
+
+                # If already extracted, reuse the saved path so subsequent occurrences (e.g. repeated icons) retain the image
+                if hasattr(self, "_extracted_hash_paths") and img_hash in self._extracted_hash_paths:
+                    save_path = self._extracted_hash_paths[img_hash]
+                    images.append(
+                        ExtractedImage(
+                            content=f"[Image: {save_path.name}]",
+                            page=getattr(self, '_current_page', 1),
+                            sequence=sequence,
+                            image_path=str(save_path),
+                        )
+                    )
+                    sequence += 1
+                    continue
+
+                extracted_hashes.add(img_hash)
+
+                content_type = image_part.content_type or "image/png"
+                ext = content_type.split("/")[-1]
+                if ext == "jpeg":
+                    ext = "jpg"
+
+                filename = f"docx_img{sequence}_{img_hash}.{ext}"
+                doc_id = getattr(self, "current_document_id", None) or "default"
+                save_path = self.settings.get_document_image_dir(doc_id) / filename
+
+                save_path.write_bytes(image_bytes)
+                if hasattr(self, "_extracted_hash_paths"):
+                    self._extracted_hash_paths[img_hash] = save_path
+
+                images.append(
+                    ExtractedImage(
+                        content=f"[Image: {filename}]",
+                        page=getattr(self, '_current_page', 1),
+                        sequence=sequence,
+                        image_path=str(save_path),
+                    )
+                )
+                sequence += 1
+
+            except Exception:
+                self.logger.warning(
+                    f"DocxParser: failed to extract inline image from rId {rid}"
+                )
+                continue
+
+        return images
+
+    def _extract_images(
+        self, doc: DocxDocument, start_sequence: int,
+        skip_hashes: set[str] | None = None,
+    ) -> list[ExtractedImage]:
+        """Extract embedded images from the DOCX media folder (fallback).
+
+        Images already extracted inline (tracked by *skip_hashes*) are skipped.
+        """
         images: list[ExtractedImage] = []
         sequence = start_sequence
 
@@ -358,6 +484,11 @@ class DocxParser(BaseParser):
                     ext = "jpg"
 
                 img_hash = hashlib.md5(image_bytes).hexdigest()[:10]
+
+                # Skip images already extracted inline
+                if skip_hashes and img_hash in skip_hashes:
+                    continue
+
                 filename = f"docx_img{sequence}_{img_hash}.{ext}"
                 doc_id = getattr(self, "current_document_id", None) or "default"
                 save_path = self.settings.get_document_image_dir(doc_id) / filename
@@ -382,3 +513,4 @@ class DocxParser(BaseParser):
                 continue
 
         return images
+

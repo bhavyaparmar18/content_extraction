@@ -1,30 +1,35 @@
 import React from 'react';
-import { MigrationSection } from '@/types';
+import { MigrationSection, TemplateSection } from '@/types';
 import { Layers, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface SectionNavProps {
-  sections: MigrationSection[];
+  sections: Array<MigrationSection | TemplateSection>;
   activeSectionIdx: number;
   onSelectSection: (index: number) => void;
+  title?: string;
 }
 
 export const SectionNav: React.FC<SectionNavProps> = ({
   sections,
   activeSectionIdx,
   onSelectSection,
+  title = 'Document Sections',
 }) => {
   return (
     <nav className="dashboard-card sticky top-6 max-h-[calc(100vh-140px)] overflow-y-auto p-3 space-y-1">
       <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-wider text-text-muted border-b border-border mb-2">
         <Layers className="size-3.5 text-primary" />
-        <span>Document Sections ({sections.length})</span>
+        <span>
+          {title} ({sections.length})
+        </span>
       </div>
 
       <div className="space-y-1">
         {sections.map((sec, idx) => {
           const isActive = idx === activeSectionIdx;
           const elementCount = sec.elements?.length || 0;
+          const instructionCount = (sec as any).instructions?.length || 0;
 
           return (
             <button
@@ -45,15 +50,22 @@ export const SectionNav: React.FC<SectionNavProps> = ({
                     isActive ? 'bg-primary text-slate-950 font-bold' : 'bg-white/5 text-text-muted'
                   )}
                 >
-                  {sec.section_number || idx}
+                  {sec.section_number !== undefined && sec.section_number !== null
+                    ? sec.section_number
+                    : idx}
                 </span>
                 <span className="truncate text-xs leading-tight">
                   {sec.title || `Section ${sec.section_number || idx}`}
                 </span>
               </div>
 
-              <div className="flex items-center gap-1 shrink-0 text-[10px] opacity-70">
-                <span>{elementCount}</span>
+              <div className="flex items-center gap-1.5 shrink-0 text-[10px]">
+                {instructionCount > 0 && (
+                  <span className="rounded bg-sky-500/15 text-sky-400 font-mono text-[9px] px-1.5 py-0.5 border border-sky-500/30">
+                    {instructionCount} inst
+                  </span>
+                )}
+                <span className="opacity-70 font-mono">{elementCount}</span>
                 {isActive && <ChevronRight className="size-3 text-primary" />}
               </div>
             </button>

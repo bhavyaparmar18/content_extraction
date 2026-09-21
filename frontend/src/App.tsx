@@ -5,6 +5,8 @@ import { SopRepository } from '@/pages/SopRepository';
 import { SopContentView } from '@/pages/SopContentView';
 import { ReviewPage } from '@/pages/ReviewPage';
 import { ReprocessingAdminPage } from '@/pages/ReprocessingAdminPage';
+import { TemplateManagement } from '@/pages/TemplateManagement';
+import { TemplateContentView } from '@/pages/TemplateContentView';
 import { SignupPage } from '@/pages/SignupPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
@@ -32,6 +34,8 @@ export const App: React.FC = () => {
               <Layout>
                 <Routes>
                   <Route path="/" element={<SopRepository />} />
+                  <Route path="/templates" element={<TemplateManagement />} />
+                  <Route path="/templates/:templateId" element={<TemplateContentView />} />
                   <Route path="/sops/:recordId" element={<SopContentView />} />
                   <Route path="/review/:recordId" element={<ReviewPage />} />
                   <Route path="/admin/reprocessing" element={<ReprocessingAdminPage />} />

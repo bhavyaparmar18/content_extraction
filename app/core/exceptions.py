@@ -33,3 +33,11 @@ class NotFoundError(AppError):
 
     def __init__(self, message: str, code: str = "NOT_FOUND"):
         super().__init__(status_code=404, code=code, message=message)
+
+
+class ValidationError(AppError):
+    """Client input validation failure (HTTP 400)."""
+
+    def __init__(self, message: str, code: str = "VALIDATION_ERROR", field_errors: Optional[list[ApiFieldError]] = None):
+        super().__init__(status_code=400, code=code, message=message, field_errors=field_errors)
+

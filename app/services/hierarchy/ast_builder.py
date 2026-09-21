@@ -242,6 +242,7 @@ class ASTBuilder:
             sequence=seq,
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
+            metadata=dict(getattr(el, "metadata", {}) or {}),
         )
 
     def _make_paragraph_node(
@@ -254,6 +255,7 @@ class ASTBuilder:
             sequence=seq,
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
+            metadata=dict(getattr(el, "metadata", {}) or {}),
         )
 
     def _make_table_node(
@@ -263,6 +265,7 @@ class ASTBuilder:
         rows: list[TableRowNode] = []
 
         def _process_cell(raw_cell, r_idx, c_idx):
+            cell_meta = dict(getattr(raw_cell, "metadata", {}) or {})
             cell_node = TableCellNode(
                 node_id=str(uuid.uuid4()),
                 row_index=r_idx,
@@ -271,6 +274,7 @@ class ASTBuilder:
                 col_span=raw_cell.col_span,
                 is_merge_origin=raw_cell.is_merge_origin,
                 merge_origin_ref=raw_cell.merge_origin_ref,
+                metadata=cell_meta,
                 content=[]
             )
             
@@ -278,6 +282,8 @@ class ASTBuilder:
                 cell_node.content.append(ParagraphNode(
                     node_id=str(uuid.uuid4()),
                     text=raw_cell.content_text,
+                    metadata=cell_meta,
+                    highlight_color=cell_meta.get("font_color_hex"),
                 ))
                 
             for media in raw_cell.media_nodes:
@@ -449,6 +455,7 @@ class ASTBuilder:
                     sequence=seq,
                     source_location=self._make_source_loc(el),
                     confidence=el.confidence,
+                    metadata=dict(getattr(el, "metadata", {}) or {}),
                 )
                 items.append(item)
                 item_index += 1

@@ -1,43 +1,72 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
-import { MigrationElement, MigrationIconRef, MigrationTableCell } from '@/types';
+import { MigrationElement, MigrationIconRef, MigrationTableCell, TemplateElement, TemplateIconRef } from '@/types';
 import { api } from '@/lib/api';
 import { Table, Image as ImageIcon, HelpCircle, ImageOff } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface ElementRendererProps {
-  element: MigrationElement;
+  element: MigrationElement | TemplateElement;
   documentId: string;
   index?: number;
+  isTemplate?: boolean;
 }
 
-function resolveAssetUrl(documentId: string, value: unknown): string {
+function resolveAssetUrl(documentId: string, value: unknown, isTemplate?: boolean): string {
+  if (value && typeof value === 'object') {
+    if ('image_path' in value && typeof (value as any).image_path === 'string') {
+      value = (value as any).image_path;
+    } else if ('path' in value && typeof (value as any).path === 'string') {
+      value = (value as any).path;
+    }
+  }
+
+  if (typeof value !== 'string' || !value) return '';
+
+  // Check if already an absolute or root-relative URL starting with /templates, /documents, http, etc.
+  if (
+    value.startsWith('/templates/') ||
+    value.startsWith('/documents/') ||
+    value.startsWith('http://') ||
+    value.startsWith('https://')
+  ) {
+    return value;
+  }
+
   const fileName = api.assetFileName(value);
-  return fileName ? api.getAssetUrl(documentId, fileName) : '';
+  if (!fileName) return '';
+
+  if (isTemplate) {
+    return api.getTemplateAssetUrl(documentId, fileName);
+  }
+  return api.getAssetUrl(documentId, fileName);
 }
 
 function IconThumbs({
   icons,
   documentId,
+  isTemplate,
 }: {
-  icons?: Array<string | MigrationIconRef>;
+  icons?: Array<string | MigrationIconRef | TemplateIconRef>;
   documentId: string;
+  isTemplate?: boolean;
 }) {
   if (!icons || icons.length === 0) return null;
   return (
     <div className="flex shrink-0 flex-col items-center gap-1.5 pt-0.5">
       {icons.map((icon, idx) => {
-        const url = resolveAssetUrl(documentId, icon);
+        const url = resolveAssetUrl(documentId, icon, isTemplate);
         if (!url) return null;
         const alt =
-          typeof icon === 'object' && icon?.semantic_meaning && icon.semantic_meaning !== 'unknown'
-            ? icon.semantic_meaning
+          typeof icon === 'object' && icon && 'semantic_meaning' in icon && (icon as any).semantic_meaning && (icon as any).semantic_meaning !== 'unknown'
+            ? (icon as any).semantic_meaning
             : 'Extracted icon';
         return (
           <img
             key={idx}
             src={url}
             alt={alt}
-            className="size-6 rounded border border-border bg-white/5 object-contain p-0.5"
+            title={alt}
+            className="size-6 rounded border border-border bg-white/5 object-contain p-0.5 shadow-sm"
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLElement).style.display = 'none';
@@ -84,6 +113,7 @@ export const ElementRenderer: React.FC<ElementRendererProps> = (props) => (
 const ElementRendererInner: React.FC<ElementRendererProps> = ({
   element,
   documentId,
+  isTemplate,
 }) => {
   switch (element.element_type) {
     case 'heading': {
@@ -101,16 +131,24 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
 
       return (
         <div className="py-1">
-          <IconThumbs icons={element.icons} documentId={documentId} />
+          <IconThumbs icons={element.icons} documentId={documentId} isTemplate={isTemplate} />
           <HeadingTag className={headingClasses}>{element.text}</HeadingTag>
         </div>
       );
     }
 
     case 'paragraph': {
+      const isInst = (element as any).is_instruction;
       return (
-        <div className="flex items-start gap-2 py-1.5 leading-relaxed text-sm text-text-main/90">
-          <IconThumbs icons={element.icons} documentId={documentId} />
+        <div
+          className={clsx(
+            'flex items-start gap-2 py-1.5 leading-relaxed text-sm',
+            isInst
+              ? 'text-sky-300 font-medium pl-3 border-l-2 border-sky-400 bg-sky-500/5 rounded-r-lg py-2 my-1'
+              : 'text-text-main/90'
+          )}
+        >
+          <IconThumbs icons={element.icons} documentId={documentId} isTemplate={isTemplate} />
           <p className="min-w-0 flex-1 whitespace-pre-line">{element.text}</p>
         </div>
       );
@@ -118,12 +156,18 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
 
     case 'list': {
       const items = element.items || (element.text ? [element.text] : []);
+      const isInst = (element as any).is_instruction;
       return (
-        <div className="flex items-start gap-2 py-2">
-          <IconThumbs icons={element.icons} documentId={documentId} />
+        <div
+          className={clsx(
+            'flex items-start gap-2 py-2',
+            isInst && 'rounded-lg bg-sky-500/5 p-2 border-l-2 border-sky-400'
+          )}
+        >
+          <IconThumbs icons={element.icons} documentId={documentId} isTemplate={isTemplate} />
           <ul className="min-w-0 flex-1 list-disc space-y-1.5 pl-5 text-sm text-text-main/90 marker:text-primary">
             {items.map((item, idx) => (
-              <li key={idx} className="leading-relaxed">
+              <li key={idx} className={clsx('leading-relaxed', isInst && 'text-sky-200')}>
                 {item}
               </li>
             ))}
@@ -141,17 +185,28 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
         rows[rowIndex].push(cell);
       });
 
-      return (
-        <div className="my-4 space-y-2">
-          <IconThumbs icons={element.icons} documentId={documentId} />
-          {element.title && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-text-main">
-              <Table className="size-3.5 text-primary" />
-              <span>{element.title}</span>
-            </div>
-          )}
+      const isInst = (element as any).is_instruction;
 
-          <div className="overflow-x-auto rounded-lg border border-border bg-black/20">
+      return (
+        <div className={clsx('my-4 space-y-2', isInst && 'rounded-xl border border-sky-500/30 bg-sky-500/[0.02] p-3')}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <IconThumbs icons={element.icons} documentId={documentId} isTemplate={isTemplate} />
+              {element.title && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-text-main">
+                  <Table className="size-3.5 text-primary" />
+                  <span>{element.title}</span>
+                </div>
+              )}
+              {isInst && (
+                <span className="rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 px-2 py-0.5 text-[10px] font-mono">
+                  Instruction Table
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-border bg-black/20 shadow-inner">
             <table className="w-full border-collapse text-left text-xs">
               <tbody>
                 {Object.keys(rows)
@@ -173,35 +228,46 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
                       >
                         {rowCells.map((c, cIdx) => {
                           const CellTag = c.is_header ? 'th' : 'td';
-                          const cellIconUrl = resolveAssetUrl(documentId, c.icon_path);
-                          const cellImageUrl = resolveAssetUrl(documentId, c.image_path);
+                          const cellIconUrl = resolveAssetUrl(documentId, c.icon_path, isTemplate);
+                          const cellImageUrl = resolveAssetUrl(documentId, c.image_path, isTemplate);
+                          const hasOnlyIcon = !c.text && (cellIconUrl || cellImageUrl);
+
                           return (
                             <CellTag
                               key={cIdx}
                               rowSpan={c.row_span > 1 ? c.row_span : undefined}
                               colSpan={c.col_span > 1 ? c.col_span : undefined}
                               className={clsx(
-                                'border-r border-border/40 px-3 py-2.5 align-top leading-relaxed',
+                                'border-r border-border/40 px-3 py-2.5 align-middle leading-relaxed',
                                 c.is_header
                                   ? 'bg-primary/[0.08] font-semibold text-primary'
-                                  : 'text-text-main'
+                                  : 'text-text-main',
+                                hasOnlyIcon && 'w-14 text-center'
                               )}
                             >
-                              {c.text}
                               {cellIconUrl && (
-                                <img
-                                  src={cellIconUrl}
-                                  alt=""
-                                  className="mt-1 size-6 object-contain"
-                                  loading="lazy"
-                                />
+                                <div className="flex items-center justify-center py-0.5">
+                                  <img
+                                    src={cellIconUrl}
+                                    alt="Icon"
+                                    className="size-6 object-contain rounded border border-border/60 bg-white/5 p-0.5 shadow-sm"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                </div>
                               )}
+                              {c.text && <div>{c.text}</div>}
                               {cellImageUrl && (
                                 <img
                                   src={cellImageUrl}
                                   alt=""
-                                  className="mt-1 max-h-24 max-w-full object-contain"
+                                  className="mt-1 max-h-24 max-w-full object-contain rounded"
                                   loading="lazy"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
                                 />
                               )}
                             </CellTag>
@@ -220,17 +286,18 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
     case 'image': {
       const url = resolveAssetUrl(
         documentId,
-        element.asset_filename || element.image_path
+        (element as any).asset_filename || element.image_path,
+        isTemplate
       );
 
       return (
         <div className="my-4 space-y-2 rounded-xl border border-border bg-black/20 p-4">
-          <IconThumbs icons={element.icons} documentId={documentId} />
+          <IconThumbs icons={element.icons} documentId={documentId} isTemplate={isTemplate} />
           <div className="flex min-h-[140px] items-center justify-center overflow-hidden rounded-lg bg-card/60">
             {url ? (
               <img
                 src={url}
-                alt={element.title || 'Extracted document graphic'}
+                alt={element.title || 'Extracted graphic'}
                 className="max-h-96 max-w-full rounded object-contain"
                 loading="lazy"
                 onError={(e) => {
@@ -254,11 +321,12 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
     case 'icon': {
       const url = resolveAssetUrl(
         documentId,
-        element.asset_filename || element.image_path || element.icons?.[0]
+        (element as any).asset_filename || element.image_path || element.icons?.[0],
+        isTemplate
       );
 
       return (
-        <div className="my-1 inline-flex items-center gap-2 rounded border border-border bg-black/10 px-2 py-1">
+        <div className="my-1 inline-flex items-center gap-2 rounded border border-border bg-black/10 px-2.5 py-1">
           {url ? (
             <img
               src={url}

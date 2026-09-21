@@ -9,6 +9,9 @@ import {
   MigrationResult,
   MigrationPlan,
   MigrationQAReport,
+  TemplateRecord,
+  TemplateExtractionOutput,
+  TemplateGlobalRules,
 } from '@/types';
 import { useAuthStore } from './authStore';
 
@@ -154,6 +157,14 @@ export const api = {
     return `${API_BASE}/documents/${encodeURIComponent(documentId)}/assets/${encodeURIComponent(filename)}`;
   },
 
+  getTemplateAssetUrl(templateId: string, filename: string): string {
+    return `${API_BASE}/templates/${encodeURIComponent(templateId)}/assets/${encodeURIComponent(filename)}`;
+  },
+
+  getDownloadTemplateJsonUrl(templateId: string): string {
+    return `${API_BASE}/templates/${encodeURIComponent(templateId)}/content`;
+  },
+
   /** Basename of a Windows/POSIX path, object `{path}`, or already-rewritten URL. */
   assetFileName(value: unknown): string {
     if (value && typeof value === 'object' && 'path' in (value as object)) {
@@ -266,9 +277,12 @@ export const api = {
   },
 
   // --- Migration Engine ---
-  async migrateDocument(documentId: string, templateFile?: File): Promise<MigrationResult> {
+  async migrateDocument(documentId: string, templateId?: string, templateFile?: File): Promise<MigrationResult> {
     const formData = new FormData();
     formData.append('document_id', documentId);
+    if (templateId) {
+      formData.append('template_id', templateId);
+    }
     if (templateFile) {
       formData.append('template_file', templateFile);
     }
@@ -288,5 +302,47 @@ export const api = {
 
   getDownloadDocxUrl(documentId: string): string {
     return `${API_BASE}/documents/${encodeURIComponent(documentId)}/download-docx`;
+  },
+
+  // --- Template Management ---
+  async getTemplates(status?: string): Promise<TemplateRecord[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    return request<TemplateRecord[]>(`/templates${qs}`);
+  },
+
+  async getTemplate(templateId: string): Promise<TemplateRecord> {
+    return request<TemplateRecord>(`/templates/${encodeURIComponent(templateId)}`);
+  },
+
+  async getTemplateContent(templateId: string): Promise<TemplateExtractionOutput> {
+    return request<TemplateExtractionOutput>(`/templates/${encodeURIComponent(templateId)}/content`);
+  },
+
+  async getTemplateGlobalRules(templateId: string): Promise<TemplateGlobalRules> {
+    return request<TemplateGlobalRules>(`/templates/${encodeURIComponent(templateId)}/global-rules`);
+  },
+
+  async uploadTemplate(file: File, templateName?: string): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (templateName) {
+      formData.append('template_name', templateName);
+    }
+    return request('/templates/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async extractTemplate(templateId: string): Promise<any> {
+    return request(`/templates/${encodeURIComponent(templateId)}/extract`, {
+      method: 'POST',
+    });
+  },
+
+  async deleteTemplate(templateId: string): Promise<any> {
+    return request(`/templates/${encodeURIComponent(templateId)}`, {
+      method: 'DELETE',
+    });
   },
 };

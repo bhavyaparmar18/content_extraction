@@ -6,7 +6,7 @@ Every layer communicates through these typed models — no raw dicts.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any
 from pydantic import BaseModel, Field
 
 
@@ -64,6 +64,7 @@ class ExtractedElement(BaseModel):
     confidence: float = 1.0
     outline_level: Optional[int] = None       # DOCX outline level (0-8)
     highlight_color: Optional[str] = None     # Named highlight color if detected
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractedHeading(ExtractedElement):
@@ -81,6 +82,7 @@ class ExtractedTableCell(BaseModel):
     merge_origin_ref: Optional[str] = None  # node_id if we have it, or generic ref
     bbox: Optional[BoundingBox] = None
     media_nodes: list[ExtractedElement] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExtractedTable(ExtractedElement):

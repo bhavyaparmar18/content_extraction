@@ -13,10 +13,11 @@ from app.config.settings import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging_config import setup_logging
 from app.core.logging_middleware import LoggingContextMiddleware
-from app.api import health, upload, extract, documents, jobs, migration, sops, review, auth
+from app.api import health, upload, extract, documents, jobs, migration, sops, review, auth, templates
 from app.services.job_manager import JobManager
 from app.stores.sop_store import SopStore
 from app.stores.auth_store import AuthStore
+from app.stores.template_store import TemplateStore
 
 
 @asynccontextmanager
@@ -34,6 +35,10 @@ async def lifespan(application: FastAPI):
     sop_db_path = settings.project_root / "data" / "sop_records.db"
     sop_store = SopStore(sop_db_path, settings)
     application.state.sop_store = sop_store
+
+    template_db_path = settings.project_root / "data" / "template_records.db"
+    template_store = TemplateStore(template_db_path, settings)
+    application.state.template_store = template_store
 
     auth_db_path = settings.auth_db_path or (settings.project_root / "data" / "auth.db")
     auth_store = AuthStore(auth_db_path, settings)
@@ -86,3 +91,4 @@ app.include_router(migration.router)
 app.include_router(sops.router)
 app.include_router(review.router)
 app.include_router(auth.router)
+app.include_router(templates.router)

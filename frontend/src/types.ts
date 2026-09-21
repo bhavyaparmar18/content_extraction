@@ -293,3 +293,94 @@ export interface MigrationResult {
   download_url?: string;
 }
 
+// --- Template Management Contracts ---
+
+export interface TemplateIconRef {
+  icon_id: string;
+  image_path: string;
+  semantic_meaning?: string;
+  section_context?: string | null;
+  associated_text?: string | null;
+}
+
+export interface TemplateInstruction {
+  text: string;
+  font_color_hex?: string | null;
+  paragraph_index?: number;
+  section_context?: string | null;
+  is_global?: boolean;
+  icons?: TemplateIconRef[];
+}
+
+export interface TemplateElement {
+  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon" | string;
+  page: number;
+  section_name?: string;
+  level?: number;
+  text?: string;
+  icons?: TemplateIconRef[];
+  items?: string[];
+  title?: string;
+  num_rows?: number;
+  num_cols?: number;
+  cells?: MigrationTableCell[];
+  image_path?: string;
+  is_instruction?: boolean;
+  instruction_text?: string | null;
+  font_color_hex?: string | null;
+}
+
+export interface TemplateSection {
+  section_number?: string | null;
+  title: string;
+  page_start: number;
+  page_end: number;
+  elements: TemplateElement[];
+  instructions: TemplateInstruction[];
+}
+
+export interface TemplateGlobalRules {
+  instructions: TemplateInstruction[];
+}
+
+export interface TemplateMetadata {
+  template_id: string;
+  template_name: string;
+  author: string;
+  creation_date: string;
+  modification_date: string;
+  file_type: string;
+  file_size_bytes: number;
+}
+
+export interface TemplateExtractionOutput {
+  version: string;
+  template_id: string;
+  template_name: string;
+  metadata: TemplateMetadata;
+  global_rules: TemplateGlobalRules;
+  sections: TemplateSection[];
+  total_instructions: number;
+  total_icons: number;
+}
+
+export interface TemplateRecord {
+  id: number;
+  template_uid: string;
+  template_name: string;
+  template_version: number;
+  file_type?: string;
+  file_size_bytes?: number;
+  source_filename?: string | null;
+  upload_path?: string | null;
+  output_path?: string | null;
+  total_sections: number;
+  total_elements?: number;
+  total_instructions: number;
+  total_icons: number;
+  global_rules_json?: string | null;
+  status: "uploaded" | "extracting" | "ready" | "failed";
+  created_at: string;
+  updated_at?: string;
+}
+
