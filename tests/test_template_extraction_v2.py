@@ -361,6 +361,97 @@ async def test_v2_output_contract(tmp_path, settings):
 
 
 @pytest.mark.asyncio
+async def test_do_not_list_items_inherit_the_header_directive(tmp_path, settings):
+    """Items under "Do NOT:" carry no negation of their own.
+
+    Wording is taken verbatim from Template Main GP Docs, where the chapter
+    prohibition is the rule the migration depends on most.
+    """
+    doc = Document()
+    _blue_paragraph(
+        doc,
+        "For Guidance documents only, the chapters can be adjusted if needed "
+        "i.e., added, or removed (the document history must be retained).",
+    )
+    _blue_paragraph(doc, "Do NOT:")
+    _blue_paragraph(doc, "Change the Header and Footer")
+    _blue_paragraph(
+        doc,
+        "Delete or change black text, which also includes tables, except for "
+        "Guidance when needed or when specific chapter instruction allows it",
+    )
+    _blue_paragraph(doc, "Add new chapters (subchapters are allowed)")
+    _blue_paragraph(doc, "Use write protection")
+    doc.add_heading("1 PURPOSE", level=1)
+    doc.add_paragraph("Body text.")
+
+    path = tmp_path / "do_not.docx"
+    doc.save(str(path))
+
+    output = await TemplateExtractionService(settings=settings).extract(
+        "do_not", path, template_name="Do Not"
+    )
+    by_text = {i.text: i for i in output.global_rules.instructions}
+
+    header = by_text["Do NOT:"]
+    chapters = by_text["Add new chapters (subchapters are allowed)"]
+
+    # The rule behind "no new sections, adopt as a subsection"
+    assert chapters.directive_type == "prohibition"
+    assert chapters.machine_rule is not None
+    assert chapters.machine_rule.rule == "allow_new_h1"
+    assert chapters.machine_rule.value is False
+    assert chapters.parent_instruction_id == header.instruction_id
+    # Stored text stays verbatim; the header is not spliced into it
+    assert chapters.text == "Add new chapters (subchapters are allowed)"
+
+    # Items with no rule of their own still become prohibitions
+    assert by_text["Use write protection"].directive_type == "prohibition"
+
+    # A neighbouring item that merely mentions a chapter must not claim the rule
+    black_text = by_text[
+        "Delete or change black text, which also includes tables, except for "
+        "Guidance when needed or when specific chapter instruction allows it"
+    ]
+    assert black_text.directive_type == "prohibition"
+    assert black_text.machine_rule is None
+
+    # The Guidance carve-out sits above the list and keeps its own meaning
+    guidance = next(i for i in output.global_rules.instructions if "Guidance documents only" in i.text)
+    assert guidance.parent_instruction_id is None
+    assert guidance.machine_rule is None
+
+    # The list does not leak past the section heading
+    purpose = next(s for s in output.sections if s.title == "1 PURPOSE")
+    assert all(i.parent_instruction_id is None for i in purpose.authoring_instructions)
+
+
+@pytest.mark.asyncio
+async def test_do_not_list_inheritance_survives_real_bullets(tmp_path, settings):
+    """The same list authored as Word bullets takes a different code path."""
+    doc = Document()
+    _blue_paragraph(doc, "Do NOT:")
+    for text in ("Change the Header and Footer", "Add new chapters (subchapters are allowed)"):
+        para = doc.add_paragraph(style="List Bullet")
+        para.add_run(text).font.color.rgb = BLUE
+    doc.add_heading("1 PURPOSE", level=1)
+    doc.add_paragraph("Body text.")
+
+    path = tmp_path / "do_not_bullets.docx"
+    doc.save(str(path))
+
+    output = await TemplateExtractionService(settings=settings).extract(
+        "do_not_bullets", path, template_name="Do Not Bullets"
+    )
+    by_text = {i.text: i for i in output.global_rules.instructions}
+    chapters = by_text["Add new chapters (subchapters are allowed)"]
+
+    assert chapters.directive_type == "prohibition"
+    assert chapters.machine_rule.rule == "allow_new_h1"
+    assert chapters.parent_instruction_id == by_text["Do NOT:"].instruction_id
+
+
+@pytest.mark.asyncio
 async def test_legend_table_keeps_icons_inside_cells_only(tmp_path, settings):
     """A header plus shaded rows stays a table, and each icon is drawn once.
 

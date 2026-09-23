@@ -349,6 +349,8 @@ export interface TemplateInstruction {
   text: string;
   scope: 'global' | 'section' | string;
   directive_type: TemplateDirectiveType | string;
+  /** Set when this is an item of a list whose header carries the directive. */
+  parent_instruction_id?: string | null;
   font_color_hex?: string | null;
   color_detection_method?: string | null;
   paragraph_index?: number;

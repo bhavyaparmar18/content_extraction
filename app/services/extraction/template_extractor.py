@@ -67,7 +67,8 @@ _PLACEHOLDER_PATTERN = re.compile(
 _MACHINE_RULE_MAP: tuple[tuple[tuple[str, ...], str, Any, str], ...] = (
     (("arial",), "font_family", "Arial", DirectiveType.FORMATTING.value),
     (("header", "footer"), "preserve_headers_footers", True, DirectiveType.PROHIBITION.value),
-    (("chapter", "do not"), "allow_new_h1", False, DirectiveType.PROHIBITION.value),
+    # "add" keeps this off the neighbouring items that merely mention a chapter.
+    (("add", "chapter", "do not"), "allow_new_h1", False, DirectiveType.PROHIBITION.value),
     (("table of content",), "toc_auto_generated", True, DirectiveType.PROHIBITION.value),
     (("toc",), "toc_auto_generated", True, DirectiveType.PROHIBITION.value),
     (("blue text", "delete"), "strip_blue_text", True, DirectiveType.REQUIREMENT.value),
@@ -96,9 +97,26 @@ _PREAMBLE_HEADINGS = (
 )
 
 
-def _classify_instruction(text: str) -> tuple[str, Optional[TemplateMachineRule]]:
-    """Derive ``directive_type`` and any enforceable ``machine_rule`` from text."""
-    low = text.lower()
+def _is_list_lead_in(text: str) -> bool:
+    """A short instruction ending in a colon introduces the items beneath it.
+
+    The template writes ``"Do NOT:"`` once and leaves the negation implicit in
+    every item under it, so the lead-in has to travel with those items.
+    """
+    stripped = (text or "").strip()
+    return stripped.endswith(":") and 0 < len(stripped.split()) <= 8
+
+
+def _classify_instruction(
+    text: str, lead_in: Optional[str] = None
+) -> tuple[str, Optional[TemplateMachineRule]]:
+    """Derive ``directive_type`` and any enforceable ``machine_rule`` from text.
+
+    *lead_in* is the list header this instruction sits under. Items of a
+    ``"Do NOT:"`` list carry no negation of their own, so it is folded in for
+    classification only — the stored ``text`` stays verbatim.
+    """
+    low = f"{lead_in} {text}".lower() if lead_in else text.lower()
 
     for keywords, rule, value, directive in _MACHINE_RULE_MAP:
         if all(kw in low for kw in keywords):
@@ -308,6 +326,8 @@ class TemplateExtractionService:
         section_instruction_seq: dict[str, int] = {}
         section_counter = 0
         last_instruction_text: Optional[str] = None
+        # (text, instruction_id) of the list header the current items sit under.
+        pending_lead_in: Optional[tuple[str, str]] = None
 
         buffered_icons: list[tuple[TemplateIconRef, Optional[BoundingBox]]] = []
 
@@ -398,7 +418,9 @@ class TemplateExtractionService:
             heading_style: Optional[str] = None,
         ) -> TemplateSection:
             nonlocal current_section, has_entered_first_section, section_counter
+            nonlocal pending_lead_in
             has_entered_first_section = True
+            pending_lead_in = None
             if section_number is None:
                 extracted = _extract_section_number(title)
                 if extracted:
@@ -428,7 +450,10 @@ class TemplateExtractionService:
             buffered_icons.clear()
 
         def add_element(elem: TemplateElement, bbox: Optional[BoundingBox] = None):
-            nonlocal current_section
+            nonlocal current_section, pending_lead_in
+            if not elem.is_instruction:
+                # Skeleton content between items ends the list.
+                pending_lead_in = None
             if current_section is None:
                 current_section = TemplateSection(
                     section_number="0",
@@ -453,8 +478,10 @@ class TemplateExtractionService:
         ) -> TemplateInstruction:
             """Build an instruction, assign its id, and file it under the right scope."""
             nonlocal paragraph_counter, global_instruction_seq, last_instruction_text
+            nonlocal pending_lead_in
             paragraph_counter += 1
-            directive_type, machine_rule = _classify_instruction(text)
+            lead_in_text, lead_in_id = pending_lead_in or (None, None)
+            directive_type, machine_rule = _classify_instruction(text, lead_in_text)
             is_global = not has_entered_first_section or current_section is None
 
             if is_global:
@@ -471,6 +498,7 @@ class TemplateExtractionService:
                 text=text,
                 scope=InstructionScope.GLOBAL.value if is_global else InstructionScope.SECTION.value,
                 directive_type=directive_type,
+                parent_instruction_id=lead_in_id,
                 font_color_hex=color_hex,
                 color_detection_method=detection_method,
                 paragraph_index=paragraph_counter,
@@ -484,6 +512,9 @@ class TemplateExtractionService:
                 global_rules.instructions.append(instruction)
             else:
                 current_section.authoring_instructions.append(instruction)
+
+            if _is_list_lead_in(text):
+                pending_lead_in = (text, instruction_id)
             last_instruction_text = text
             return instruction
 

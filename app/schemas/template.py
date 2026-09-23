@@ -150,6 +150,9 @@ class TemplateInstruction(BaseModel):
     text: str
     scope: str = InstructionScope.SECTION.value
     directive_type: str = DirectiveType.GUIDANCE.value
+    # Set when this is an item of a list whose header carries the directive,
+    # e.g. the items under "Do NOT:".
+    parent_instruction_id: Optional[str] = None
     font_color_hex: Optional[str] = None
     color_detection_method: Optional[str] = None
     paragraph_index: int = 0
@@ -167,6 +170,8 @@ class TemplateInstruction(BaseModel):
             "paragraph_index": self.paragraph_index,
             "is_global": self.is_global,
         }
+        if self.parent_instruction_id is not None:
+            d["parent_instruction_id"] = self.parent_instruction_id
         if self.font_color_hex is not None:
             d["font_color_hex"] = self.font_color_hex
         if self.color_detection_method is not None:
