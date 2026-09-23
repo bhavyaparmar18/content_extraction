@@ -295,25 +295,95 @@ export interface MigrationResult {
 
 // --- Template Management Contracts ---
 
+/** A reference into `TemplateExtractionOutput.icon_library`. */
 export interface TemplateIconRef {
-  icon_id: string;
-  image_path: string;
-  semantic_meaning?: string;
+  icon_key: string;
   section_context?: string | null;
   associated_text?: string | null;
 }
 
-export interface TemplateInstruction {
-  text: string;
+/** One physical icon in the template, deduplicated by content hash. */
+export interface TemplateIconEntry {
+  icon_key: string;
+  content_hash?: string | null;
+  asset_path: string;
+  semantic_meaning: string;
+  display_name?: string | null;
+  usage_rule?: string | null;
+  source_instruction?: string | null;
+  allowed_sections?: string[];
+  occurrences: number;
+}
+
+/** A shaded infographic box style, with colours read from the template. */
+export interface TemplateCalloutStyle {
+  callout_type: string;
+  display_name?: string | null;
+  background_color_hex: string;
+  left_border_color_hex?: string | null;
+  border_width_pt?: number;
   font_color_hex?: string | null;
+  icon_key?: string | null;
+  trigger_instruction?: string | null;
+  placement_rule?: string;
+  template_source?: Record<string, unknown>;
+}
+
+export type TemplateDirectiveType =
+  | 'prohibition'
+  | 'requirement'
+  | 'guidance'
+  | 'placeholder_hint'
+  | 'icon_usage'
+  | 'formatting';
+
+/** A constraint the migration validator can enforce without the LLM. */
+export interface TemplateMachineRule {
+  rule: string;
+  value: unknown;
+  enforce: 'hard' | 'soft' | string;
+}
+
+export interface TemplateInstruction {
+  instruction_id: string;
+  text: string;
+  scope: 'global' | 'section' | string;
+  directive_type: TemplateDirectiveType | string;
+  font_color_hex?: string | null;
+  color_detection_method?: string | null;
   paragraph_index?: number;
   section_context?: string | null;
   is_global?: boolean;
+  machine_rule?: TemplateMachineRule | null;
   icons?: TemplateIconRef[];
 }
 
+export interface TemplateTableCell {
+  row_index: number;
+  col_index: number;
+  row_span: number;
+  col_span: number;
+  text: string;
+  is_header: boolean;
+  icon_key?: string | null;
+  icon_path?: string | null;
+  image_path?: string | null;
+  shading_hex?: string | null;
+  text_direction?: string | null;
+  valign?: string | null;
+  bold?: boolean;
+}
+
 export interface TemplateElement {
-  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon" | string;
+  element_type:
+    | 'heading'
+    | 'paragraph'
+    | 'list'
+    | 'table'
+    | 'image'
+    | 'icon'
+    | 'callout'
+    | string;
   page: number;
   section_name?: string;
   level?: number;
@@ -323,20 +393,35 @@ export interface TemplateElement {
   title?: string;
   num_rows?: number;
   num_cols?: number;
-  cells?: MigrationTableCell[];
+  header_rows?: number;
+  style_name?: string | null;
+  col_widths_pt?: number[];
+  cells?: TemplateTableCell[];
   image_path?: string;
   is_instruction?: boolean;
   instruction_text?: string | null;
   font_color_hex?: string | null;
+  color_detection_method?: string | null;
+  shading_hex?: string | null;
+  callout_type?: string | null;
 }
 
 export interface TemplateSection {
   section_number?: string | null;
   title: string;
+  heading_style?: string | null;
   page_start: number;
   page_end: number;
-  elements: TemplateElement[];
-  instructions: TemplateInstruction[];
+  required: boolean;
+  content_editable: boolean;
+  allows_subsections: boolean;
+  placeholders?: string[];
+  /** Black template content, copied verbatim during migration. */
+  skeleton_elements: TemplateElement[];
+  /** Blue template content — followed during migration, then removed. */
+  authoring_instructions: TemplateInstruction[];
+  icons_expected?: string[];
+  callouts_allowed?: string[];
 }
 
 export interface TemplateGlobalRules {
@@ -353,15 +438,24 @@ export interface TemplateMetadata {
   file_size_bytes: number;
 }
 
+export interface TemplateTotals {
+  sections: number;
+  elements: number;
+  instructions: number;
+  icons: number;
+  callouts: number;
+}
+
 export interface TemplateExtractionOutput {
   version: string;
   template_id: string;
   template_name: string;
   metadata: TemplateMetadata;
+  icon_library: TemplateIconEntry[];
+  callout_styles: TemplateCalloutStyle[];
   global_rules: TemplateGlobalRules;
   sections: TemplateSection[];
-  total_instructions: number;
-  total_icons: number;
+  totals: TemplateTotals;
 }
 
 export interface TemplateRecord {
@@ -378,6 +472,7 @@ export interface TemplateRecord {
   total_elements?: number;
   total_instructions: number;
   total_icons: number;
+  total_callouts?: number;
   global_rules_json?: string | null;
   status: "uploaded" | "extracting" | "ready" | "failed";
   created_at: string;

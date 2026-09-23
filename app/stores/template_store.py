@@ -42,6 +42,7 @@ class TemplateStore:
                     total_elements     INTEGER DEFAULT 0,
                     total_instructions INTEGER DEFAULT 0,
                     total_icons        INTEGER DEFAULT 0,
+                    total_callouts     INTEGER DEFAULT 0,
                     global_rules_json  TEXT,
                     status             TEXT    NOT NULL DEFAULT 'uploaded'
                                        CHECK(status IN ('uploaded','extracting','ready','failed')),
@@ -51,6 +52,13 @@ class TemplateStore:
                 );
                 """
             )
+            existing_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(template_records);")
+            }
+            if "total_callouts" not in existing_columns:
+                conn.execute(
+                    "ALTER TABLE template_records ADD COLUMN total_callouts INTEGER DEFAULT 0;"
+                )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tpl_uid ON template_records(template_uid);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tpl_status ON template_records(status);")
             conn.commit()
@@ -183,6 +191,7 @@ class TemplateStore:
         total_elements: int,
         total_instructions: int,
         total_icons: int,
+        total_callouts: int = 0,
         global_rules_json: Optional[str] = None,
         status: str = "ready",
     ) -> Optional[dict[str, Any]]:
@@ -197,6 +206,7 @@ class TemplateStore:
                     total_elements = ?,
                     total_instructions = ?,
                     total_icons = ?,
+                    total_callouts = ?,
                     global_rules_json = ?,
                     status = ?,
                     updated_at = ?
@@ -208,6 +218,7 @@ class TemplateStore:
                     total_elements,
                     total_instructions,
                     total_icons,
+                    total_callouts,
                     global_rules_json,
                     status,
                     now,

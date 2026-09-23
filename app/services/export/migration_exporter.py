@@ -570,7 +570,8 @@ class MigrationExporter:
                 cell_text_parts: list[str] = []
                 icon_path: Optional[str] = None
                 image_path: Optional[str] = None
-                background_color: Optional[str] = None
+                # Real cell shading (w:shd) wins over paragraph-level highlighting
+                background_color: Optional[str] = getattr(cell, "shading_hex", None)
 
                 for item in getattr(cell, "content", []):
                     item_type = getattr(item, "node_type", None)

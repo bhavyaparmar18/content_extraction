@@ -353,12 +353,13 @@ export const MigrationReviewMode: React.FC<MigrationReviewModeProps> = ({
             </div>
 
             {/* Target Template Section Instructions Callout */}
-            {matchingTemplateSection?.instructions && matchingTemplateSection.instructions.length > 0 && (
+            {matchingTemplateSection?.authoring_instructions &&
+              matchingTemplateSection.authoring_instructions.length > 0 && (
               <div className="bg-sky-500/10 border-b border-sky-500/20 p-3 space-y-1 shrink-0 max-h-40 overflow-y-auto">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1">
                   <Sparkles className="size-3" /> Authoring Guidelines (Blue Font)
                 </div>
-                {matchingTemplateSection.instructions.map((inst, i) => (
+                {matchingTemplateSection.authoring_instructions.map((inst, i) => (
                   <div key={i} className="text-xs text-sky-200 leading-snug pl-2 border-l border-sky-400/50">
                     {inst.text}
                   </div>
@@ -367,20 +368,29 @@ export const MigrationReviewMode: React.FC<MigrationReviewModeProps> = ({
             )}
 
             {/* Target Template Icons for this section */}
-            {matchingTemplateSection?.elements?.some((el) => el.icons && el.icons.length > 0) && (
+            {matchingTemplateSection?.icons_expected &&
+              matchingTemplateSection.icons_expected.length > 0 && (
               <div className="bg-purple-500/5 border-b border-purple-500/20 px-3 py-1.5 flex items-center gap-2 text-[10px] text-purple-300 shrink-0 overflow-x-auto">
                 <Tag className="size-3 text-purple-400 shrink-0" />
                 <span>Template Icons:</span>
-                {matchingTemplateSection.elements.flatMap((el) =>
-                  (el.icons || []).map((icon, idx) => (
+                {matchingTemplateSection.icons_expected.map((iconKey) => {
+                  const entry = targetTemplateContent?.icon_library?.find(
+                    (i) => i.icon_key === iconKey
+                  );
+                  const label =
+                    entry?.display_name ||
+                    (entry && entry.semantic_meaning !== 'unknown'
+                      ? entry.semantic_meaning
+                      : iconKey);
+                  return (
                     <span
-                      key={idx}
+                      key={iconKey}
                       className="rounded bg-purple-500/10 px-1.5 py-0.5 font-mono text-purple-300 border border-purple-500/20"
                     >
-                      {icon.semantic_meaning || 'icon'}
+                      {label}
                     </span>
-                  ))
-                )}
+                  );
+                })}
               </div>
             )}
 

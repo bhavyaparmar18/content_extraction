@@ -1,45 +1,46 @@
 """Template Extraction Service — Orchestrates full pipeline for template documents.
 
 Reuses SOP extractors (Table, CrossPageTableStitcher, Icon, Caption), ASTBuilder,
-HierarchicalChunker, and SemanticChunker, while producing TemplateExtractionOutput
-with separated global rules and section-wise blue instructions.
+HierarchicalChunker, and SemanticChunker, while producing the v2.0
+``TemplateExtractionOutput``: a deduplicated icon library, a callout style
+registry read from real template shading, machine-enforceable global rules, and
+sections split into skeleton content versus authoring instructions.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional, Any
+from typing import Callable, Optional, Any
 
 from loguru import logger
 
 from app.config.settings import Settings
 from app.schemas.ast_nodes import (
     DocumentNode,
-    SectionNode,
-    HeadingNode,
-    ParagraphNode,
-    ListNode,
     TableNode,
-    ImageNode,
-    IconNode,
 )
 from app.schemas.document import BoundingBox
-from app.schemas.migration import MigrationTableCell
 from app.schemas.template import (
+    DirectiveType,
+    InstructionScope,
+    TemplateCalloutStyle,
     TemplateElement,
     TemplateExtractionOutput,
     TemplateGlobalRules,
+    TemplateIconEntry,
     TemplateIconRef,
     TemplateInstruction,
+    TemplateMachineRule,
     TemplateMetadata,
     TemplateSection,
+    TemplateTableCell,
+    TemplateTotals,
 )
 from app.services.chunking.hierarchical import HierarchicalChunker
 from app.services.chunking.semantic import SemanticChunker
 from app.services.export.migration_exporter import (
     _extract_section_number,
-    _is_major_section_heading,
 )
 from app.services.extraction.captions import CaptionExtractor
 from app.services.extraction.cross_page_stitcher import CrossPageTableStitcher
@@ -47,10 +48,135 @@ from app.services.extraction.icons import IconExtractor
 from app.services.extraction.tables import (
     TableExtractor,
     clean_table_cell_text,
-    collapse_sparse_grid,
 )
 from app.services.hierarchy.ast_builder import ASTBuilder
 from app.services.parser.template_parser import TemplateDocxParser
+
+
+# ── Instruction classification ─────────────────────────────────────────
+
+# Placeholder tokens the template uses for author-supplied values. Mirrors
+# TemplateInspector.PLACEHOLDER_PATTERN so both sides agree on what counts.
+_PLACEHOLDER_PATTERN = re.compile(
+    r"(\$\{[^}]+\}|<<[^>]+>>|\[Insert\s+[^\]]+\]|\[Role\s*\d+\]|\bn\.0\b|BI-VQD-\d+)",
+    re.IGNORECASE,
+)
+
+# The template's "Do NOT" list, mapped to rules a validator can enforce without
+# asking the LLM. Every keyword in a row must be present for the rule to apply.
+_MACHINE_RULE_MAP: tuple[tuple[tuple[str, ...], str, Any, str], ...] = (
+    (("arial",), "font_family", "Arial", DirectiveType.FORMATTING.value),
+    (("header", "footer"), "preserve_headers_footers", True, DirectiveType.PROHIBITION.value),
+    (("chapter", "do not"), "allow_new_h1", False, DirectiveType.PROHIBITION.value),
+    (("table of content",), "toc_auto_generated", True, DirectiveType.PROHIBITION.value),
+    (("toc",), "toc_auto_generated", True, DirectiveType.PROHIBITION.value),
+    (("blue text", "delete"), "strip_blue_text", True, DirectiveType.REQUIREMENT.value),
+    (("initial page",), "skip_cover_page", True, DirectiveType.PROHIBITION.value),
+    (("cover page",), "skip_cover_page", True, DirectiveType.PROHIBITION.value),
+)
+
+_PROHIBITION_MARKERS = (
+    "do not", "don't", "must not", "cannot", "can not",
+    "is not possible", "not allowed", "never", "avoid ",
+)
+_REQUIREMENT_MARKERS = (
+    "must ", "shall ", "ensure", "required", "delete", "insert ", "make sure",
+)
+_FORMATTING_MARKERS = (
+    "font", "arial", "header", "footer", "table of content", "toc",
+    "style", "numbering", "page break", "formatting", "bold", "italic",
+)
+
+_PREAMBLE_HEADINGS = (
+    "GENERAL INFORMATION",
+    "GENERAL INSTRUCTIONS",
+    "TEMPLATE INSTRUCTIONS",
+    "INSTRUCTIONS",
+    "DOCUMENT INFORMATION",
+)
+
+
+def _classify_instruction(text: str) -> tuple[str, Optional[TemplateMachineRule]]:
+    """Derive ``directive_type`` and any enforceable ``machine_rule`` from text."""
+    low = text.lower()
+
+    for keywords, rule, value, directive in _MACHINE_RULE_MAP:
+        if all(kw in low for kw in keywords):
+            return directive, TemplateMachineRule(rule=rule, value=value, enforce="hard")
+
+    if any(marker in low for marker in _PROHIBITION_MARKERS):
+        return DirectiveType.PROHIBITION.value, None
+    if "infographic" in low or "icon" in low:
+        return DirectiveType.ICON_USAGE.value, None
+    if _PLACEHOLDER_PATTERN.search(text):
+        return DirectiveType.PLACEHOLDER_HINT.value, None
+    if any(marker in low for marker in _FORMATTING_MARKERS):
+        return DirectiveType.FORMATTING.value, None
+    if any(marker in low for marker in _REQUIREMENT_MARKERS):
+        return DirectiveType.REQUIREMENT.value, None
+    return DirectiveType.GUIDANCE.value, None
+
+
+def _find_placeholders(text: str) -> list[str]:
+    """Return unique placeholder tokens in *text*, in first-seen order."""
+    seen: list[str] = []
+    for match in _PLACEHOLDER_PATTERN.findall(text or ""):
+        token = match.strip()
+        if token and token not in seen:
+            seen.append(token)
+    return seen
+
+
+def _callout_type_for(*texts: Optional[str]) -> Optional[str]:
+    """Name a callout from its own label, not from a fixed vocabulary.
+
+    A legend row reads ``"Explanation – additional information..."``. The type is
+    the text before the dash. A short sentence with no dash contributes its
+    first word (``"Explanation text goes here."`` → ``explanation``). Longer
+    prose is a trigger instruction, not a type name, and is ignored.
+    """
+    for text in texts:
+        slug = _label_slug(text)
+        if slug:
+            return slug
+    return None
+
+
+def _label_slug(text: Optional[str]) -> Optional[str]:
+    if not text or not text.strip():
+        return None
+    raw = text.strip()
+    parts = re.split(r"\s+[–—-]\s+", raw, maxsplit=1)
+    if len(parts) == 1:
+        words = raw.split()
+        if len(words) > 8:
+            return None
+        label = words[0]
+    else:
+        label = parts[0]
+        if len(label.split()) > 8:
+            return None
+    label = label.strip().strip("\"'")
+    slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    if len(slug) < 3:
+        return None
+    return slug[:48]
+
+
+def _content_hash_from_path(asset_path: str) -> Optional[str]:
+    """Recover the md5 fragment parsers embed in extracted asset filenames."""
+    if not asset_path:
+        return None
+    candidate = Path(asset_path).stem.rsplit("_", 1)[-1].lower()
+    if len(candidate) == 10 and all(c in "0123456789abcdef" for c in candidate):
+        return candidate
+    return None
+
+
+def _id_slug(value: str) -> str:
+    """Reduce a section number/title to something usable inside an identifier."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "", value or "")
+    return slug or "x"
 
 
 class TemplateExtractionService:
@@ -107,10 +233,46 @@ class TemplateExtractionService:
 
         self.logger.info(
             f"TemplateExtractionService: completed for {template_id}. "
-            f"Sections: {len(output.sections)}, Instructions: {output.total_instructions}, "
-            f"Icons: {output.total_icons}"
+            f"Sections: {output.totals.sections}, Instructions: {output.totals.instructions}, "
+            f"Icons: {output.totals.icons}, Callouts: {output.totals.callouts}"
         )
         return output
+
+    # ── Path portability ────────────────────────────────────────────
+
+    def _relativize(self, raw_path: Optional[str]) -> Optional[str]:
+        """Make an on-disk asset path portable by relativising it to the project root.
+
+        Extractors need real absolute paths while they move files around, so this
+        runs at output-build time only.
+        """
+        if not raw_path:
+            return raw_path
+        path = Path(raw_path)
+        if not path.is_absolute():
+            return path.as_posix()
+        try:
+            return path.relative_to(self.settings.project_root).as_posix()
+        except ValueError:
+            return path.name
+
+    def _relativize_output(
+        self,
+        icon_library: list[TemplateIconEntry],
+        sections: list[TemplateSection],
+    ) -> None:
+        """Rewrite every asset path in the built output in place."""
+        for entry in icon_library:
+            entry.asset_path = self._relativize(entry.asset_path) or ""
+
+        for section in sections:
+            for element in section.skeleton_elements:
+                element.image_path = self._relativize(element.image_path)
+                for cell in element.cells:
+                    cell.icon_path = self._relativize(cell.icon_path)
+                    cell.image_path = self._relativize(cell.image_path)
+
+    # ── Output building ─────────────────────────────────────────────
 
     def _build_output(
         self,
@@ -136,17 +298,105 @@ class TemplateExtractionService:
 
         global_rules = TemplateGlobalRules()
         sections: list[TemplateSection] = []
+        icon_library: dict[str, TemplateIconEntry] = {}
+        callout_styles: dict[str, TemplateCalloutStyle] = {}
+
         current_section: Optional[TemplateSection] = None
         has_entered_first_section = False
         paragraph_counter = 0
+        global_instruction_seq = 0
+        section_instruction_seq: dict[str, int] = {}
+        section_counter = 0
+        last_instruction_text: Optional[str] = None
 
         buffered_icons: list[tuple[TemplateIconRef, Optional[BoundingBox]]] = []
-        elem_bboxes: dict[int, BoundingBox] = {}
-        icon_bboxes: dict[int, BoundingBox] = {}
 
-        section_counter = 0
+        # ── Registries ───────────────────────────────────────────
 
-        def ensure_section(title: str, page: int, section_number: Optional[str] = None) -> TemplateSection:
+        def register_icon(
+            node: Any = None,
+            section_context: Optional[str] = None,
+            associated_text: Optional[str] = None,
+            asset_path: Optional[str] = None,
+        ) -> Optional[str]:
+            """Add an icon to the deduplicated library and return its stable key.
+
+            Pass *asset_path* directly for images being used as icons, where
+            there is no ``IconNode`` to read from.
+            """
+            asset_path = (
+                asset_path
+                or getattr(node, "asset_path", "")
+                or getattr(node, "image_path", "")
+                or ""
+            )
+            if not asset_path:
+                return None
+
+            content_hash = (
+                getattr(node, "content_hash", None)
+                or getattr(node, "image_hash", None)
+                or _content_hash_from_path(asset_path)
+            )
+            icon_key = f"icon_{content_hash}" if content_hash else f"icon_{Path(asset_path).stem}"
+
+            entry = icon_library.get(icon_key)
+            if entry is None:
+                entry = TemplateIconEntry(
+                    icon_key=icon_key,
+                    content_hash=content_hash,
+                    asset_path=asset_path,
+                    semantic_meaning=getattr(node, "semantic_meaning", "unknown") or "unknown",
+                )
+                icon_library[icon_key] = entry
+
+            entry.occurrences += 1
+            if section_context and section_context not in entry.allowed_sections:
+                entry.allowed_sections.append(section_context)
+            if associated_text and not entry.source_instruction:
+                entry.source_instruction = associated_text
+            return icon_key
+
+        def register_callout(
+            callout_type: str,
+            background_hex: str,
+            border_hex: Optional[str],
+            font_hex: Optional[str],
+            icon_key: Optional[str],
+            trigger_instruction: Optional[str],
+            section_context: Optional[str],
+            page: int,
+        ) -> str:
+            """Add a callout style to the registry, filling gaps on repeat sightings."""
+            entry = callout_styles.get(callout_type)
+            if entry is None:
+                entry = TemplateCalloutStyle(
+                    callout_type=callout_type,
+                    display_name=callout_type.replace("_", " ").title(),
+                    background_color_hex=background_hex,
+                    left_border_color_hex=border_hex,
+                    font_color_hex=font_hex,
+                    icon_key=icon_key,
+                    trigger_instruction=trigger_instruction,
+                    template_source={"section": section_context, "page": page},
+                )
+                callout_styles[callout_type] = entry
+                return callout_type
+
+            entry.left_border_color_hex = entry.left_border_color_hex or border_hex
+            entry.font_color_hex = entry.font_color_hex or font_hex
+            entry.icon_key = entry.icon_key or icon_key
+            entry.trigger_instruction = entry.trigger_instruction or trigger_instruction
+            return callout_type
+
+        # ── Section / element plumbing ───────────────────────────
+
+        def ensure_section(
+            title: str,
+            page: int,
+            section_number: Optional[str] = None,
+            heading_style: Optional[str] = None,
+        ) -> TemplateSection:
             nonlocal current_section, has_entered_first_section, section_counter
             has_entered_first_section = True
             if section_number is None:
@@ -162,10 +412,9 @@ class TemplateExtractionService:
             sec = TemplateSection(
                 section_number=section_number,
                 title=title,
+                heading_style=heading_style,
                 page_start=page,
                 page_end=page,
-                elements=[],
-                instructions=[],
             )
             sections.append(sec)
             current_section = sec
@@ -174,10 +423,8 @@ class TemplateExtractionService:
         def flush_icons_onto(elem: TemplateElement):
             if not buffered_icons:
                 return
-            for icon_ref, bbox in buffered_icons:
+            for icon_ref, _bbox in buffered_icons:
                 elem.icons.append(icon_ref)
-                if bbox is not None:
-                    icon_bboxes[id(icon_ref)] = bbox
             buffered_icons.clear()
 
         def add_element(elem: TemplateElement, bbox: Optional[BoundingBox] = None):
@@ -188,35 +435,83 @@ class TemplateExtractionService:
                     title="0 PREAMBLE",
                     page_start=elem.page,
                     page_end=elem.page,
-                    elements=[],
-                    instructions=[],
                 )
                 sections.append(current_section)
 
             flush_icons_onto(elem)
-            if bbox is not None:
-                elem_bboxes[id(elem)] = bbox
-
-            current_section.elements.append(elem)
+            current_section.skeleton_elements.append(elem)
             current_section.page_end = max(current_section.page_end, elem.page)
 
         def attach_icon(icon_ref: TemplateIconRef, bbox: Optional[BoundingBox] = None):
             buffered_icons.append((icon_ref, bbox))
 
-        def check_is_instruction(node: Any) -> tuple[bool, Optional[str], Optional[str]]:
-            """Check if node represents a blue-font instruction."""
+        def emit_instruction(
+            text: str,
+            color_hex: Optional[str] = None,
+            detection_method: Optional[str] = None,
+            icons: Optional[list[TemplateIconRef]] = None,
+        ) -> TemplateInstruction:
+            """Build an instruction, assign its id, and file it under the right scope."""
+            nonlocal paragraph_counter, global_instruction_seq, last_instruction_text
+            paragraph_counter += 1
+            directive_type, machine_rule = _classify_instruction(text)
+            is_global = not has_entered_first_section or current_section is None
+
+            if is_global:
+                global_instruction_seq += 1
+                instruction_id = f"gr_{global_instruction_seq:03d}"
+            else:
+                bucket = current_section.section_number or str(len(sections))
+                seq = section_instruction_seq.get(bucket, 0) + 1
+                section_instruction_seq[bucket] = seq
+                instruction_id = f"s{_id_slug(bucket)}_i{seq:03d}"
+
+            instruction = TemplateInstruction(
+                instruction_id=instruction_id,
+                text=text,
+                scope=InstructionScope.GLOBAL.value if is_global else InstructionScope.SECTION.value,
+                directive_type=directive_type,
+                font_color_hex=color_hex,
+                color_detection_method=detection_method,
+                paragraph_index=paragraph_counter,
+                section_context=None if is_global else current_section.title,
+                is_global=is_global,
+                machine_rule=machine_rule,
+                icons=list(icons or []),
+            )
+
+            if is_global:
+                global_rules.instructions.append(instruction)
+            else:
+                current_section.authoring_instructions.append(instruction)
+            last_instruction_text = text
+            return instruction
+
+        def check_is_instruction(
+            node: Any,
+        ) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
+            """Check if a node represents a blue-font instruction.
+
+            Returns ``(is_instruction, font_color_hex, detection_method, instruction_text)``.
+            """
             meta = getattr(node, "metadata", {}) or {}
-            is_inst = meta.get("is_instruction", False)
-            color_hex = meta.get("font_color_hex") or getattr(node, "highlight_color", None)
+            is_inst = bool(meta.get("is_instruction", False))
+            color_hex = meta.get("font_color_hex") or getattr(node, "font_color_hex", None)
+            detection = meta.get("color_detection_method") or getattr(
+                node, "color_detection_method", None
+            )
             inst_text = meta.get("instruction_text")
 
-            # Also check highlight color if named/hex blue
-            if not is_inst and color_hex:
-                clean = str(color_hex).upper().lstrip("#")
-                if clean in TemplateDocxParser.BLUE_HEX_VALUES or clean.startswith("STYLE_INSTRUCTION"):
+            if not is_inst:
+                if detection:
+                    # The parser only records a detection method when it matched blue.
+                    is_inst = True
+                elif color_hex and str(color_hex).upper().lstrip("#") in TemplateDocxParser.BLUE_HEX_VALUES:
                     is_inst = True
 
-            return is_inst, color_hex, inst_text
+            return is_inst, color_hex, detection, inst_text
+
+        # ── Traversal ────────────────────────────────────────────
 
         def traverse(node: Any, is_top: bool = False):
             nonlocal paragraph_counter, has_entered_first_section
@@ -236,14 +531,9 @@ class TemplateExtractionService:
                 heading = getattr(node, "heading", None)
                 heading_level = getattr(heading, "level", 1) if heading else getattr(node, "level", 1)
                 heading_text = (getattr(heading, "text", "") or "").strip() if heading else ""
+                heading_style = getattr(heading, "style_name", None) if heading else None
 
-                is_preamble_heading = heading_text.upper() in (
-                    "GENERAL INFORMATION",
-                    "GENERAL INSTRUCTIONS",
-                    "TEMPLATE INSTRUCTIONS",
-                    "INSTRUCTIONS",
-                    "DOCUMENT INFORMATION",
-                )
+                is_preamble_heading = heading_text.upper() in _PREAMBLE_HEADINGS
 
                 # Major top-level section if top child or level <= 1, or numbered major heading
                 is_major = False
@@ -256,7 +546,7 @@ class TemplateExtractionService:
                             is_major = True
 
                 if is_major:
-                    ensure_section(heading_text, page)
+                    ensure_section(heading_text, page, heading_style=heading_style)
                 elif heading and heading_text and not is_preamble_heading:
                     if current_section is not None:
                         add_element(
@@ -265,6 +555,7 @@ class TemplateExtractionService:
                                 page=page,
                                 level=max(2, heading_level),
                                 text=heading_text,
+                                style_name=heading_style,
                             ),
                             bbox=bbox,
                         )
@@ -276,13 +567,8 @@ class TemplateExtractionService:
                 text = (getattr(node, "text", "") or "").strip()
                 if text:
                     level = getattr(node, "level", 1)
-                    is_preamble_heading = text.upper() in (
-                        "GENERAL INFORMATION",
-                        "GENERAL INSTRUCTIONS",
-                        "TEMPLATE INSTRUCTIONS",
-                        "INSTRUCTIONS",
-                        "DOCUMENT INFORMATION",
-                    )
+                    heading_style = getattr(node, "style_name", None)
+                    is_preamble_heading = text.upper() in _PREAMBLE_HEADINGS
                     is_major = False
                     if not is_preamble_heading:
                         if is_top or level <= 1:
@@ -293,7 +579,7 @@ class TemplateExtractionService:
                                 is_major = True
 
                     if is_major:
-                        ensure_section(text, page)
+                        ensure_section(text, page, heading_style=heading_style)
                     elif not is_preamble_heading and current_section is not None:
                         add_element(
                             TemplateElement(
@@ -301,6 +587,7 @@ class TemplateExtractionService:
                                 page=page,
                                 level=max(2, level),
                                 text=text,
+                                style_name=heading_style,
                             ),
                             bbox=bbox,
                         )
@@ -308,58 +595,39 @@ class TemplateExtractionService:
             elif node_type == "paragraph":
                 text = (getattr(node, "text", "") or "").strip()
                 if text:
-                    paragraph_counter += 1
-                    is_inst, color_hex, inst_text = check_is_instruction(node)
+                    is_inst, color_hex, detection, inst_text = check_is_instruction(node)
+                    shading_hex = getattr(node, "shading_hex", None)
 
-                    # Global rules: ONLY blue instruction paragraphs before first section heading
-                    if not has_entered_first_section:
-                        if is_inst:
-                            global_rules.instructions.append(
-                                TemplateInstruction(
-                                    text=text,
-                                    font_color_hex=color_hex,
-                                    paragraph_index=paragraph_counter,
-                                    section_context=None,
-                                    is_global=True,
-                                )
-                            )
-                        else:
-                            # Skip preamble headers like "GENERAL INFORMATION" from creating a dummy section
-                            if text.upper() not in (
-                                "GENERAL INFORMATION",
-                                "GENERAL INSTRUCTIONS",
-                                "TEMPLATE INSTRUCTIONS",
-                                "INSTRUCTIONS",
-                                "DOCUMENT INFORMATION",
-                            ):
-                                elem = TemplateElement(
+                    if is_inst:
+                        # Blue text is an authoring instruction at whatever scope
+                        # we are currently in; it is not part of the skeleton.
+                        emit_instruction(text, color_hex, detection)
+                        if has_entered_first_section:
+                            add_element(
+                                TemplateElement(
                                     element_type="paragraph",
                                     page=page,
                                     text=text,
-                                    is_instruction=False,
-                                )
-                                add_element(elem, bbox=bbox)
-                    else:
-                        elem = TemplateElement(
-                            element_type="paragraph",
-                            page=page,
-                            text=text,
-                            is_instruction=is_inst,
-                            instruction_text=inst_text if is_inst else None,
-                            font_color_hex=color_hex if is_inst else None,
-                        )
-                        add_element(elem, bbox=bbox)
-
-                        if is_inst and current_section is not None:
-                            current_section.instructions.append(
-                                TemplateInstruction(
-                                    text=text,
+                                    is_instruction=True,
+                                    instruction_text=inst_text or text,
                                     font_color_hex=color_hex,
-                                    paragraph_index=paragraph_counter,
-                                    section_context=current_section.title,
-                                    is_global=False,
-                                )
+                                    color_detection_method=detection,
+                                    shading_hex=shading_hex,
+                                ),
+                                bbox=bbox,
                             )
+                    elif text.upper() not in _PREAMBLE_HEADINGS:
+                        paragraph_counter += 1
+                        add_element(
+                            TemplateElement(
+                                element_type="paragraph",
+                                page=page,
+                                text=text,
+                                is_instruction=False,
+                                shading_hex=shading_hex,
+                            ),
+                            bbox=bbox,
+                        )
 
             elif node_type == "list":
                 items: list[str] = []
@@ -373,30 +641,10 @@ class TemplateExtractionService:
                     formatted_text = f"{idx}. {item_text}" if str(list_type) == "ordered" and idx else item_text
                     items.append(formatted_text)
 
-                    is_inst, color_hex, inst_text = check_is_instruction(item)
+                    is_inst, color_hex, detection, _ = check_is_instruction(item)
                     if is_inst:
                         has_instruction_items = True
-                        paragraph_counter += 1
-                        if not has_entered_first_section:
-                            global_rules.instructions.append(
-                                TemplateInstruction(
-                                    text=item_text,
-                                    font_color_hex=color_hex,
-                                    paragraph_index=paragraph_counter,
-                                    section_context=None,
-                                    is_global=True,
-                                )
-                            )
-                        elif current_section is not None:
-                            current_section.instructions.append(
-                                TemplateInstruction(
-                                    text=item_text,
-                                    font_color_hex=color_hex,
-                                    paragraph_index=paragraph_counter,
-                                    section_context=current_section.title,
-                                    is_global=False,
-                                )
-                            )
+                        emit_instruction(item_text, color_hex, detection)
 
                 if items:
                     add_element(
@@ -410,23 +658,25 @@ class TemplateExtractionService:
                     )
 
             elif node_type == "table":
-                table_elem, t_instructions = self._convert_table(
-                    node, page, section_title=current_section.title if current_section else None
+                # Captured before the table emits its own instructions, so a
+                # trigger sitting in the paragraph above is still available.
+                preceding_instruction = last_instruction_text
+                table_elements, table_instructions = self._convert_table(
+                    node,
+                    page,
+                    section_title=current_section.title if current_section else None,
+                    register_icon=register_icon,
+                    register_callout=register_callout,
+                    emit_instruction=emit_instruction,
+                    preceding_instruction=preceding_instruction,
                 )
-                if table_elem:
-                    add_element(table_elem, bbox=bbox)
-                    if t_instructions and current_section is not None:
-                        for t_inst in t_instructions:
-                            paragraph_counter += 1
-                            t_inst.paragraph_index = paragraph_counter
-                            current_section.instructions.append(t_inst)
-                elif t_instructions:
-                    # Unwrapped layout container: emit each instruction as a paragraph element with its icon
-                    for t_inst in t_instructions:
-                        paragraph_counter += 1
-                        t_inst.paragraph_index = paragraph_counter
-                        if current_section is not None:
-                            current_section.instructions.append(t_inst)
+                if table_elements:
+                    for table_elem in table_elements:
+                        add_element(table_elem, bbox=bbox)
+                elif table_instructions:
+                    # Unwrapped layout container: emit each instruction as a
+                    # paragraph element carrying its icon.
+                    for t_inst in table_instructions:
                         add_element(
                             TemplateElement(
                                 element_type="paragraph",
@@ -434,6 +684,7 @@ class TemplateExtractionService:
                                 text=t_inst.text,
                                 instruction_text=t_inst.text,
                                 font_color_hex=t_inst.font_color_hex,
+                                color_detection_method=t_inst.color_detection_method,
                                 is_instruction=True,
                                 icons=list(t_inst.icons),
                             ),
@@ -455,15 +706,13 @@ class TemplateExtractionService:
                     )
 
             elif node_type == "icon":
-                path = getattr(node, "asset_path", "")
-                if path:
-                    icon_id = getattr(node, "node_id", "") or "icon"
+                section_context = current_section.title if current_section else None
+                icon_key = register_icon(node, section_context)
+                if icon_key:
                     attach_icon(
                         TemplateIconRef(
-                            icon_id=str(icon_id),
-                            image_path=path,
-                            semantic_meaning=getattr(node, "semantic_meaning", "unknown") or "unknown",
-                            section_context=current_section.title if current_section else None,
+                            icon_key=icon_key,
+                            section_context=section_context,
                         ),
                         bbox=bbox,
                     )
@@ -474,39 +723,130 @@ class TemplateExtractionService:
 
         traverse(ast, is_top=True)
 
-        if buffered_icons and current_section and current_section.elements:
-            flush_icons_onto(current_section.elements[-1])
+        if buffered_icons and current_section and current_section.skeleton_elements:
+            flush_icons_onto(current_section.skeleton_elements[-1])
 
         # Remove empty PREAMBLE if all pre-heading items were absorbed into global_rules
-        if sections and sections[0].title == "0 PREAMBLE" and not sections[0].elements:
+        if sections and sections[0].title == "0 PREAMBLE" and not sections[0].skeleton_elements:
             sections.pop(0)
 
-        # Count totals
-        total_instructions = len(global_rules.instructions)
-        total_icons = 0
-        for sec in sections:
-            total_instructions += len(sec.instructions)
-            for elem in sec.elements:
-                total_icons += len(elem.icons)
+        self._finalize_sections(sections)
+        self._relativize_output(list(icon_library.values()), sections)
+
+        totals = TemplateTotals(
+            sections=len(sections),
+            elements=sum(len(sec.skeleton_elements) for sec in sections),
+            instructions=len(global_rules.instructions)
+            + sum(len(sec.authoring_instructions) for sec in sections),
+            icons=len(icon_library),
+            callouts=len(callout_styles),
+        )
 
         return TemplateExtractionOutput(
-            version="1.0",
+            version="2.0",
             template_id=template_id,
             template_name=effective_name,
             metadata=metadata,
+            icon_library=list(icon_library.values()),
+            callout_styles=list(callout_styles.values()),
             global_rules=global_rules,
             sections=sections,
-            total_instructions=total_instructions,
-            total_icons=total_icons,
+            totals=totals,
         )
 
+    # ── Section contract ────────────────────────────────────────────
+
+    @staticmethod
+    def _finalize_sections(sections: list[TemplateSection]) -> None:
+        """Derive the section contract fields from the collected content."""
+        optional_markers = (
+            "delete this section",
+            "delete this chapter",
+            "remove this section",
+            "section is optional",
+            "chapter is optional",
+        )
+        no_subsection_markers = (
+            "do not add sub",
+            "no subsection",
+            "no sub-chapter",
+            "subchapters are not",
+            "sub-chapters are not",
+        )
+
+        for section in sections:
+            instruction_texts = [i.text for i in section.authoring_instructions]
+            skeleton_texts: list[str] = []
+            for element in section.skeleton_elements:
+                if element.text:
+                    skeleton_texts.append(element.text)
+                skeleton_texts.extend(element.items)
+                skeleton_texts.extend(cell.text for cell in element.cells if cell.text)
+
+            blob = " ".join(instruction_texts + skeleton_texts)
+            instruction_blob = " ".join(instruction_texts).lower()
+            title_low = section.title.lower()
+
+            section.placeholders = _find_placeholders(blob)
+
+            icon_keys: list[str] = []
+            for element in section.skeleton_elements:
+                for ref in element.icons:
+                    if ref.icon_key not in icon_keys:
+                        icon_keys.append(ref.icon_key)
+                for cell in element.cells:
+                    if cell.icon_key and cell.icon_key not in icon_keys:
+                        icon_keys.append(cell.icon_key)
+            for instruction in section.authoring_instructions:
+                for ref in instruction.icons:
+                    if ref.icon_key not in icon_keys:
+                        icon_keys.append(ref.icon_key)
+            section.icons_expected = icon_keys
+
+            callout_types: list[str] = []
+            for element in section.skeleton_elements:
+                if element.callout_type and element.callout_type not in callout_types:
+                    callout_types.append(element.callout_type)
+            section.callouts_allowed = callout_types
+
+            # A section whose skeleton already carries black prose is content the
+            # migration must preserve verbatim; an empty one is the author's to fill.
+            section.content_editable = not any(
+                (element.text or "").strip()
+                for element in section.skeleton_elements
+                if not element.is_instruction and element.element_type in ("paragraph", "list")
+            )
+            section.required = not (
+                "(optional)" in title_low
+                or "(if applicable)" in title_low
+                or any(marker in instruction_blob for marker in optional_markers)
+            )
+            section.allows_subsections = not any(
+                marker in instruction_blob for marker in no_subsection_markers
+            )
+
+    # ── Table conversion ────────────────────────────────────────────
+
     def _convert_table(
-        self, table: TableNode, page: int, section_title: Optional[str] = None
-    ) -> tuple[Optional[TemplateElement], list[TemplateInstruction]]:
-        """Convert TableNode into a TemplateElement with MigrationTableCell list and extract instructions."""
+        self,
+        table: TableNode,
+        page: int,
+        section_title: Optional[str],
+        register_icon: Callable[..., Optional[str]],
+        register_callout: Callable[..., str],
+        emit_instruction: Callable[..., TemplateInstruction],
+        preceding_instruction: Optional[str] = None,
+    ) -> tuple[list[TemplateElement], list[TemplateInstruction]]:
+        """Convert a TableNode into template elements plus any instructions it carries.
+
+        Returns a list because shaded infographic rows are promoted to individual
+        ``callout`` elements rather than being rendered as a grid. An empty list
+        with non-empty instructions means the table was an icon+instruction
+        layout container that the caller should unwrap into paragraphs.
+        """
         rows = getattr(table, "rows", [])
         if not rows:
-            return None, []
+            return [], []
 
         num_rows = len(rows)
         num_cols = getattr(table, "grid_cols", 0)
@@ -517,29 +857,36 @@ class TemplateExtractionService:
                 max_c = max(max_c, c_count)
             num_cols = max_c
 
-        cells: list[MigrationTableCell] = []
-        table_instructions: list[TemplateInstruction] = []
-        table_icon_refs: list[TemplateIconRef] = []
-        table_has_instructions = False
+        cells: list[TemplateTableCell] = []
+        row_infos: list[dict[str, Any]] = []
 
         for row_idx, row in enumerate(rows):
             is_header = getattr(row, "is_header", False)
-            row_cells = getattr(row, "cells", [])
-            row_icons: list[TemplateIconRef] = []
-            row_texts: list[str] = []
-            row_instruction_texts: list[str] = []
-            row_is_instruction = False
-            row_color_hex = None
+            info: dict[str, Any] = {
+                "row_index": row_idx,
+                "texts": [],
+                "icon_refs": [],
+                "icon_keys": [],
+                "instruction_texts": [],
+                "is_instruction": False,
+                "color_hex": None,
+                "detection_method": None,
+                "shading_hex": None,
+                "border_left_hex": None,
+                "has_icon_in_first_col": False,
+            }
 
-            for cell in row_cells:
+            for cell in getattr(row, "cells", []):
                 if not getattr(cell, "is_merge_origin", True):
                     continue
 
                 cell_text_parts: list[str] = []
                 icon_path: Optional[str] = None
+                icon_key: Optional[str] = None
                 image_path: Optional[str] = None
-                background_color: Optional[str] = None
                 cell_meta = getattr(cell, "metadata", {}) or {}
+                cell_shading = getattr(cell, "shading_hex", None)
+                cell_font_color: Optional[str] = None
 
                 for item in getattr(cell, "content", []):
                     item_type = getattr(item, "node_type", None)
@@ -549,35 +896,37 @@ class TemplateExtractionService:
                         t = (getattr(item, "text", "") or "").strip()
                         if t:
                             cell_text_parts.append(t)
-                        if not background_color:
-                            background_color = getattr(item, "highlight_color", None)
+                        cell_shading = cell_shading or getattr(item, "shading_hex", None)
+                        cell_font_color = cell_font_color or getattr(item, "font_color_hex", None)
                         if item_meta.get("is_instruction"):
-                            row_is_instruction = True
-                            row_color_hex = item_meta.get("font_color_hex") or row_color_hex
+                            info["is_instruction"] = True
+                            info["color_hex"] = item_meta.get("font_color_hex") or info["color_hex"]
+                            info["detection_method"] = (
+                                item_meta.get("color_detection_method") or info["detection_method"]
+                            )
                             inst_t = item_meta.get("instruction_text") or t
                             if inst_t:
-                                row_instruction_texts.append(inst_t)
+                                info["instruction_texts"].append(inst_t)
                     elif item_type == "highlight":
                         t = (getattr(item, "text", "") or "").strip()
                         if t:
                             cell_text_parts.append(t)
-                        if not background_color:
-                            background_color = getattr(item, "color_hex", None) or getattr(item, "highlight_color", None)
+                        cell_shading = cell_shading or getattr(item, "color_hex", None)
                     elif item_type == "icon":
                         ip = getattr(item, "asset_path", None)
                         if ip:
+                            key = register_icon(item, section_title)
                             if not icon_path:
                                 icon_path = ip
-                            icon_id = str(getattr(item, "node_id", getattr(item, "icon_id", "icon")))
-                            semantic = getattr(item, "semantic_meaning", "unknown") or "unknown"
-                            row_icons.append(
-                                TemplateIconRef(
-                                    icon_id=icon_id,
-                                    image_path=ip,
-                                    semantic_meaning=semantic,
-                                    section_context=section_title,
+                                icon_key = key
+                            if key:
+                                info["icon_keys"].append(key)
+                                info["icon_refs"].append(
+                                    TemplateIconRef(
+                                        icon_key=key,
+                                        section_context=section_title,
+                                    )
                                 )
-                            )
                     elif item_type == "image":
                         ip = getattr(item, "asset_path", None)
                         if ip and not image_path:
@@ -589,86 +938,149 @@ class TemplateExtractionService:
                                 cell_text_parts.append(f"- {lt}")
 
                 if cell_meta.get("is_instruction"):
-                    row_is_instruction = True
-                    row_color_hex = cell_meta.get("font_color_hex") or row_color_hex
+                    info["is_instruction"] = True
+                    info["color_hex"] = cell_meta.get("font_color_hex") or info["color_hex"]
+                    info["detection_method"] = (
+                        cell_meta.get("color_detection_method") or info["detection_method"]
+                    )
                     c_inst = cell_meta.get("instruction_text")
-                    if c_inst and not row_instruction_texts:
-                        row_instruction_texts.append(c_inst)
+                    if c_inst and not info["instruction_texts"]:
+                        info["instruction_texts"].append(c_inst)
 
                 text = clean_table_cell_text(" ".join(cell_text_parts).strip())
                 if text:
-                    row_texts.append(text)
+                    info["texts"].append(text)
 
+                # An image alone in a cell is being used as an icon
                 if image_path and not icon_path and not text:
                     icon_path = image_path
                     image_path = None
-                    row_icons.append(
-                        TemplateIconRef(
-                            icon_id="img_icon",
-                            image_path=icon_path,
-                            semantic_meaning="unknown",
-                            section_context=section_title,
+                    key = register_icon(section_context=section_title, asset_path=icon_path)
+                    icon_key = key
+                    if key:
+                        info["icon_keys"].append(key)
+                        info["icon_refs"].append(
+                            TemplateIconRef(icon_key=key, section_context=section_title)
                         )
-                    )
+
+                col_index = getattr(cell, "col_index", 0)
+                if col_index == 0 and icon_path:
+                    info["has_icon_in_first_col"] = True
+
+                info["shading_hex"] = info["shading_hex"] or cell_shading
+                info["border_left_hex"] = info["border_left_hex"] or cell_meta.get(
+                    "border_left_color_hex"
+                )
+                info["color_hex"] = info["color_hex"] or cell_font_color
 
                 cells.append(
-                    MigrationTableCell(
+                    TemplateTableCell(
                         row_index=getattr(cell, "row_index", row_idx),
-                        col_index=getattr(cell, "col_index", 0),
+                        col_index=col_index,
                         row_span=getattr(cell, "row_span", 1),
                         col_span=getattr(cell, "col_span", 1),
                         text=text,
+                        is_header=is_header,
+                        icon_key=icon_key,
                         icon_path=icon_path,
                         image_path=image_path,
-                        is_header=is_header,
-                        background_color=background_color,
+                        shading_hex=cell_shading,
+                        text_direction=getattr(cell, "text_direction", None),
+                        valign=getattr(cell, "valign", None),
+                        bold=bool(getattr(cell, "bold", False)),
                     )
                 )
 
-            # Associate row icons with row text
-            full_row_text = " ".join(row_texts).strip()
-            for ic in row_icons:
-                ic.associated_text = full_row_text
-                table_icon_refs.append(ic)
+            info["full_text"] = " ".join(info["texts"]).strip()
+            for ref in info["icon_refs"]:
+                ref.associated_text = info["full_text"]
+            row_infos.append(info)
 
-            # If this row is an instruction or contains blue instruction text
-            if row_is_instruction and (row_instruction_texts or full_row_text):
-                table_has_instructions = True
+        if not any(c.text or c.icon_path or c.image_path or c.shading_hex for c in cells):
+            return [], []
+
+        shaded_rows = [info for info in row_infos if info["shading_hex"]]
+        content_rows = [
+            info for info in row_infos if info["full_text"] or info["icon_keys"]
+        ]
+
+        # An unshaded 2-column icon+text grid is a borderless layout container
+        # used to align an icon beside its instruction, not a real table.
+        is_layout_container = (
+            num_cols == 2
+            and not shaded_rows
+            and all(info["is_instruction"] for info in row_infos)
+            and all(info["icon_keys"] for info in row_infos)
+            and all(info["has_icon_in_first_col"] for info in row_infos)
+        )
+
+        # Emit instructions in row order so paragraph indices stay sequential.
+        # Cell icons stay on the cells. Copying them onto the table element makes
+        # the renderer draw the same images again, above the grid, with no text.
+        table_instructions: list[TemplateInstruction] = []
+        for info in row_infos:
+            if info["is_instruction"] and (info["instruction_texts"] or info["full_text"]):
                 unique_texts: list[str] = []
-                for txt in row_instruction_texts:
+                for txt in info["instruction_texts"]:
                     t_clean = txt.strip()
                     if t_clean and t_clean not in unique_texts:
                         unique_texts.append(t_clean)
-                inst_text_content = " ".join(unique_texts).strip() if unique_texts else full_row_text
+                inst_text = " ".join(unique_texts).strip() if unique_texts else info["full_text"]
                 table_instructions.append(
-                    TemplateInstruction(
-                        text=inst_text_content,
-                        font_color_hex=row_color_hex,
-                        section_context=section_title,
-                        is_global=False,
-                        icons=list(row_icons),
+                    emit_instruction(
+                        inst_text,
+                        info["color_hex"],
+                        info["detection_method"],
+                        info["icon_refs"],
                     )
                 )
 
-        if not any(c.text or c.icon_path or c.image_path or c.background_color for c in cells):
-            return None, []
-
-        # Detect if this table is an icon-instruction layout container (borderless table used to align icon and instruction text)
-        is_layout_container = (
-            num_cols == 2
-            and len(table_instructions) == num_rows
-            and len(table_icon_refs) == num_rows
-            and all(
-                any(c.col_index == 0 and c.icon_path for c in cells if c.row_index == r_idx)
-                for r_idx in range(num_rows)
-            )
-        )
-
         if is_layout_container:
-            # Layout container unwrapped: return None for table_elem so it is not emitted as a table
-            return None, table_instructions
+            return [], table_instructions
 
-        # Grid collapse if sparse
+        # Shaded rows are the template's coloured infographic boxes. Promote them
+        # to callouts so their colours survive, and register the style so
+        # migration can reproduce them instead of guessing.
+        if shaded_rows:
+            trigger = (
+                table_instructions[-1].text if table_instructions else preceding_instruction
+            )
+            callout_elements: list[TemplateElement] = []
+            for info in shaded_rows:
+                icon_key = info["icon_keys"][0] if info["icon_keys"] else None
+                callout_type = _callout_type_for(info["full_text"], trigger) or (
+                    f"callout_{info['shading_hex'].lower()}"
+                )
+                register_callout(
+                    callout_type,
+                    f"#{info['shading_hex']}",
+                    f"#{info['border_left_hex']}" if info["border_left_hex"] else None,
+                    f"#{info['color_hex']}" if info["color_hex"] else None,
+                    icon_key,
+                    trigger,
+                    section_title,
+                    page,
+                )
+                callout_elements.append(
+                    TemplateElement(
+                        element_type="callout",
+                        page=page,
+                        text=info["full_text"],
+                        callout_type=callout_type,
+                        shading_hex=info["shading_hex"],
+                        font_color_hex=info["color_hex"],
+                        icons=list(info["icon_refs"]),
+                        is_instruction=info["is_instruction"],
+                    )
+                )
+
+            # Every content-bearing row is a callout — no grid left to render.
+            if len(shaded_rows) >= len(content_rows):
+                return callout_elements, table_instructions
+
+            # Mixed table: keep the grid (cells retain their shading) and still
+            # register the styles above so nothing is lost either way.
+
         cells, num_rows, num_cols = self._collapse_cells(cells, num_rows, num_cols)
 
         table_elem = TemplateElement(
@@ -677,19 +1089,25 @@ class TemplateExtractionService:
             title=getattr(table, "caption", None),
             num_rows=num_rows,
             num_cols=num_cols,
+            header_rows=getattr(table, "header_rows", 0) or None,
+            style_name=getattr(table, "style_name", None),
+            col_widths_pt=list(getattr(table, "col_widths_pt", []) or []),
             cells=cells,
-            icons=table_icon_refs,
-            is_instruction=table_has_instructions,
+            is_instruction=bool(table_instructions),
         )
 
-        return table_elem, table_instructions
+        return [table_elem], table_instructions
 
     @staticmethod
     def _collapse_cells(
-        cells: list[MigrationTableCell], num_rows: int, num_cols: int
-    ) -> tuple[list[MigrationTableCell], int, int]:
+        cells: list[TemplateTableCell], num_rows: int, num_cols: int
+    ) -> tuple[list[TemplateTableCell], int, int]:
         """Collapse redundant empty columns in table cells."""
-        used_cols = {c.col_index for c in cells if c.text or c.icon_path or c.image_path}
+        used_cols = {
+            c.col_index
+            for c in cells
+            if c.text or c.icon_path or c.image_path or c.shading_hex
+        }
         if not used_cols or len(used_cols) == num_cols:
             return cells, num_rows, num_cols
 

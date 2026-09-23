@@ -218,6 +218,26 @@ class DocxParser(BaseParser):
             for pnum in sorted(page_map)
         ]
 
+    # ── Shading / formatting helpers ─────────────────────────────────
+
+    @staticmethod
+    def _shading_fill(props_el) -> Optional[str]:
+        """Return the ``w:shd`` fill hex from a ``tcPr``/``pPr``, or None when unset.
+
+        Word writes ``w:fill="auto"`` for "no fill", which is not a colour.
+        """
+        from docx.oxml.ns import qn
+
+        if props_el is None:
+            return None
+        shd = props_el.find(qn('w:shd'))
+        if shd is None:
+            return None
+        fill = (shd.get(qn('w:fill')) or "").strip().upper().lstrip("#")
+        if len(fill) != 6 or fill in {"AUTO", "NIL", "NONE"}:
+            return None
+        return fill
+
     # ── Paragraph classification ────────────────────────────────────
 
     def _classify_paragraph(
@@ -245,35 +265,37 @@ class DocxParser(BaseParser):
 
         current_page = getattr(self, '_current_page', 1)
 
-        # Check if it's a heading
+        element: ExtractedElement
         if style_name in self._HEADING_STYLES:
-            return ExtractedHeading(
+            element = ExtractedHeading(
                 content=text,
                 page=current_page,
                 sequence=sequence,
                 level=self._HEADING_STYLES[style_name],
+                style_name=style_name,
             )
-
-        # Check if it's a list item
-        if style_name in self._LIST_STYLES:
+        elif style_name in self._LIST_STYLES:
             # Distinguish numbered lists from bullet lists
             element_type = ElementType.LIST_ITEM
             if "Number" in style_name:
                 element_type = ElementType.NUMBERED_STEP
-            return ExtractedElement(
+            element = ExtractedElement(
                 element_type=element_type,
                 content=text,
                 page=current_page,
                 sequence=sequence,
             )
+        else:
+            element = ExtractedElement(
+                element_type=ElementType.PARAGRAPH,
+                content=text,
+                page=current_page,
+                sequence=sequence,
+            )
 
-        # Default → paragraph
-        return ExtractedElement(
-            element_type=ElementType.PARAGRAPH,
-            content=text,
-            page=current_page,
-            sequence=sequence,
-        )
+        from docx.oxml.ns import qn
+        element.shading_hex = self._shading_fill(para._element.find(qn('w:pPr')))
+        return element
 
     # ── Table extraction ────────────────────────────────────────────
 
@@ -287,65 +309,111 @@ class DocxParser(BaseParser):
         
         rows_data: list[list[ExtractedTableCell]] = []
 
+        # ``row.cells`` is grid-aligned: a merged cell is repeated once per grid
+        # position it covers, and a vertically merged position returns a wrapper
+        # around the *origin* row's ``<w:tc>``. Reading gridSpan/vMerge off those
+        # wrappers would therefore duplicate content, so the merge structure is
+        # taken from the row's own ``tc_lst`` and walked in lockstep.
+        last_origin_row_at_col: dict[int, int] = {}
+
         for row_idx, row in enumerate(table.rows):
-            cell_row = []
-            for col_idx, cell in enumerate(row.cells):
-                tc = cell._element
+            cell_row: list[ExtractedTableCell] = []
+            grid_cells = row.cells
+            grid_pos = 0
+
+            for tc in row._tr.tc_lst:
                 tcPr = tc.find(qn('w:tcPr'))
-                
-                # Column span
+
                 col_span = 1
                 if tcPr is not None:
                     gridSpan = tcPr.find(qn('w:gridSpan'))
                     if gridSpan is not None:
                         col_span = int(gridSpan.get(qn('w:val'), '1'))
-                
-                # Row merge status
-                merge_status = "none"
-                if tcPr is not None:
-                    vMerge = tcPr.find(qn('w:vMerge'))
-                    if vMerge is not None:
-                        val = vMerge.get(qn('w:val'), 'continue')
-                        merge_status = val if val == 'restart' else 'continue'
-                        
-                # Extract inline images from table cell
-                cell_media = []
-                if doc is not None and extracted_hashes is not None:
-                    cell_media = self._extract_inline_images(cell._element, doc, sequence, extracted_hashes)
-                    sequence += len(cell_media)
 
-                text = cell.text.strip()
-                
-                ext_cell = ExtractedTableCell(
-                    content_text=text,
-                    col_span=col_span,
-                    row_span=1,  # will resolve below
-                    is_merge_origin=(merge_status != "continue"),
-                    media_nodes=cell_media,
+                vMerge = tcPr.find(qn('w:vMerge')) if tcPr is not None else None
+                is_vertical_continuation = (
+                    vMerge is not None
+                    and vMerge.get(qn('w:val'), 'continue') != 'restart'
                 )
-                if merge_status == "continue":
-                    ext_cell.merge_origin_ref = "vertical"
-                    
-                cell_row.append(ext_cell)
+
+                for span_idx in range(col_span):
+                    if grid_pos >= len(grid_cells):
+                        break
+                    cell = grid_cells[grid_pos]
+
+                    if is_vertical_continuation:
+                        # Extend the origin's row_span once per covered row.
+                        origin_row = last_origin_row_at_col.get(grid_pos)
+                        if span_idx == 0 and origin_row is not None:
+                            rows_data[origin_row][grid_pos].row_span += 1
+                        cell_row.append(
+                            ExtractedTableCell(
+                                content_text="",
+                                is_merge_origin=False,
+                                merge_origin_ref="vertical",
+                            )
+                        )
+                        grid_pos += 1
+                        continue
+
+                    if span_idx > 0:
+                        cell_row.append(
+                            ExtractedTableCell(
+                                content_text="",
+                                is_merge_origin=False,
+                                merge_origin_ref="horizontal",
+                            )
+                        )
+                        grid_pos += 1
+                        continue
+
+                    # Extract inline images from table cell
+                    cell_media = []
+                    if doc is not None and extracted_hashes is not None:
+                        cell_media = self._extract_inline_images(tc, doc, sequence, extracted_hashes)
+                        sequence += len(cell_media)
+
+                    text_direction = None
+                    valign = None
+                    if tcPr is not None:
+                        td = tcPr.find(qn('w:textDirection'))
+                        if td is not None:
+                            text_direction = td.get(qn('w:val')) or None
+                        va = tcPr.find(qn('w:vAlign'))
+                        if va is not None:
+                            valign = va.get(qn('w:val')) or None
+
+                    cell_metadata: dict = {}
+                    left_border = self._cell_left_border_color(tcPr)
+                    if left_border:
+                        cell_metadata["border_left_color_hex"] = left_border
+
+                    cell_row.append(
+                        ExtractedTableCell(
+                            content_text=cell.text.strip(),
+                            col_span=col_span,
+                            row_span=1,  # extended as vMerge continuations are seen
+                            is_merge_origin=True,
+                            media_nodes=cell_media,
+                            shading_hex=self._shading_fill(tcPr),
+                            text_direction=text_direction,
+                            valign=valign,
+                            bold=any(
+                                run.bold for para in cell.paragraphs for run in para.runs
+                            ),
+                            metadata=cell_metadata,
+                        )
+                    )
+                    last_origin_row_at_col[grid_pos] = row_idx
+                    grid_pos += 1
+
             rows_data.append(cell_row)
 
         if not rows_data:
             return None
 
-        # Resolve row spans
-        max_cols = max(sum(c.col_span for c in row) for row in rows_data)
-        
-        # Simplified row span resolution logic mapping continuations to origins
-        for col_idx in range(len(rows_data[0])):  # Assume rectangular grid from docx
-            origin_row = None
-            for row_idx, row in enumerate(rows_data):
-                if col_idx < len(row):
-                    cell = row[col_idx]
-                    if cell.is_merge_origin:
-                        origin_row = row_idx
-                    elif not cell.is_merge_origin and origin_row is not None:
-                        # Increment origin's row span
-                        rows_data[origin_row][col_idx].row_span += 1
+        # One entry per grid position, so the widest row is the grid width.
+        max_cols = max(len(row) for row in rows_data)
 
         headers = rows_data[0] if rows_data else []
         data_rows = rows_data[1:] if len(rows_data) > 1 else []
@@ -357,7 +425,74 @@ class DocxParser(BaseParser):
             grid_cols=max_cols,
             headers=headers,
             rows=data_rows,
+            style_name=self._table_style_name(table),
+            col_widths_pt=self._table_col_widths_pt(table),
+            header_rows=self._table_header_row_count(table),
         )
+
+    @staticmethod
+    def _cell_left_border_color(tcPr) -> Optional[str]:
+        """Return the cell's left border colour hex — the accent bar on callouts."""
+        from docx.oxml.ns import qn
+
+        if tcPr is None:
+            return None
+        borders = tcPr.find(qn('w:tcBorders'))
+        if borders is None:
+            return None
+        left = borders.find(qn('w:left'))
+        if left is None:
+            return None
+        color = (left.get(qn('w:color')) or "").strip().upper().lstrip("#")
+        if len(color) != 6 or color == "AUTO":
+            return None
+        return color
+
+    @staticmethod
+    def _table_style_name(table) -> Optional[str]:
+        """Return the table's ``w:tblStyle`` value, or None."""
+        from docx.oxml.ns import qn
+
+        tblPr = table._tbl.find(qn('w:tblPr'))
+        if tblPr is None:
+            return None
+        style = tblPr.find(qn('w:tblStyle'))
+        if style is None:
+            return None
+        return style.get(qn('w:val')) or None
+
+    @staticmethod
+    def _table_col_widths_pt(table) -> list[float]:
+        """Return the declared column widths in points (``w:tblGrid`` is in twips)."""
+        from docx.oxml.ns import qn
+
+        grid = table._tbl.find(qn('w:tblGrid'))
+        if grid is None:
+            return []
+        widths: list[float] = []
+        for col in grid.findall(qn('w:gridCol')):
+            raw = col.get(qn('w:w'))
+            if raw is None:
+                continue
+            try:
+                widths.append(round(int(raw) / 20.0, 1))
+            except ValueError:
+                continue
+        return widths
+
+    @staticmethod
+    def _table_header_row_count(table) -> int:
+        """Count leading rows flagged as repeating headers (``w:tblHeader``)."""
+        from docx.oxml.ns import qn
+
+        count = 0
+        for row in table.rows:
+            trPr = row._tr.find(qn('w:trPr'))
+            if trPr is not None and trPr.find(qn('w:tblHeader')) is not None:
+                count += 1
+            else:
+                break
+        return count
 
     # ── Image extraction ────────────────────────────────────────────
 
@@ -422,6 +557,7 @@ class DocxParser(BaseParser):
                             page=getattr(self, '_current_page', 1),
                             sequence=sequence,
                             image_path=str(save_path),
+                            content_hash=img_hash,
                         )
                     )
                     sequence += 1
@@ -448,6 +584,7 @@ class DocxParser(BaseParser):
                         page=getattr(self, '_current_page', 1),
                         sequence=sequence,
                         image_path=str(save_path),
+                        content_hash=img_hash,
                     )
                 )
                 sequence += 1
@@ -501,6 +638,7 @@ class DocxParser(BaseParser):
                         page=getattr(self, '_current_page', 1),
                         sequence=sequence,
                         image_path=str(save_path),
+                        content_hash=img_hash,
                     )
                 )
                 sequence += 1

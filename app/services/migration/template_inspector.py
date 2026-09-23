@@ -59,7 +59,7 @@ class TemplateInspector:
             text = (para.text or "").strip()
             style_name = para.style.name if para.style else "Normal"
             heading_level = self._detect_heading_level(para, style_name, text)
-            is_blue, color_hex = self._detect_color(para)
+            is_blue, color_hex, detection_method = self._detect_color(para)
             is_bold = any(getattr(r, "bold", False) for r in para.runs)
 
             if heading_level is not None and text:
@@ -74,6 +74,7 @@ class TemplateInspector:
                     is_bold=is_bold,
                     heading_level=heading_level,
                     font_color_hex=color_hex,
+                    color_detection_method=detection_method,
                 )
             )
 
@@ -109,7 +110,7 @@ class TemplateInspector:
 
                     # Check cell paragraphs for blue instruction text
                     for p in cell.paragraphs:
-                        is_blue, _ = self._detect_color(p)
+                        is_blue, _, _ = self._detect_color(p)
                         if is_blue:
                             has_blue_in_table = True
 
@@ -180,13 +181,17 @@ class TemplateInspector:
 
         return None
 
-    def _detect_color(self, para) -> tuple[bool, Optional[str]]:
-        """Detect if paragraph contains blue instruction text and return color hex."""
+    def _detect_color(self, para) -> tuple[bool, Optional[str], Optional[str]]:
+        """Detect blue instruction text, returning (is_blue, hex_or_none, detection_method).
+
+        ``font_color_hex`` stays strictly hex-or-null; how the decision was reached
+        is reported separately so style- and theme-based hits stay distinguishable.
+        """
         # Check style name first
         if para.style and para.style.name:
             st_name = para.style.name.lower()
             if "instruction" in st_name:
-                return True, "STYLE_INSTRUCTION"
+                return True, None, "style_name"
 
         WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -210,7 +215,7 @@ class TemplateInspector:
             if run.font and run.font.color and run.font.color.rgb:
                 rgb_str = str(run.font.color.rgb).upper()
                 if _check_hex_or_rgb(rgb_str):
-                    return True, rgb_str
+                    return True, rgb_str, "run_color"
 
             # 2. Check OXML w:rPr/w:color
             r_pr = run._element.find(f"{{{WNS}}}rPr")
@@ -223,7 +228,7 @@ class TemplateInspector:
                         or color_el.get("val", "")
                     ).upper()
                     if _check_hex_or_rgb(val):
-                        return True, val
+                        return True, val, "run_color"
 
                     theme_val = (
                         color_el.get(f"{{{WNS}}}themeColor", "")
@@ -231,7 +236,7 @@ class TemplateInspector:
                         or color_el.get("themeColor", "")
                     ).lower()
                     if theme_val in {"accent1", "accent2", "accent5", "hyperlink"}:
-                        return True, theme_val
+                        return True, None, "theme_color"
 
         # 3. Check paragraph-level rPr
         p_pr = para._element.find(f"{{{WNS}}}pPr")
@@ -246,9 +251,9 @@ class TemplateInspector:
                         or color_el.get("val", "")
                     ).upper()
                     if _check_hex_or_rgb(val):
-                        return True, val
+                        return True, val, "paragraph_color"
 
-        return False, None
+        return False, None, None
 
     def _find_preceding_heading(
         self, doc: Document, table, heading_history: list[tuple[int, str]]

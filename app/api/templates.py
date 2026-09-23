@@ -169,17 +169,16 @@ async def extract_template(
             json.dump(clean_dict, f, indent=2)
 
         global_rules_json = json.dumps(extraction_output.global_rules.to_clean_dict())
-
-        total_sections = len(extraction_output.sections)
-        total_elements = sum(len(sec.elements) for sec in extraction_output.sections)
+        totals = extraction_output.totals
 
         template_store.update_extraction_results(
             record_id=record_id,
             output_path=str(output_json_path),
-            total_sections=total_sections,
-            total_elements=total_elements,
-            total_instructions=extraction_output.total_instructions,
-            total_icons=extraction_output.total_icons,
+            total_sections=totals.sections,
+            total_elements=totals.elements,
+            total_instructions=totals.instructions,
+            total_icons=totals.icons,
+            total_callouts=totals.callouts,
             global_rules_json=global_rules_json,
             status="ready",
         )
@@ -187,10 +186,11 @@ async def extract_template(
         return TemplateExtractResponse(
             template_id=template_uid,
             status="ready",
-            total_sections=total_sections,
-            total_elements=total_elements,
-            total_instructions=extraction_output.total_instructions,
-            total_icons=extraction_output.total_icons,
+            total_sections=totals.sections,
+            total_elements=totals.elements,
+            total_instructions=totals.instructions,
+            total_icons=totals.icons,
+            total_callouts=totals.callouts,
             global_rules_count=len(extraction_output.global_rules.instructions),
             message="Template extracted successfully.",
         )
@@ -221,6 +221,7 @@ async def list_templates(
             total_sections=r["total_sections"],
             total_instructions=r["total_instructions"],
             total_icons=r["total_icons"],
+            total_callouts=r.get("total_callouts") or 0,
             status=r["status"],
             created_at=r["created_at"],
         )

@@ -40,7 +40,8 @@ def test_template_parser_parsing(sample_template_path):
     # Verify that some elements are tagged as instructions if blue font exists
     instructions = [
         el for el in all_elements
-        if getattr(el, "metadata", {}).get("is_instruction") or getattr(el, "highlight_color", None)
+        if getattr(el, "metadata", {}).get("is_instruction")
+        or getattr(el, "color_detection_method", None)
     ]
     assert len(instructions) > 0, "Expected to detect blue instruction elements in sample template"
 
@@ -52,52 +53,76 @@ async def test_template_extractor_service(sample_template_path):
     output = await service.extract("test_tpl", sample_template_path, template_name="Template Main GP Docs")
 
     assert output is not None
+    assert output.version == "2.0"
     assert output.template_id == "test_tpl"
     assert len(output.sections) == 11, f"Expected 11 sections, got {len(output.sections)}"
     assert len(output.global_rules.instructions) == 13, f"Expected 13 global rules, got {len(output.global_rules.instructions)}"
-    assert output.total_instructions == 106
-    assert output.total_icons == 14
+
+    # Every blue instruction lands in exactly one bucket: global rules or a section
+    assert output.totals.instructions == 106
+    assert output.totals.instructions == len(output.global_rules.instructions) + sum(
+        len(s.authoring_instructions) for s in output.sections
+    )
+
+    # The icon library is deduplicated; the 14 occurrences collapse into fewer entries
+    icon_keys = [entry.icon_key for entry in output.icon_library]
+    assert len(icon_keys) == len(set(icon_keys)), "icon_library must be deduplicated"
+    assert output.totals.icons == len(output.icon_library)
+    assert sum(entry.occurrences for entry in output.icon_library) == 14
+    assert any(entry.occurrences > 1 for entry in output.icon_library), "expected reused icons"
 
     # Ensure sections have elements and section-wise instructions with icons
     sec_map = {s.title: s for s in output.sections}
     assert "PURPOSE" in sec_map
     assert sec_map["PURPOSE"].section_number == "1"
-    assert len(sec_map["PURPOSE"].instructions) == 3
-    assert sec_map["PURPOSE"].instructions[0].section_context == "PURPOSE"
-    purpose_icon_instructions = [i for i in sec_map["PURPOSE"].instructions if i.icons]
+    assert len(sec_map["PURPOSE"].authoring_instructions) == 3
+    assert sec_map["PURPOSE"].authoring_instructions[0].section_context == "PURPOSE"
+    assert all(i.scope == "section" for i in sec_map["PURPOSE"].authoring_instructions)
+    purpose_icon_instructions = [i for i in sec_map["PURPOSE"].authoring_instructions if i.icons]
     assert len(purpose_icon_instructions) == 2
     # Verify instruction text is not duplicated within itself
     assert "Brief description of what the document is about? What process is described in the document? Brief description" not in purpose_icon_instructions[0].text
-    # Verify layout container unwrapped into paragraphs, no table
-    purpose_tables = [e for e in sec_map["PURPOSE"].elements if e.element_type == "table"]
+    # Verify unshaded layout container unwrapped into paragraphs, no table
+    purpose_tables = [e for e in sec_map["PURPOSE"].skeleton_elements if e.element_type == "table"]
     assert len(purpose_tables) == 0, "PURPOSE layout container should be unwrapped, 0 tables expected"
 
     assert "APPLICABILITY" in sec_map
     assert sec_map["APPLICABILITY"].section_number == "2"
-    assert len(sec_map["APPLICABILITY"].instructions) == 8
-    applicability_icon_instructions = [i for i in sec_map["APPLICABILITY"].instructions if i.icons]
+    assert len(sec_map["APPLICABILITY"].authoring_instructions) == 8
+    applicability_icon_instructions = [i for i in sec_map["APPLICABILITY"].authoring_instructions if i.icons]
     assert len(applicability_icon_instructions) == 4
-    # Verify layout container unwrapped into paragraphs, no table
-    applicability_tables = [e for e in sec_map["APPLICABILITY"].elements if e.element_type == "table"]
+    # Verify unshaded layout container unwrapped into paragraphs, no table
+    applicability_tables = [e for e in sec_map["APPLICABILITY"].skeleton_elements if e.element_type == "table"]
     assert len(applicability_tables) == 0, "APPLICABILITY layout container should be unwrapped, 0 tables expected"
 
     assert "PROCESS" in sec_map
     assert sec_map["PROCESS"].section_number == "6"
-    assert len(sec_map["PROCESS"].instructions) == 26
-    process_icon_instructions = [i for i in sec_map["PROCESS"].instructions if i.icons]
+    assert len(sec_map["PROCESS"].authoring_instructions) == 26
+    process_icon_instructions = [i for i in sec_map["PROCESS"].authoring_instructions if i.icons]
     assert len(process_icon_instructions) == 4
-    # Verify callout tables unwrapped
-    process_tables = [e for e in sec_map["PROCESS"].elements if e.element_type == "table"]
-    assert len(process_tables) == 0, "PROCESS callout tables should be unwrapped, 0 tables expected"
+    # Shaded infographic boxes survive as callouts rather than being flattened away
+    process_tables = [e for e in sec_map["PROCESS"].skeleton_elements if e.element_type == "table"]
+    assert len(process_tables) == 0, "PROCESS layout containers should be unwrapped, 0 tables expected"
 
     assert "REFERENCES" in sec_map
     assert sec_map["REFERENCES"].section_number == "8"
-    assert len(sec_map["REFERENCES"].instructions) == 9
+    assert len(sec_map["REFERENCES"].authoring_instructions) == 9
 
     assert "DOCUMENT HISTORY" in sec_map
     doc_history = sec_map["DOCUMENT HISTORY"]
-    assert sum(len(elem.icons) for elem in doc_history.elements) == 0
-    assert sum(len(inst.icons) for inst in doc_history.instructions) == 0
+    assert sum(len(elem.icons) for elem in doc_history.skeleton_elements) == 0
+    assert sum(len(inst.icons) for inst in doc_history.authoring_instructions) == 0
+
+    # Callout registry is populated from the template's own colours
+    assert output.totals.callouts == sum(
+        1
+        for s in output.sections
+        for e in s.skeleton_elements
+        if e.element_type == "callout"
+    )
+    for style in output.callout_styles:
+        assert style.background_color_hex, "callout colours must come from the template"
+        assert style.icon_key is None or style.icon_key in set(icon_keys)
 
     # Ensure clean dictionary serializes correctly
     clean_dict = output.to_clean_dict()
@@ -105,6 +130,12 @@ async def test_template_extractor_service(sample_template_path):
     assert "global_rules" in clean_dict
     assert len(clean_dict["sections"]) == 11
     assert len(clean_dict["global_rules"]["instructions"]) == 13
+
+    # Output must be portable and free of the old sentinel
+    blob = json.dumps(clean_dict)
+    assert "STYLE_INSTRUCTION" not in blob
+    for entry in clean_dict["icon_library"]:
+        assert not Path(entry["asset_path"]).is_absolute()
 
 
 def test_template_store(tmp_path):
@@ -146,12 +177,14 @@ def test_template_store(tmp_path):
         total_elements=25,
         total_instructions=8,
         total_icons=3,
+        total_callouts=4,
         global_rules_json=json.dumps({"instructions": []}),
         status="ready",
     )
     assert updated["status"] == "ready"
     assert updated["total_sections"] == 5
     assert updated["total_instructions"] == 8
+    assert updated["total_callouts"] == 4
 
     # Test get_all_ready_templates
     ready = store.get_all_ready_templates()
@@ -184,6 +217,7 @@ def test_template_api_endpoints(client, sample_template_path):
     assert ext_data["status"] == "ready"
     assert ext_data["total_sections"] > 0
     assert ext_data["total_instructions"] > 0
+    assert ext_data["total_callouts"] >= 0
 
     # 3. List
     list_resp = client.get("/templates")
