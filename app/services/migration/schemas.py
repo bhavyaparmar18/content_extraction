@@ -24,7 +24,8 @@ class TemplateParagraphInfo(BaseModel):
     is_blue_instruction: bool = False           # True if font color is blue (instructional text)
     is_bold: bool = False
     heading_level: Optional[int] = None         # 1, 2, 3 or None for non-headings
-    font_color_hex: Optional[str] = None
+    font_color_hex: Optional[str] = None        # Hex only, e.g. "0075FF"
+    color_detection_method: Optional[str] = None  # run_color | paragraph_color | style_name | theme_color
 
 
 class TemplateTableInfo(BaseModel):

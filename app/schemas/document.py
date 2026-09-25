@@ -64,6 +64,9 @@ class ExtractedElement(BaseModel):
     confidence: float = 1.0
     outline_level: Optional[int] = None       # DOCX outline level (0-8)
     highlight_color: Optional[str] = None     # Named highlight color if detected
+    font_color_hex: Optional[str] = None      # Run/paragraph font colour, hex only ("0075FF")
+    color_detection_method: Optional[str] = None  # run_color | paragraph_color | style_name | theme_color
+    shading_hex: Optional[str] = None         # Paragraph background fill from w:shd/@w:fill
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -71,6 +74,7 @@ class ExtractedHeading(ExtractedElement):
     """A heading with its detected hierarchical level."""
     element_type: ElementType = ElementType.HEADING
     level: int = 1
+    style_name: Optional[str] = None   # Source paragraph style, e.g. "Heading 1"
 
 
 class ExtractedTableCell(BaseModel):
@@ -82,6 +86,10 @@ class ExtractedTableCell(BaseModel):
     merge_origin_ref: Optional[str] = None  # node_id if we have it, or generic ref
     bbox: Optional[BoundingBox] = None
     media_nodes: list[ExtractedElement] = Field(default_factory=list)
+    shading_hex: Optional[str] = None       # Cell background fill from w:shd/@w:fill
+    text_direction: Optional[str] = None    # w:textDirection val, e.g. "btLr" for rotated headers
+    valign: Optional[str] = None            # w:vAlign val: top | center | bottom
+    bold: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -92,6 +100,9 @@ class ExtractedTable(ExtractedElement):
     grid_cols: int = 0
     headers: list[ExtractedTableCell] = Field(default_factory=list)
     rows: list[list[ExtractedTableCell]] = Field(default_factory=list)
+    style_name: Optional[str] = None                        # w:tblStyle val
+    col_widths_pt: list[float] = Field(default_factory=list)  # from w:tblGrid, twips converted to points
+    header_rows: int = 0                                     # rows marked with w:tblHeader
 
 
 class ExtractedImage(ExtractedElement):
@@ -101,6 +112,7 @@ class ExtractedImage(ExtractedElement):
     caption: str = ""
     width: int = 0
     height: int = 0
+    content_hash: Optional[str] = None   # md5[:10] of the image bytes — stable across runs
 
 
 class ExtractedIcon(ExtractedElement):
@@ -110,6 +122,7 @@ class ExtractedIcon(ExtractedElement):
     semantic_meaning: str = ""
     image_path: str = ""
     associated_element_seq: Optional[int] = None
+    content_hash: Optional[str] = None   # md5[:10] of the image bytes — stable across runs
 
 
 # ── Raw Document ───────────────────────────────────────────────────────

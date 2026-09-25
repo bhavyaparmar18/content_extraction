@@ -76,6 +76,10 @@ class HeadingNode(ASTNode):
     text: str = ""
     level: int = 1
     numbering: Optional[str] = None  # e.g., "1.2.3"
+    style_name: Optional[str] = None  # Source style, e.g. "Heading 1"
+    font_color_hex: Optional[str] = None
+    color_detection_method: Optional[str] = None
+    shading_hex: Optional[str] = None
 
 
 # ── Text Content Nodes ────────────────────────────────────────────────
@@ -98,6 +102,9 @@ class ParagraphNode(ASTNode):
     node_type: str = "paragraph"
     text: str = ""
     highlights: list[HighlightSpan] = Field(default_factory=list)
+    font_color_hex: Optional[str] = None          # Hex only, e.g. "0075FF"
+    color_detection_method: Optional[str] = None  # run_color | paragraph_color | style_name | theme_color
+    shading_hex: Optional[str] = None             # Paragraph background fill
 
 
 class HighlightNode(ASTNode):
@@ -146,6 +153,9 @@ class TableNode(ASTNode):
     rows: list["TableRowNode"] = Field(default_factory=list)
     caption: Optional[str] = None
     has_header_row: bool = False
+    style_name: Optional[str] = None
+    col_widths_pt: list[float] = Field(default_factory=list)
+    header_rows: int = 0
 
 
 class TableRowNode(ASTNode):
@@ -171,6 +181,10 @@ class TableCellNode(ASTNode):
     is_merge_origin: bool = True
     merge_origin_ref: Optional[str] = None  # node_id of the origin cell
     content: list["ChildNode"] = Field(default_factory=list)
+    shading_hex: Optional[str] = None       # Cell background fill
+    text_direction: Optional[str] = None    # e.g. "btLr" for rotated headers
+    valign: Optional[str] = None            # top | center | bottom
+    bold: bool = False
 
 
 # ── Media Nodes ────────────────────────────────────────────────────────
@@ -208,6 +222,7 @@ class IconNode(ASTNode):
     semantic_meaning: str = ""          # "warning" | "ppe_required" | "prohibited" | etc.
     classification_method: str = ""     # "perceptual_hash" | "size_heuristic" | "manual"
     icon_category: str = IconCategory.UNKNOWN
+    content_hash: Optional[str] = None  # md5[:10] of the asset bytes — stable across runs
 
 
 class CaptionNode(ASTNode):

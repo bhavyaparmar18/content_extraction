@@ -72,6 +72,22 @@ export const TemplateManagement: React.FC = () => {
     enabled: !!inspectTemplateId,
   });
 
+  // v2.0 references icons by key and callouts by type; index both for rendering.
+  const iconLibrary = useMemo(
+    () =>
+      Object.fromEntries(
+        (inspectedContent?.icon_library || []).map((entry) => [entry.icon_key, entry])
+      ),
+    [inspectedContent]
+  );
+  const calloutStyles = useMemo(
+    () =>
+      Object.fromEntries(
+        (inspectedContent?.callout_styles || []).map((style) => [style.callout_type, style])
+      ),
+    [inspectedContent]
+  );
+
   // Stats calculation
   const stats = useMemo(() => {
     const total = templates.length;
@@ -120,7 +136,7 @@ export const TemplateManagement: React.FC = () => {
     try {
       const res = await api.extractTemplate(templateUid);
       toastSuccess(
-        `Extracted ${res.total_sections} sections, ${res.total_instructions} blue instructions, ${res.total_icons} icons.`,
+        `Extracted ${res.total_sections} sections, ${res.total_instructions} blue instructions, ${res.total_icons} icons, ${res.total_callouts ?? 0} callouts.`,
         'Template Ready'
       );
       queryClient.invalidateQueries({ queryKey: ['templates'] });
@@ -587,9 +603,11 @@ export const TemplateManagement: React.FC = () => {
                     <div className="text-[11px] text-text-muted mt-0.5 flex items-center gap-3 font-mono">
                       <span>Sections: {inspectedContent?.sections?.length || 0}</span>
                       <span>•</span>
-                      <span>Instructions: {inspectedContent?.total_instructions || 0}</span>
+                      <span>Instructions: {inspectedContent?.totals?.instructions || 0}</span>
                       <span>•</span>
-                      <span>Icons: {inspectedContent?.total_icons || 0}</span>
+                      <span>Icons: {inspectedContent?.totals?.icons || 0}</span>
+                      <span>•</span>
+                      <span>Callouts: {inspectedContent?.totals?.callouts || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -624,7 +642,7 @@ export const TemplateManagement: React.FC = () => {
                           : 'text-text-muted hover:text-text-main'
                       }`}
                     >
-                      Icons ({inspectedContent?.total_icons || 0})
+                      Icons ({inspectedContent?.totals?.icons || 0})
                     </button>
                     <Button
                       variant="secondary"
@@ -721,57 +739,61 @@ export const TemplateManagement: React.FC = () => {
                       </p>
                     </div>
 
-                    {inspectedContent.total_icons === 0 ? (
+                    {!inspectedContent.icon_library?.length ? (
                       <div className="p-8 text-center text-xs text-text-muted bg-card rounded-xl border border-border">
                         No embedded icons extracted in this template.
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                        {inspectedContent.sections.flatMap((sec) =>
-                          sec.elements.flatMap((el) =>
-                            (el.icons || []).map((icon, iconIdx) => (
-                              <div
-                                key={`${sec.title}-${icon.icon_id}-${iconIdx}`}
-                                className="dashboard-card p-3 border border-border bg-card flex flex-col items-center text-center space-y-2"
-                              >
-                                <div className="size-12 rounded-lg bg-surface border border-border grid place-items-center p-1">
-                                  <img
-                                    src={
-                                      icon.image_path.startsWith('/templates/')
-                                        ? icon.image_path
-                                        : api.getTemplateAssetUrl(
-                                            inspectedContent.template_id,
-                                            api.assetFileName(icon.image_path)
-                                          )
-                                    }
-                                    alt={icon.semantic_meaning || 'Icon'}
-                                    className="max-h-full max-w-full object-contain"
-                                    onError={(e) => {
-                                      // Fallback icon visual
-                                      e.currentTarget.style.display = 'none';
-                                    }}
-                                  />
-                                </div>
-                                <div className="min-w-0 w-full">
-                                  <div className="text-[11px] font-semibold text-text-main capitalize truncate">
-                                    {icon.semantic_meaning || 'Icon'}
-                                  </div>
-                                  <div className="text-[9px] text-text-muted font-mono truncate mt-0.5">
-                                    Section: {icon.section_context || sec.title}
-                                  </div>
-                                  {icon.associated_text && (
-                                    <div
-                                      className="text-[9px] text-sky-300/80 line-clamp-2 mt-1 italic text-left bg-surface/50 p-1 rounded border border-border/40"
-                                      title={icon.associated_text}
-                                    >
-                                      "{icon.associated_text}"
-                                    </div>
-                                  )}
-                                </div>
+                        {inspectedContent.icon_library.map((icon) => (
+                          <div
+                            key={icon.icon_key}
+                            className="dashboard-card p-3 border border-border bg-card flex flex-col items-center text-center space-y-2"
+                          >
+                            <div className="size-12 rounded-lg bg-surface border border-border grid place-items-center p-1">
+                              <img
+                                src={
+                                  icon.asset_path.startsWith('/templates/')
+                                    ? icon.asset_path
+                                    : api.getTemplateAssetUrl(
+                                        inspectedContent.template_id,
+                                        api.assetFileName(icon.asset_path)
+                                      )
+                                }
+                                alt={icon.display_name || icon.semantic_meaning}
+                                className="max-h-full max-w-full object-contain"
+                                onError={(e) => {
+                                  // Fallback icon visual
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            </div>
+                            <div className="min-w-0 w-full">
+                              <div className="text-[11px] font-semibold text-text-main capitalize truncate">
+                                {icon.display_name ||
+                                  (icon.semantic_meaning === 'unknown'
+                                    ? 'Unlabelled'
+                                    : icon.semantic_meaning)}
                               </div>
-                            ))
-                          )
-                        )}
+                              <div className="text-[9px] text-text-muted font-mono truncate mt-0.5">
+                                {icon.icon_key} · {icon.occurrences}×
+                              </div>
+                              {icon.allowed_sections?.length ? (
+                                <div className="text-[9px] text-text-muted font-mono truncate mt-0.5">
+                                  {icon.allowed_sections.join(', ')}
+                                </div>
+                              ) : null}
+                              {icon.source_instruction && (
+                                <div
+                                  className="text-[9px] text-sky-300/80 line-clamp-2 mt-1 italic text-left bg-surface/50 p-1 rounded border border-border/40"
+                                  title={icon.source_instruction}
+                                >
+                                  "{icon.source_instruction}"
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -780,7 +802,8 @@ export const TemplateManagement: React.FC = () => {
                   <div className="space-y-3">
                     {inspectedContent.sections.map((section: TemplateSection, sIdx: number) => {
                       const isExpanded = !!expandedSections[sIdx];
-                      const instructions = section.instructions || [];
+                      const instructions = section.authoring_instructions || [];
+                      const elements = section.skeleton_elements || [];
 
                       return (
                         <div
@@ -814,7 +837,7 @@ export const TemplateManagement: React.FC = () => {
                                 </span>
                               )}
                               <span className="text-text-muted">
-                                {section.elements.length} element{section.elements.length === 1 ? '' : 's'}
+                                {elements.length} element{elements.length === 1 ? '' : 's'}
                               </span>
                             </div>
                           </button>
@@ -836,16 +859,24 @@ export const TemplateManagement: React.FC = () => {
                                         <div className="flex items-start gap-2">
                                           {inst.icons && inst.icons.length > 0 && (
                                             <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                                              {inst.icons.map((ic, icIdx) => (
-                                                <span
-                                                  key={icIdx}
-                                                  className="inline-flex items-center gap-1 rounded bg-purple-500/20 text-purple-300 px-1.5 py-0.5 text-[10px] border border-purple-500/30"
-                                                  title={`Icon: ${ic.semantic_meaning || 'Icon'}`}
-                                                >
-                                                  <Tag className="size-2.5 text-purple-400" />
-                                                  {ic.semantic_meaning || 'Icon'}
-                                                </span>
-                                              ))}
+                                              {inst.icons.map((ic, icIdx) => {
+                                                const entry = iconLibrary[ic.icon_key];
+                                                const label =
+                                                  entry?.display_name ||
+                                                  (entry && entry.semantic_meaning !== 'unknown'
+                                                    ? entry.semantic_meaning
+                                                    : ic.icon_key);
+                                                return (
+                                                  <span
+                                                    key={icIdx}
+                                                    className="inline-flex items-center gap-1 rounded bg-purple-500/20 text-purple-300 px-1.5 py-0.5 text-[10px] border border-purple-500/30"
+                                                    title={`Icon: ${label}`}
+                                                  >
+                                                    <Tag className="size-2.5 text-purple-400" />
+                                                    {label}
+                                                  </span>
+                                                );
+                                              })}
                                             </div>
                                           )}
                                           <span>{inst.text}</span>
@@ -858,13 +889,15 @@ export const TemplateManagement: React.FC = () => {
 
                               {/* Section Elements with full tables, images, and cell icons */}
                               <div className="space-y-3 pt-1">
-                                {section.elements.map((el: TemplateElement, eIdx: number) => (
+                                {elements.map((el: TemplateElement, eIdx: number) => (
                                   <ElementRenderer
                                     key={eIdx}
                                     element={el}
                                     documentId={inspectedContent.template_id}
                                     isTemplate={true}
                                     index={eIdx}
+                                    iconLibrary={iconLibrary}
+                                    calloutStyles={calloutStyles}
                                   />
                                 ))}
                               </div>

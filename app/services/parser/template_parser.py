@@ -138,40 +138,47 @@ class TemplateDocxParser(DocxParser):
             return None
 
         # Check for blue font color indicating template instruction
-        is_blue, color_hex = self._detect_color(para)
+        is_blue, color_hex, detection_method = self._detect_color(para)
         if is_blue:
             # Extract specifically blue run text
             blue_parts: list[str] = []
             for run in para.runs:
-                run_blue, _ = self._detect_run_color(run)
+                run_blue, _, _ = self._detect_run_color(run)
                 if run_blue and run.text.strip():
                     blue_parts.append(run.text.strip())
 
             instruction_text = " ".join(blue_parts) if blue_parts else para.text.strip()
 
-            base_element.highlight_color = color_hex
+            base_element.font_color_hex = color_hex
+            base_element.color_detection_method = detection_method
             if not hasattr(base_element, "metadata") or base_element.metadata is None:
                 base_element.metadata = {}
             base_element.metadata["is_instruction"] = True
             base_element.metadata["instruction_text"] = instruction_text
             base_element.metadata["font_color_hex"] = color_hex
+            base_element.metadata["color_detection_method"] = detection_method
 
         return base_element
 
-    def _detect_color(self, para) -> tuple[bool, Optional[str]]:
-        """Detect if paragraph contains blue instruction text and return color hex."""
+    def _detect_color(self, para) -> tuple[bool, Optional[str], Optional[str]]:
+        """Detect blue instruction text on a paragraph.
+
+        Returns ``(is_blue, font_color_hex, detection_method)``. The hex is only
+        populated when an actual colour value was found — style- and theme-based
+        matches report how they were detected instead.
+        """
         if para.style and para.style.name:
             st_name = para.style.name.lower()
             if "instruction" in st_name:
-                return True, "STYLE_INSTRUCTION"
+                return True, None, "style_name"
 
         WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
         # Check individual runs
         for run in para.runs:
-            run_is_blue, run_color = self._detect_run_color(run)
+            run_is_blue, run_color, run_method = self._detect_run_color(run)
             if run_is_blue:
-                return True, run_color
+                return True, run_color, run_method
 
         # Check paragraph-level rPr
         p_pr = para._element.find(f"{{{WNS}}}pPr")
@@ -186,19 +193,22 @@ class TemplateDocxParser(DocxParser):
                         or color_el.get("val", "")
                     ).upper()
                     if self._check_hex_or_rgb(val):
-                        return True, val
+                        return True, val, "paragraph_color"
 
-        return False, None
+        return False, None, None
 
-    def _detect_run_color(self, run) -> tuple[bool, Optional[str]]:
-        """Detect if a run contains blue text."""
+    def _detect_run_color(self, run) -> tuple[bool, Optional[str], Optional[str]]:
+        """Detect blue text on a single run.
+
+        Returns ``(is_blue, font_color_hex, detection_method)``.
+        """
         WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
         # 1. python-docx RGBColor
         if run.font and run.font.color and run.font.color.rgb:
             rgb_str = str(run.font.color.rgb).upper()
             if self._check_hex_or_rgb(rgb_str):
-                return True, rgb_str
+                return True, rgb_str, "run_color"
 
         # 2. OXML w:rPr/w:color
         r_pr = run._element.find(f"{{{WNS}}}rPr")
@@ -211,7 +221,7 @@ class TemplateDocxParser(DocxParser):
                     or color_el.get("val", "")
                 ).upper()
                 if self._check_hex_or_rgb(val):
-                    return True, val
+                    return True, val, "run_color"
 
                 theme_val = (
                     color_el.get(f"{{{WNS}}}themeColor", "")
@@ -219,9 +229,9 @@ class TemplateDocxParser(DocxParser):
                     or color_el.get("themeColor", "")
                 ).lower()
                 if theme_val in {"accent1", "accent2", "accent5", "hyperlink"}:
-                    return True, theme_val
+                    return True, None, "theme_color"
 
-        return False, None
+        return False, None, None
 
     def _check_hex_or_rgb(self, hex_str: str) -> bool:
         """Validate if hex or RGB string represents a blue tone."""
@@ -262,11 +272,11 @@ class TemplateDocxParser(DocxParser):
 
                 # Check for blue font color in any paragraph of the cell
                 for para in cell.paragraphs:
-                    is_blue, color_hex = self._detect_color(para)
+                    is_blue, color_hex, detection_method = self._detect_color(para)
                     if is_blue:
                         blue_parts = []
                         for run in para.runs:
-                            run_blue, _ = self._detect_run_color(run)
+                            run_blue, _, _ = self._detect_run_color(run)
                             if run_blue and run.text.strip():
                                 blue_parts.append(run.text.strip())
 
@@ -275,6 +285,7 @@ class TemplateDocxParser(DocxParser):
                             ext_cell.metadata = {}
                         ext_cell.metadata["is_instruction"] = True
                         ext_cell.metadata["font_color_hex"] = color_hex
+                        ext_cell.metadata["color_detection_method"] = detection_method
                         ext_cell.metadata["instruction_text"] = inst_text
                         break
 
@@ -335,6 +346,7 @@ class TemplateDocxParser(DocxParser):
                             page=getattr(self, '_current_page', 1),
                             sequence=sequence,
                             image_path=str(save_path),
+                            content_hash=img_hash,
                         )
                     )
                     sequence += 1
@@ -360,6 +372,7 @@ class TemplateDocxParser(DocxParser):
                         page=getattr(self, '_current_page', 1),
                         sequence=sequence,
                         image_path=str(save_path),
+                        content_hash=img_hash,
                     )
                 )
                 sequence += 1
@@ -413,6 +426,7 @@ class TemplateDocxParser(DocxParser):
                         page=getattr(self, '_current_page', 1),
                         sequence=sequence,
                         image_path=str(save_path),
+                        content_hash=img_hash,
                     )
                 )
                 sequence += 1

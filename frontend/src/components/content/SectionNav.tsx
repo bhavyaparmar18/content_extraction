@@ -28,8 +28,13 @@ export const SectionNav: React.FC<SectionNavProps> = ({
       <div className="space-y-1">
         {sections.map((sec, idx) => {
           const isActive = idx === activeSectionIdx;
-          const elementCount = sec.elements?.length || 0;
-          const instructionCount = (sec as any).instructions?.length || 0;
+          // Migration sections carry `elements`; template v2.0 sections split
+          // theirs into skeleton content and authoring instructions.
+          const anySec = sec as any;
+          const elementCount =
+            anySec.elements?.length ?? anySec.skeleton_elements?.length ?? 0;
+          const instructionCount =
+            anySec.instructions?.length ?? anySec.authoring_instructions?.length ?? 0;
 
           return (
             <button

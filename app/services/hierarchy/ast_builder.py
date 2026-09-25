@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from loguru import logger as _default_logger
@@ -243,6 +244,10 @@ class ASTBuilder:
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
             metadata=dict(getattr(el, "metadata", {}) or {}),
+            style_name=getattr(el, "style_name", None),
+            font_color_hex=getattr(el, "font_color_hex", None),
+            color_detection_method=getattr(el, "color_detection_method", None),
+            shading_hex=getattr(el, "shading_hex", None),
         )
 
     def _make_paragraph_node(
@@ -256,6 +261,9 @@ class ASTBuilder:
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
             metadata=dict(getattr(el, "metadata", {}) or {}),
+            font_color_hex=getattr(el, "font_color_hex", None),
+            color_detection_method=getattr(el, "color_detection_method", None),
+            shading_hex=getattr(el, "shading_hex", None),
         )
 
     def _make_table_node(
@@ -275,15 +283,21 @@ class ASTBuilder:
                 is_merge_origin=raw_cell.is_merge_origin,
                 merge_origin_ref=raw_cell.merge_origin_ref,
                 metadata=cell_meta,
-                content=[]
+                content=[],
+                shading_hex=getattr(raw_cell, "shading_hex", None),
+                text_direction=getattr(raw_cell, "text_direction", None),
+                valign=getattr(raw_cell, "valign", None),
+                bold=bool(getattr(raw_cell, "bold", False)),
             )
-            
+
             if raw_cell.content_text:
                 cell_node.content.append(ParagraphNode(
                     node_id=str(uuid.uuid4()),
                     text=raw_cell.content_text,
                     metadata=cell_meta,
-                    highlight_color=cell_meta.get("font_color_hex"),
+                    font_color_hex=cell_meta.get("font_color_hex"),
+                    color_detection_method=cell_meta.get("color_detection_method"),
+                    shading_hex=getattr(raw_cell, "shading_hex", None),
                 ))
                 
             for media in raw_cell.media_nodes:
@@ -332,6 +346,9 @@ class ASTBuilder:
             sequence=seq,
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
+            style_name=getattr(el, "style_name", None),
+            col_widths_pt=list(getattr(el, "col_widths_pt", []) or []),
+            header_rows=int(getattr(el, "header_rows", 0) or 0),
         )
 
     def _make_image_node(
@@ -348,6 +365,7 @@ class ASTBuilder:
             sequence=seq,
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
+            image_hash=getattr(el, "content_hash", None) or "",
         )
 
     def _make_icon_node(
@@ -361,7 +379,23 @@ class ASTBuilder:
             sequence=seq,
             source_location=self._make_source_loc(el),
             confidence=el.confidence,
+            content_hash=getattr(el, "content_hash", None) or self._hash_from_asset_name(el.image_path),
         )
+
+    @staticmethod
+    def _hash_from_asset_name(asset_path: str) -> Optional[str]:
+        """Recover the content hash embedded in extracted asset filenames.
+
+        Parsers name assets ``<prefix><seq>_<md5[:10]>.<ext>``, so the hash
+        survives even when the icon reaches the AST without it set.
+        """
+        if not asset_path:
+            return None
+        stem = Path(asset_path).stem
+        candidate = stem.rsplit("_", 1)[-1]
+        if len(candidate) == 10 and all(c in "0123456789abcdef" for c in candidate.lower()):
+            return candidate.lower()
+        return None
 
     def _make_caption_node(
         self, el: ExtractedElement, seq: int,

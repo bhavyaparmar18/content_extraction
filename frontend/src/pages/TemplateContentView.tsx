@@ -21,6 +21,7 @@ import { FileTypeIcon } from '@/components/ui/FileTypeIcon';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/ToastStack';
 import { AnimatePresence, motion } from 'framer-motion';
+import { clsx } from 'clsx';
 
 export const TemplateContentView: React.FC = () => {
   const { templateId } = useParams<{ templateId: string }>();
@@ -61,7 +62,7 @@ export const TemplateContentView: React.FC = () => {
     },
     onSuccess: (res) => {
       toastSuccess(
-        `Extracted ${res.total_sections} sections, ${res.total_instructions} instructions, ${res.total_icons} icons.`,
+        `Extracted ${res.total_sections} sections, ${res.total_instructions} instructions, ${res.total_icons} icons, ${res.total_callouts ?? 0} callouts.`,
         'Template Updated'
       );
       queryClient.invalidateQueries({ queryKey: ['template', templateId] });
@@ -132,6 +133,15 @@ export const TemplateContentView: React.FC = () => {
   const sections = templateContent.sections || [];
   const activeSection = sections[activeSectionIdx] || sections[0];
   const globalRules = templateContent.global_rules?.instructions || [];
+  const totals = templateContent.totals;
+  const iconLibrary = Object.fromEntries(
+    (templateContent.icon_library || []).map((entry) => [entry.icon_key, entry])
+  );
+  const calloutStyles = Object.fromEntries(
+    (templateContent.callout_styles || []).map((style) => [style.callout_type, style])
+  );
+  const skeletonElements = activeSection?.skeleton_elements || [];
+  const authoringInstructions = activeSection?.authoring_instructions || [];
 
   const downloadJson = () => {
     window.open(api.getDownloadTemplateJsonUrl(templateRecord.template_uid), '_blank');
@@ -167,9 +177,11 @@ export const TemplateContentView: React.FC = () => {
             <div className="text-xs text-text-muted mt-1 flex flex-wrap items-center gap-2.5 font-mono">
               <span>Sections: {sections.length}</span>
               <span>•</span>
-              <span className="text-sky-400">Instructions: {templateContent.total_instructions || 0}</span>
+              <span className="text-sky-400">Instructions: {totals?.instructions || 0}</span>
               <span>•</span>
-              <span className="text-purple-400">Icons: {templateContent.total_icons || 0}</span>
+              <span className="text-purple-400">Icons: {totals?.icons || 0}</span>
+              <span>•</span>
+              <span className="text-emerald-400">Callouts: {totals?.callouts || 0}</span>
               {templateRecord.file_size_bytes && (
                 <>
                   <span>•</span>
@@ -228,6 +240,44 @@ export const TemplateContentView: React.FC = () => {
 
         {/* Right Section Content Pane (8 cols) */}
         <div className="lg:col-span-8 space-y-6">
+          {/* Callout style registry — the colours migration must reproduce */}
+          {templateContent.callout_styles?.length > 0 && (
+            <div className="dashboard-card p-4 space-y-3">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <Tag className="size-3 text-emerald-400" />
+                <span>Callout Styles ({templateContent.callout_styles.length})</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {templateContent.callout_styles.map((style) => (
+                  <div
+                    key={style.callout_type}
+                    className="flex items-center gap-2.5 rounded-lg border border-border bg-black/20 p-2.5"
+                  >
+                    <span
+                      className="size-8 shrink-0 rounded border-l-4"
+                      style={{
+                        backgroundColor: style.background_color_hex,
+                        borderLeftColor:
+                          style.left_border_color_hex || style.background_color_hex,
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-semibold text-text-main">
+                        {style.display_name || style.callout_type}
+                      </div>
+                      <div className="font-mono text-[10px] text-text-muted">
+                        {style.background_color_hex}
+                        {style.left_border_color_hex
+                          ? ` / ${style.left_border_color_hex}`
+                          : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {activeSection ? (
             <div className="dashboard-card p-6 sm:p-8 space-y-6">
               {/* Section Header */}
@@ -243,11 +293,11 @@ export const TemplateContentView: React.FC = () => {
                   <span>
                     Pages {activeSection.page_start}–{activeSection.page_end}
                   </span>
-                  {activeSection.instructions && activeSection.instructions.length > 0 && (
+                  {authoringInstructions.length > 0 && (
                     <>
                       <span>•</span>
                       <span className="text-sky-400 font-medium lowercase">
-                        {activeSection.instructions.length} instructions
+                        {authoringInstructions.length} instructions
                       </span>
                     </>
                   )}
@@ -255,18 +305,88 @@ export const TemplateContentView: React.FC = () => {
                 <h2 className="text-2xl font-bold text-text-main mt-1">
                   {activeSection.title || `Section ${activeSection.section_number || activeSectionIdx}`}
                 </h2>
+
+                {/* Section contract: what migration is allowed to do here */}
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
+                  <span
+                    className={clsx(
+                      'rounded border px-1.5 py-0.5',
+                      activeSection.required
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : 'border-border bg-surface text-text-muted'
+                    )}
+                  >
+                    {activeSection.required ? 'required' : 'optional'}
+                  </span>
+                  {activeSection.heading_style && (
+                    <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-text-muted">
+                      {activeSection.heading_style}
+                    </span>
+                  )}
+                  {activeSection.content_editable && (
+                    <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-text-muted">
+                      author-supplied content
+                    </span>
+                  )}
+                  {!activeSection.allows_subsections && (
+                    <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-300">
+                      no subsections
+                    </span>
+                  )}
+                  {activeSection.placeholders?.map((placeholder) => (
+                    <span
+                      key={placeholder}
+                      className="rounded border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-purple-300"
+                    >
+                      {placeholder}
+                    </span>
+                  ))}
+                </div>
               </div>
 
-              {/* Elements Rendering */}
+              {/* Authoring instructions — blue template text, followed then deleted */}
+              {authoringInstructions.length > 0 && (
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/[0.04] p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-sky-400">
+                    <Sparkles className="size-3" />
+                    <span>Authoring Instructions ({authoringInstructions.length})</span>
+                  </div>
+                  <div className="space-y-2">
+                    {authoringInstructions.map((inst) => (
+                      <div
+                        key={inst.instruction_id}
+                        className="flex items-start gap-2.5 text-xs leading-relaxed text-sky-200"
+                      >
+                        <span className="shrink-0 rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[9px] font-mono text-sky-300">
+                          {inst.directive_type}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p>{inst.text}</p>
+                          {inst.machine_rule && (
+                            <div className="mt-1 font-mono text-[10px] text-emerald-400/80">
+                              {inst.machine_rule.rule} = {String(inst.machine_rule.value)} (
+                              {inst.machine_rule.enforce})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Skeleton elements — black template content preserved verbatim */}
               <div className="space-y-4">
-                {activeSection.elements?.length > 0 ? (
-                  activeSection.elements.map((el, idx) => (
+                {skeletonElements.length > 0 ? (
+                  skeletonElements.map((el, idx) => (
                     <ElementRenderer
                       key={idx}
                       element={el}
                       documentId={templateRecord.template_uid}
                       isTemplate={true}
                       index={idx}
+                      iconLibrary={iconLibrary}
+                      calloutStyles={calloutStyles}
                     />
                   ))
                 ) : (
@@ -359,7 +479,19 @@ export const TemplateContentView: React.FC = () => {
                         {rIdx + 1}
                       </span>
                       <div className="flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5 font-mono text-[9px]">
+                          <span className="rounded border border-sky-500/30 bg-sky-500/15 px-1.5 py-0.5 text-sky-300">
+                            {rule.directive_type}
+                          </span>
+                          <span className="text-sky-400/60">{rule.instruction_id}</span>
+                        </div>
                         <p className="font-medium text-sky-100 leading-relaxed">{rule.text}</p>
+                        {rule.machine_rule && (
+                          <div className="mt-1 font-mono text-[10px] text-emerald-400/80">
+                            {rule.machine_rule.rule} = {String(rule.machine_rule.value)} (
+                            {rule.machine_rule.enforce})
+                          </div>
+                        )}
                         {rule.font_color_hex && (
                           <div className="mt-1 text-[10px] text-sky-400/70 font-mono">
                             Color: #{rule.font_color_hex}

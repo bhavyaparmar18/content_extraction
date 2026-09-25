@@ -117,6 +117,7 @@ class IconExtractor(BaseExtractor):
                 icon_id=str(current_hash),
                 semantic_meaning=matched_meaning or "unknown",
                 image_path=str(final_path),
+                content_hash=getattr(element, "content_hash", None),
             )
             self.logger.debug(f"Identified icon: {matched_meaning or 'unknown'}")
             return icon_el
