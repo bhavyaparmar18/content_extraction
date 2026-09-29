@@ -35,6 +35,8 @@ interface MigrationReviewModeProps {
   onAcceptSuggestion: (sug: AISuggestion) => void;
   onRejectSuggestion: (sug: AISuggestion) => void;
   onGenerateSuggestion: (prompt: string) => void;
+  selectedTemplateUid?: string;
+  onSelectTemplateUid?: (uid: string) => void;
   customTemplateFile?: File | null;
   onSelectTemplateFile?: (file: File | null) => void;
   isMigrating?: boolean;
@@ -48,6 +50,8 @@ export const MigrationReviewMode: React.FC<MigrationReviewModeProps> = ({
   onAcceptSuggestion,
   onRejectSuggestion,
   onGenerateSuggestion,
+  selectedTemplateUid: propSelectedTemplateUid,
+  onSelectTemplateUid,
   customTemplateFile,
   onSelectTemplateFile,
   isMigrating = false,
@@ -55,7 +59,14 @@ export const MigrationReviewMode: React.FC<MigrationReviewModeProps> = ({
 }) => {
   const [activeSectionIdx, setActiveSectionIdx] = useState(0);
   const [rightTab, setRightTab] = useState<'validation' | 'ai'>('validation');
-  const [selectedTemplateUid, setSelectedTemplateUid] = useState<string>('');
+  const [internalTemplateUid, setInternalTemplateUid] = useState<string>('');
+  const selectedTemplateUid = propSelectedTemplateUid !== undefined && propSelectedTemplateUid !== ''
+    ? propSelectedTemplateUid
+    : internalTemplateUid;
+  const setSelectedTemplateUid = (uid: string) => {
+    setInternalTemplateUid(uid);
+    onSelectTemplateUid?.(uid);
+  };
   const [showGlobalRules, setShowGlobalRules] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

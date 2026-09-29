@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import json
+from typing import Optional, Union
 from loguru import logger
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.services.llm.chain_factory import ChainFactory
 from app.services.llm.rate_limiter import LLMRateLimiter
-from app.services.llm.prompts.migration_planner import PLANNER_SYSTEM_PROMPT
+from app.services.llm.prompts.migration_planner import (
+    PLANNER_SYSTEM_PROMPT,
+    PLANNER_USER_PROMPT_TEMPLATE,
+)
 from app.services.migration.schemas import (
     TemplateRawProfile,
     ContentSummary,
     MigrationPlan,
+    SlimTemplateProfile,
 )
 
 
@@ -26,19 +32,38 @@ class SectionAligner:
         self,
         template_profile: TemplateRawProfile,
         content_summary: ContentSummary,
+        slim_profile: Optional[Union[SlimTemplateProfile, dict]] = None,
     ) -> MigrationPlan:
-        """Send template profile and content summary to LLM to produce a MigrationPlan."""
+        """Send template profile, rules, and content summary to LLM to produce a MigrationPlan."""
         logger.info("Calling LLM Migration Planner to generate MigrationPlan...")
 
         structured_llm = self._chain_factory.create_structured_planner(MigrationPlan)
 
-        system_msg = SystemMessage(content=PLANNER_SYSTEM_PROMPT)
-        human_msg = HumanMessage(
-            content=(
-                f"TEMPLATE_PROFILE:\n{template_profile.model_dump_json(indent=2)}\n\n"
-                f"CONTENT_SUMMARY:\n{content_summary.model_dump_json(indent=2)}"
+        if slim_profile:
+            slim_json = (
+                slim_profile.model_dump_json(indent=2)
+                if hasattr(slim_profile, "model_dump_json")
+                else json.dumps(slim_profile, indent=2)
             )
+        else:
+            slim_json = "(No specific template instructions or rules provided)"
+
+        profile_json = (
+            template_profile.model_dump_json(indent=2)
+            if hasattr(template_profile, "model_dump_json")
+            else json.dumps(template_profile, indent=2)
         )
+
+        sop_summary_json = content_summary.model_dump_json(indent=2)
+
+        human_prompt_content = PLANNER_USER_PROMPT_TEMPLATE.format(
+            template_instructions_and_rules=slim_json,
+            template_profile=profile_json,
+            sop_content_summary=sop_summary_json,
+        )
+
+        system_msg = SystemMessage(content=PLANNER_SYSTEM_PROMPT)
+        human_msg = HumanMessage(content=human_prompt_content)
 
         plan: MigrationPlan = await self._rate_limiter.execute(
             coro_factory=lambda: structured_llm.ainvoke([system_msg, human_msg]),

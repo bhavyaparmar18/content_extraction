@@ -96,3 +96,20 @@ def test_content_summarizer_include_preamble(sample_extracted_output):
     summary = summarizer.summarize(sample_extracted_output, skip_preamble=False)
     assert len(summary.sections) == 3
     assert summary.sections[0].title == "0 PREAMBLE"
+
+
+def test_content_summarizer_atomic_blocks(sample_extracted_output):
+    summarizer = ContentSummarizer()
+    summary = summarizer.summarize(sample_extracted_output, skip_preamble=True)
+
+    sec6 = next(s for s in summary.sections if s.section_number == "6")
+    assert len(sec6.blocks) == 1
+    block = sec6.blocks[0]
+    assert block.block_id == "6_block_0"
+    assert block.heading_text == "LANGUAGE AND WORDING"  # 6.1 stripped
+    assert block.heading_level == 2
+    assert block.element_indices == [0, 1, 2, 3]
+    assert "Active voice is key." in block.synopsis
+    assert "1 image(s)" in block.synopsis
+    assert "1 table(s)" in block.synopsis
+

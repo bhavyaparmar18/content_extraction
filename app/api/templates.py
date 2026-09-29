@@ -17,6 +17,10 @@ from app.schemas.template import (
 )
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.services.extraction.template_extractor import TemplateExtractionService
+from app.services.migration.template_slimmer import (
+    save_slim_template_profile,
+    get_slim_profile_path,
+)
 from app.stores.template_store import TemplateStore
 
 router = APIRouter(prefix="/templates", tags=["Templates"])
@@ -168,6 +172,14 @@ async def extract_template(
         with open(output_json_path, "w", encoding="utf-8") as f:
             json.dump(clean_dict, f, indent=2)
 
+        # Pre-generate slim migration profile alongside the full profile
+        slim_json_path = get_slim_profile_path(output_json_path)
+        try:
+            save_slim_template_profile(clean_dict, output_path=slim_json_path)
+            logger.info(f"Generated slim migration profile at {slim_json_path}")
+        except Exception as e:
+            logger.warning(f"Failed to generate slim migration profile for {template_uid}: {e}")
+
         global_rules_json = json.dumps(extraction_output.global_rules.to_clean_dict())
         totals = extraction_output.totals
 
@@ -290,6 +302,36 @@ async def get_template_global_rules(
             return data.get("global_rules", {"instructions": []})
 
     return {"instructions": []}
+
+
+@router.get("/{template_id}/migration-profile")
+async def get_template_migration_profile(
+    template_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """Retrieve simplified migration profile JSON containing global & section instructions."""
+    template_store = _get_template_store(request, settings)
+    record = _resolve_template_record(template_store, template_id)
+
+    output_path = record.get("output_path")
+    if not output_path or not Path(output_path).exists():
+        raise NotFoundError(
+            f"Extracted content for template '{template_id}' not found. Run extraction first.",
+            code="TEMPLATE_CONTENT_NOT_FOUND",
+        )
+
+    slim_path = get_slim_profile_path(output_path)
+    if not slim_path.exists():
+        try:
+            save_slim_template_profile(output_path, output_path=slim_path)
+        except Exception as e:
+            logger.error(f"Failed to generate slim migration profile on-demand: {e}")
+            raise HTTPException(status_code=500, detail="Failed to generate slim migration profile.")
+
+    with open(slim_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 
 
 @router.get("/{template_id}/assets/{filename}")
