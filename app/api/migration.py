@@ -132,6 +132,15 @@ async def migrate_document(
     # Handle template selection / file
     target_template_path = None
     template_store = getattr(request.app.state, "template_store", None)
+
+    # Sanitize template_id from frontend artifacts like '[object Object]', 'undefined', 'null'
+    if template_id:
+        clean_id = template_id.strip()
+        if clean_id in ("[object Object]", "undefined", "null", "none", ""):
+            template_id = None
+        else:
+            template_id = clean_id
+
     if template_id:
         record = None
         if template_store:
@@ -139,6 +148,17 @@ async def migrate_document(
                 record = template_store.get_record_by_id(int(template_id))
             if not record:
                 record = template_store.get_record_by_uid(template_id)
+            if not record:
+                all_records = template_store.list_records()
+                record = next(
+                    (
+                        r
+                        for r in all_records
+                        if r.get("template_uid", "").lower() == template_id.lower()
+                        or r.get("template_name", "").lower() == template_id.lower()
+                    ),
+                    None,
+                )
         if record and record.get("upload_path"):
             target_template_path = Path(record["upload_path"])
             if not target_template_path.exists():
@@ -160,15 +180,34 @@ async def migrate_document(
             f.write(content)
         target_template_path = template_save_path
     else:
-        # Look for default template in templates dir
-        templates = list(settings.migration_template_dir.glob("*.docx"))
-        if templates:
-            target_template_path = templates[0]
-        else:
+        # 1. Fallback: Find registered ready template in template_store
+        if template_store:
+            ready_templates = template_store.list_records(status="ready")
+            for cand in ready_templates:
+                if cand.get("upload_path") and Path(cand["upload_path"]).exists():
+                    target_template_path = Path(cand["upload_path"])
+                    logger.info(
+                        f"Using default ready template '{cand.get('template_name')}' ({cand.get('template_uid')}) at {target_template_path}"
+                    )
+                    break
+
+        # 2. Fallback: Look in data/template_uploads
+        if not target_template_path:
+            uploads = list(Path("data/template_uploads").glob("*.docx"))
+            if uploads:
+                target_template_path = uploads[0]
+
+        # 3. Fallback: Look in settings.migration_template_dir (data/templates)
+        if not target_template_path:
+            templates = list(settings.migration_template_dir.glob("*.docx"))
+            if templates:
+                target_template_path = templates[0]
+
+        if not target_template_path:
             raise AppError(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 code="TEMPLATE_NOT_FOUND",
-                message="No template selected or uploaded and no default .docx found in data/templates/",
+                message="No template selected or uploaded and no default .docx found.",
             )
 
     output_docx_path = settings.migration_output_dir / f"migrated_{document_id}.docx"

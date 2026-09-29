@@ -34,6 +34,7 @@ export const ReviewPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [selectedTemplateUid, setSelectedTemplateUid] = useState<string>('');
   const [customTemplateFile, setCustomTemplateFile] = useState<File | null>(null);
 
   // Local state for AI suggestions and issues
@@ -198,12 +199,16 @@ export const ReviewPage: React.FC = () => {
   }
 
   // AI Migration execution
-  const handleTriggerMigration = async (templateId?: string) => {
+  const handleTriggerMigration = async (templateId?: unknown) => {
     if (!bootstrap?.document?.documentUid) return;
     setIsMigrating(true);
     try {
       toastInfo('Running AI template migration & DOCX generation...', 'Migrating');
-      await api.migrateDocument(bootstrap.document.documentUid, templateId, customTemplateFile || undefined);
+      const cleanTemplateId =
+        typeof templateId === 'string' && templateId.trim() && templateId.trim() !== '[object Object]'
+          ? templateId.trim()
+          : (selectedTemplateUid || undefined);
+      await api.migrateDocument(bootstrap.document.documentUid, cleanTemplateId, customTemplateFile || undefined);
       queryClient.invalidateQueries({ queryKey: ['migrationStatus', bootstrap.document.documentUid] });
       queryClient.invalidateQueries({ queryKey: ['migrationPlan', bootstrap.document.documentUid] });
       toastSuccess('AI migration complete! DOCX template generated.', 'Migration Ready');
@@ -263,6 +268,8 @@ export const ReviewPage: React.FC = () => {
             onAcceptSuggestion={handleAcceptSuggestion}
             onRejectSuggestion={handleRejectSuggestion}
             onGenerateSuggestion={handleGenerateSuggestion}
+            selectedTemplateUid={selectedTemplateUid}
+            onSelectTemplateUid={setSelectedTemplateUid}
             customTemplateFile={customTemplateFile}
             onSelectTemplateFile={setCustomTemplateFile}
             isMigrating={isMigrating}
@@ -292,7 +299,7 @@ export const ReviewPage: React.FC = () => {
         onAiTranslate={() => {
           toastSuccess('AI Translation complete with GxP terminology enforcement.', 'Translated');
         }}
-        onAiMigrate={handleTriggerMigration}
+        onAiMigrate={() => handleTriggerMigration(selectedTemplateUid)}
       />
 
       {/* Reprocessing Request Dialog */}

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
 from typing import Optional, Any
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Pt
 from loguru import logger
 
@@ -81,6 +84,23 @@ class DocxMigrator:
         logger.info("Phase 1: Inspecting template structure")
         template_profile = self.inspector.inspect(t_path)
 
+        # Look for corresponding slim migration profile (e.g. Template_Main_GP_Docs_v1_migration.json)
+        slim_profile = None
+        candidate_paths = [
+            t_path.with_name(f"{t_path.stem}_migration.json"),
+            t_path.parent.parent / "template_output" / f"{t_path.stem}_migration.json",
+            Path("data/template_output") / f"{t_path.stem}_migration.json",
+        ]
+        for cp in candidate_paths:
+            if cp.exists():
+                try:
+                    with open(cp, "r", encoding="utf-8") as f:
+                        slim_profile = json.load(f)
+                    logger.info(f"Phase 1: Loaded slim template migration rules from '{cp.name}'")
+                    break
+                except Exception as exc:
+                    logger.warning(f"Failed to load slim profile from '{cp}': {exc}")
+
         logger.info(f"Phase 1: Summarizing content (LLM Mode={self.settings.use_llm_section_summarizer})")
         if asyncio.iscoroutinefunction(getattr(self.summarizer, "summarize", None)):
             content_summary = await self.summarizer.summarize(
@@ -93,7 +113,9 @@ class DocxMigrator:
 
         # ── Phase 2: LLM Migration Planning ──────────────────────
         logger.info("Phase 2: Calling LLM Migration Planner")
-        plan = await self.aligner.create_migration_plan(template_profile, content_summary)
+        plan = await self.aligner.create_migration_plan(
+            template_profile, content_summary, slim_profile=slim_profile
+        )
         logger.info(
             f"Phase 2: Plan created — {len(plan.section_plans)} sections, "
             f"confidence={plan.overall_confidence:.2f}, warnings={len(plan.warnings)}"
@@ -102,6 +124,10 @@ class DocxMigrator:
         # ── Phase 3: Programmatic Execution ──────────────────────
         logger.info("Phase 3: Building output .docx from template")
         doc = Document(str(t_path))
+
+        # 0. Sanitize template numbering spacing (<w:suff w:val="space"/>)
+        # Prevents glued heading numbers like '1PURPOSE', '2APPLICABILITY', '6.1LANGUAGE'
+        self._sanitize_template_numbering_spacing(doc)
 
         # 1. Clean blue instructions and deleted sections from template
         # (Table cleaning is deferred until after placeholder tables are populated by index)
@@ -277,7 +303,11 @@ class DocxMigrator:
                         mapped_source_titles.add(sec.title)
                         continue
 
-                logger.info(f"Auto-inserting unmapped source section: '{sec.title}'")
+                body_candidate = next(
+                    (p.template_section_heading for p in mapped_plans if any(w in p.template_section_heading.lower() for w in ("process", "procedure", "workflow", "methodology", "execution", "instruction", "operation", "guideline", "specification", "steps"))),
+                    None
+                )
+                fallback_anchor = body_candidate or (mapped_plans[-1].template_section_heading if mapped_plans else None)
                 unmapped_sp = SectionPlan(
                     template_section_heading=sec.title,
                     template_heading_level=1,
@@ -285,7 +315,7 @@ class DocxMigrator:
                     elements=[],
                     has_source_content=True,
                     is_unmapped_source=True,
-                    insertion_after_section="PROCESS",
+                    insertion_after_section=fallback_anchor,
                 )
                 unmapped_plans.append(unmapped_sp)
                 plan.section_plans.append(unmapped_sp)
@@ -334,10 +364,59 @@ class DocxMigrator:
         """Map source sections directly to matching template headings if LLM left them unmapped."""
         import re
         for sp in plan.section_plans:
+            norm_template = re.sub(r"^\d+[\.\s]*", "", sp.template_section_heading.strip().lower()).strip()
             if not sp.source_sections_mapped or not sp.has_source_content:
-                norm_template = re.sub(r"^\d+[\.\s]*", "", sp.template_section_heading.strip().lower()).strip()
                 if not norm_template or norm_template == "general information":
                     continue
+
+                non_body_keywords = {
+                    "purpose", "applicability", "scope", "definition", "abbreviation",
+                    "role", "responsibility", "associated", "reference", "history",
+                    "preamble", "general information", "distribution", "attachment", "appendix",
+                    "table of content", "toc", "content", "contents"
+                }
+
+                # Generalized self-healing for primary body/procedural container(s) in any SOP template:
+                # If a substantive/body section exists in the template and is empty, claim unmapped substantive source chapters into it.
+                is_body_container = (
+                    not sp.is_unmapped_source
+                    and not any(k in norm_template for k in non_body_keywords)
+                    and any(term in norm_template for term in (
+                        "process", "procedure", "workflow", "methodology", "execution",
+                        "instruction", "operation", "guideline", "specification", "steps"
+                    ))
+                )
+
+                if is_body_container:
+                    body_secs = []
+                    for sec in extracted.sections:
+                        if self.settings.skip_preamble_migration and sec.title.strip().startswith("0 "):
+                            continue
+                        if re.match(r"^\d+\.\d+", sec.title.strip()):
+                            continue
+                        norm_s = re.sub(r"^\d+[\.\s]*", "", sec.title.strip().lower()).strip()
+                        mapped_elsewhere = any(
+                            sec.title in other.source_sections_mapped
+                            for other in plan.section_plans
+                            if other != sp and not other.is_unmapped_source
+                        )
+                        if not mapped_elsewhere:
+                            if not any(k in norm_s for k in non_body_keywords):
+                                body_secs.append(sec.title)
+
+                    if body_secs:
+                        logger.info(f"Auto-aligning core body sections {body_secs} to template section '{sp.template_section_heading}'")
+                        sp.source_sections_mapped = body_secs
+                        sp.has_source_content = True
+                        sp.fallback_action = None
+
+                        # Purge any unmapped_source plans that were created for these body sections
+                        plan.section_plans = [
+                            other for other in plan.section_plans
+                            if not (other.is_unmapped_source and any(s in body_secs for s in other.source_sections_mapped))
+                        ]
+                        continue
+
                 for sec in extracted.sections:
                     if self.settings.skip_preamble_migration and sec.title.strip().startswith("0 "):
                         continue
@@ -374,11 +453,80 @@ class DocxMigrator:
 
         # Collect all source elements that belong to this section plan
         all_placements = self._build_complete_placements(section_plan, extracted)
+        self._execute_placements(doc, all_placements, extracted, plan, anchor=anchor, section_plan=section_plan)
+
+    def _execute_placements(
+        self,
+        doc: Document,
+        all_placements: list[ElementPlacement],
+        extracted: DocxMigrationOutput,
+        plan: MigrationPlan,
+        anchor: Optional[Any],
+        section_plan: SectionPlan,
+    ) -> Optional[Any]:
+        """Execute element placements sequentially with intelligent list numbering tracking."""
+        running_ordered_counter = 1
+        paras_since_list = 0
 
         for placement in all_placements:
-            new_oxml = self._execute_element(doc, placement, extracted, plan, anchor=anchor, section_plan=section_plan)
+            start_index = 1
+            if placement.action == "insert_heading":
+                running_ordered_counter = 1
+                paras_since_list = 0
+            elif placement.action in ("insert_table", "insert_image", "insert_callout", "populate_placeholder"):
+                running_ordered_counter = 1
+                paras_since_list = 0
+            elif placement.action == "insert_paragraph":
+                paras_since_list += 1
+                if paras_since_list > 1:
+                    running_ordered_counter = 1
+            elif placement.action == "insert_list":
+                source_elem = self._find_source_element(extracted, placement)
+                raw_items = (
+                    source_elem.items
+                    if (source_elem and source_elem.items)
+                    else ([source_elem.text] if (source_elem and source_elem.text) else [])
+                )
+                valid_items = [it for it in raw_items if (it or "").strip()]
+
+                ordered_matches = sum(
+                    1 for it in valid_items if self.styler.ORDERED_PREFIX_RE.match((it or "").strip())
+                )
+                is_ordered = ordered_matches >= max(1, len(valid_items) // 2) if valid_items else False
+
+                if not is_ordered:
+                    running_ordered_counter = 1
+                    paras_since_list = 0
+                else:
+                    if len(valid_items) > 1:
+                        m0 = re.match(r"^(\d+)[.)]", valid_items[0].strip())
+                        if m0 and int(m0.group(1)) > 1:
+                            start_index = int(m0.group(1))
+                        else:
+                            start_index = 1
+                        running_ordered_counter = start_index + len(valid_items)
+                    else:
+                        if running_ordered_counter > 1 and paras_since_list <= 1:
+                            start_index = running_ordered_counter
+                        else:
+                            m0 = re.match(r"^(\d+)[.)]", valid_items[0].strip())
+                            start_index = int(m0.group(1)) if m0 and int(m0.group(1)) > 1 else 1
+                        running_ordered_counter = start_index + 1
+                    paras_since_list = 0
+
+            new_oxml = self._execute_element(
+                doc,
+                placement,
+                extracted,
+                plan,
+                anchor=anchor,
+                section_plan=section_plan,
+                start_index=start_index,
+            )
             if new_oxml is not None:
                 anchor = new_oxml
+
+        return anchor
 
     @staticmethod
     def _clean_heading_number_prefix(text: str) -> str:
@@ -433,13 +581,9 @@ class DocxMigrator:
             anchor = heading._element
 
         all_placements = self._build_complete_placements(section_plan, extracted)
-
-        for placement in all_placements:
-            new_oxml = self._execute_element(doc, placement, extracted, plan, anchor=anchor, section_plan=section_plan)
-            if new_oxml is not None:
-                anchor = new_oxml
-
-        return anchor
+        return self._execute_placements(
+            doc, all_placements, extracted, plan, anchor=anchor, section_plan=section_plan
+        )
 
     def _build_complete_placements(
         self,
@@ -462,6 +606,33 @@ class DocxMigrator:
 
             # Normalise source section title for comparison (strip leading numbers)
             norm_src_title = re.sub(r"^\d+[\.\ ]*", "", src_title.strip()).strip().lower()
+            norm_tpl_title = re.sub(r"^\d+[\.\ ]*", "", section_plan.template_section_heading.strip()).strip().lower()
+
+            needs_subsection_header = (
+                norm_src_title != norm_tpl_title
+                and norm_src_title not in norm_tpl_title
+                and norm_tpl_title not in norm_src_title
+            )
+
+            if needs_subsection_header:
+                clean_title = self._clean_heading_number_prefix(src_title)
+                first_elem_is_heading = (
+                    src_sec.elements
+                    and src_sec.elements[0].element_type == "heading"
+                    and self._clean_heading_number_prefix(src_sec.elements[0].text or "").lower() == clean_title.lower()
+                )
+                if not first_elem_is_heading:
+                    placements.append(
+                        ElementPlacement(
+                            source_section_title=src_title,
+                            source_element_index=-1,
+                            source_element_type="heading",
+                            target_section_heading=section_plan.template_section_heading,
+                            placement_order=len(placements),
+                            action="insert_heading",
+                            heading_level=2,
+                        )
+                    )
 
             for idx, elem in enumerate(src_sec.elements):
                 if (src_title, idx) in explicit_by_sec_and_idx:
@@ -471,6 +642,8 @@ class DocxMigrator:
                         continue
                     if elem.icons:
                         explicit_p.embed_icons_inline = True
+                    if needs_subsection_header and explicit_p.action == "insert_heading":
+                        explicit_p.heading_level = min(6, (explicit_p.heading_level or elem.level or 2) + 1)
                     placements.append(explicit_p)
                     continue
 
@@ -499,12 +672,16 @@ class DocxMigrator:
                 # template already provides the correct heading name and number.
                 if action == "insert_heading" and elem.text:
                     norm_elem = re.sub(r"^\d+[\.\ ]*", "", (elem.text or "").strip()).strip().lower()
-                    if norm_elem == norm_src_title or norm_elem in norm_src_title or norm_src_title in norm_elem:
+                    if not needs_subsection_header and (norm_elem == norm_src_title or norm_elem in norm_src_title or norm_src_title in norm_elem):
                         logger.debug(
                             f"Skipping source section-title heading '{elem.text}' "
                             f"(template heading '{section_plan.template_section_heading}' already present)"
                         )
                         continue
+
+                target_level = elem.level or 2
+                if needs_subsection_header:
+                    target_level = min(6, target_level + 1)
 
                 placements.append(
                     ElementPlacement(
@@ -512,9 +689,9 @@ class DocxMigrator:
                         source_element_index=idx,
                         source_element_type=elem.element_type,
                         target_section_heading=section_plan.template_section_heading,
-                        placement_order=idx,
+                        placement_order=len(placements),
                         action=action,
-                        heading_level=elem.level or 2,
+                        heading_level=target_level,
                         embed_icons_inline=True if elem.icons else False,
                     )
                 )
@@ -535,6 +712,7 @@ class DocxMigrator:
         plan: MigrationPlan,
         anchor: Optional[Any] = None,
         section_plan: Optional[SectionPlan] = None,
+        start_index: int = 1,
     ) -> Optional[Any]:
         """Insert element and anchor it sequentially in the document."""
         if placement.action == "skip":
@@ -546,86 +724,102 @@ class DocxMigrator:
                 return self._populated_tbl_elements[key]
             return None
 
-        source_elem = self._find_source_element(extracted, placement)
-        if source_elem is None:
-            logger.debug(f"Source element not found: {placement.source_section_title}[{placement.source_element_index}]")
-            return None
-
         created_items: list[Any] = []
 
-        match placement.action:
-            case "insert_heading":
-                parent_lvl = getattr(section_plan, "template_heading_level", 1) or 1
-                raw_lvl = placement.heading_level or source_elem.level or (parent_lvl + 1 if parent_lvl else 2)
-                lvl = max(parent_lvl + 1, raw_lvl) if parent_lvl else raw_lvl
-                lvl = min(6, lvl)
-                font_size = getattr(plan, f"font_size_heading{lvl}_pt", 12.0)
-                icon_paths = [ref.path for ref in source_elem.icons] if (placement.embed_icons_inline and source_elem.icons) else []
-                heading_text = self._clean_heading_number_prefix(source_elem.text or "")
-                h = self.styler.insert_heading(
-                    doc=doc,
-                    text=heading_text,
-                    level=lvl,
-                    style_name=placement.heading_style or f"Heading {lvl}",
-                    font_family=plan.font_family,
-                    font_size_pt=font_size,
-                    icon_paths=icon_paths,
-                    icon_size_pt=24.0,
-                )
-                created_items = [h]
+        # Synthetic chapter heading (e.g. '6.1 PRINCIPLES FOR DOCUMENT WRITING' under 'PROCESS')
+        if placement.source_element_index == -1 and placement.action == "insert_heading":
+            clean_title = self._clean_heading_number_prefix(placement.source_section_title)
+            lvl = placement.heading_level or 2
+            font_size = getattr(plan, f"font_size_heading{lvl}_pt", 12.0)
+            h = self.styler.insert_heading(
+                doc=doc,
+                text=clean_title,
+                level=lvl,
+                style_name=placement.heading_style or f"Heading {lvl}",
+                font_family=plan.font_family,
+                font_size_pt=font_size,
+            )
+            created_items = [h]
+        else:
+            source_elem = self._find_source_element(extracted, placement)
+            if source_elem is None:
+                logger.debug(f"Source element not found: {placement.source_section_title}[{placement.source_element_index}]")
+                return None
 
-            case "insert_paragraph":
-                icon_paths = [ref.path for ref in source_elem.icons] if source_elem.icons else []
-                para = self.styler.insert_paragraph(
-                    doc=doc,
-                    text=source_elem.text or "",
-                    font_family=plan.font_family,
-                    font_size_pt=plan.font_size_body_pt,
-                    icon_paths=icon_paths,
-                    icon_size_pt=24.0,
-                )
-                created_items = [para]
-
-            case "insert_list":
-                icon_paths = [ref.path for ref in source_elem.icons] if (placement.embed_icons_inline and source_elem.icons) else []
-                raw_items = source_elem.items or ([source_elem.text] if source_elem.text else [])
-                paras = self.styler.insert_list(
-                    doc=doc,
-                    items=raw_items,
-                    font_family=plan.font_family,
-                    font_size_pt=plan.font_size_body_pt,
-                    icon_paths=icon_paths,
-                    icon_size_pt=20.0,
-                )
-                created_items = paras
-
-            case "insert_table":
-                t = self.table_migrator.insert_table(
-                    doc=doc,
-                    source_element=source_elem,
-                    font_family=plan.font_family,
-                )
-                if t is not None:
-                    created_items = [t]
-
-            case "insert_image":
-                if source_elem.image_path:
-                    created_items = self.styler.insert_image(
+            match placement.action:
+                case "insert_heading":
+                    parent_lvl = getattr(section_plan, "template_heading_level", 1) or 1
+                    raw_lvl = placement.heading_level or source_elem.level or (parent_lvl + 1 if parent_lvl else 2)
+                    lvl = max(parent_lvl + 1, raw_lvl) if parent_lvl else raw_lvl
+                    lvl = min(6, lvl)
+                    font_size = getattr(plan, f"font_size_heading{lvl}_pt", 12.0)
+                    icon_paths = [ref.path for ref in source_elem.icons] if (placement.embed_icons_inline and source_elem.icons) else []
+                    heading_text = self._clean_heading_number_prefix(source_elem.text or "")
+                    h = self.styler.insert_heading(
                         doc=doc,
-                        image_path=source_elem.image_path,
-                        caption=source_elem.title,
+                        text=heading_text,
+                        level=lvl,
+                        style_name=placement.heading_style or f"Heading {lvl}",
+                        font_family=plan.font_family,
+                        font_size_pt=font_size,
+                        icon_paths=icon_paths,
+                        icon_size_pt=24.0,
                     )
+                    created_items = [h]
 
-            case "insert_callout":
-                style = self._resolve_callout_style(plan, placement)
-                c = self.callout_builder.build(
-                    doc=doc,
-                    source_element=source_elem,
-                    style=style,
-                    font_family=plan.font_family,
-                )
-                if c is not None:
-                    created_items = [c]
+                case "insert_paragraph":
+                    icon_paths = [ref.path for ref in source_elem.icons] if source_elem.icons else []
+                    para = self.styler.insert_paragraph(
+                        doc=doc,
+                        text=source_elem.text or "",
+                        font_family=plan.font_family,
+                        font_size_pt=plan.font_size_body_pt,
+                        icon_paths=icon_paths,
+                        icon_size_pt=24.0,
+                    )
+                    created_items = [para]
+
+                case "insert_list":
+                    icon_paths = [ref.path for ref in source_elem.icons] if (placement.embed_icons_inline and source_elem.icons) else []
+                    raw_items = source_elem.items or ([source_elem.text] if source_elem.text else [])
+                    paras = self.styler.insert_list(
+                        doc=doc,
+                        items=raw_items,
+                        font_family=plan.font_family,
+                        font_size_pt=plan.font_size_body_pt,
+                        icon_paths=icon_paths,
+                        icon_size_pt=20.0,
+                        start_index=start_index,
+                    )
+                    created_items = paras
+
+                case "insert_table":
+                    t = self.table_migrator.insert_table(
+                        doc=doc,
+                        source_element=source_elem,
+                        font_family=plan.font_family,
+                    )
+                    if t is not None:
+                        created_items = [t]
+
+                case "insert_image":
+                    if source_elem.image_path:
+                        created_items = self.styler.insert_image(
+                            doc=doc,
+                            image_path=source_elem.image_path,
+                            caption=source_elem.title,
+                        )
+
+                case "insert_callout":
+                    style = self._resolve_callout_style(plan, placement)
+                    c = self.callout_builder.build(
+                        doc=doc,
+                        source_element=source_elem,
+                        style=style,
+                        font_family=plan.font_family,
+                    )
+                    if c is not None:
+                        created_items = [c]
 
         last_anchor = anchor
         for item in created_items:
@@ -749,3 +943,32 @@ class DocxMigrator:
                     i = j
                 else:
                     i += 1
+
+    def _sanitize_template_numbering_spacing(self, doc: Document):
+        """Ensure all numbered heading levels in the template have a space separator.
+        
+        In templates where <w:suff> is omitted from <w:lvl>, Word defaults to no space,
+        causing glued headings like '1PURPOSE' and '2APPLICABILITY'. Adding
+        <w:suff w:val="space"/> ensures clean spacing across all headings and TOC.
+        """
+        try:
+            if not hasattr(doc.part, "numbering_part") or doc.part.numbering_part is None:
+                return
+            num_elm = doc.part.numbering_part._element
+            modified = 0
+            for lvl in num_elm.iter(qn("w:lvl")):
+                lvl_text_el = lvl.find(qn("w:lvlText"))
+                if lvl_text_el is not None and "%" in (lvl_text_el.get(qn("w:val")) or ""):
+                    suff_el = lvl.find(qn("w:suff"))
+                    if suff_el is None:
+                        suff_el = OxmlElement("w:suff")
+                        suff_el.set(qn("w:val"), "space")
+                        lvl.append(suff_el)
+                        modified += 1
+                    elif not suff_el.get(qn("w:val")):
+                        suff_el.set(qn("w:val"), "space")
+                        modified += 1
+            if modified:
+                logger.info(f"Sanitized template numbering: added space suffix to {modified} heading levels")
+        except Exception as exc:
+            logger.warning(f"Failed to sanitize template numbering spacing: {exc}")

@@ -109,7 +109,7 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
           <Button
             variant="secondary"
             size="sm"
-            onClick={onAiMigrate}
+            onClick={() => onAiMigrate()}
             isLoading={isMigrating}
             disabled={isMigrating}
             leftIcon={<ArrowRightLeft className="size-3.5 text-primary" />}

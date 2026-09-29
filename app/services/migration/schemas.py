@@ -75,6 +75,16 @@ class ContentElementSummary(BaseModel):
     callout_candidate_type: Optional[str] = None # "executive_summary", "explanation", "attention", "key_takeaway"
 
 
+class AtomicBlockSummary(BaseModel):
+    """Summary of one atomic subsection or content block."""
+    block_id: str                              # e.g. "6_block_0", "6.1"
+    heading_text: Optional[str] = None          # Cleaned heading text if this block has a heading
+    heading_level: Optional[int] = None         # Heading level (2, 3, etc.)
+    element_indices: list[int] = Field(default_factory=list) # Element indices in parent section
+    synopsis: str = ""                         # 1-sentence synopsis with asset tags
+    element_type_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class ContentSectionSummary(BaseModel):
     """Summary of one extracted section."""
     section_number: Optional[str] = None
@@ -84,6 +94,7 @@ class ContentSectionSummary(BaseModel):
     total_elements: int = 0
     element_type_counts: dict[str, int] = Field(default_factory=dict)
     elements: list[ContentElementSummary] = Field(default_factory=list)
+    blocks: list[AtomicBlockSummary] = Field(default_factory=list)
 
     # Mode B enrichments:
     semantic_purpose: Optional[str] = None      # 2-3 sentence section purpose summary
@@ -150,6 +161,7 @@ class SectionPlan(BaseModel):
     template_heading_level: int = 1
     template_paragraph_indices_to_delete: list[int] = Field(default_factory=list)
     source_sections_mapped: list[str] = Field(default_factory=list)
+    source_blocks_mapped: list[str] = Field(default_factory=list)
     elements: list[ElementPlacement] = Field(default_factory=list)
 
     has_source_content: bool = True
@@ -249,3 +261,28 @@ class MigrationResult(BaseModel):
     plan: MigrationPlan
     qa_report: MigrationQAReport
     download_url: Optional[str] = None
+
+
+# ── 6. Slim Template Migration Input Schemas ──────────────────────────
+
+class SlimInstruction(BaseModel):
+    """A single global or section authoring instruction for migration prompting."""
+    text: str
+    directive_type: str = "guidance"
+
+
+class SlimSection(BaseModel):
+    """A section with its authoring instructions for migration prompting."""
+    section_number: str
+    section_name: str
+    required: bool = True
+    instructions: list[SlimInstruction] = Field(default_factory=list)
+
+
+class SlimTemplateProfile(BaseModel):
+    """Compact migration-ready template profile containing only instruction guidelines."""
+    template_id: str
+    template_name: str
+    global_instructions: list[SlimInstruction] = Field(default_factory=list)
+    sections: list[SlimSection] = Field(default_factory=list)
+

@@ -33,6 +33,6 @@ scratch/
 Thumbs.db
 
 # Data files (optional - remove if you want to track these)
-# data/
+data/
 data/logs/
 frontend/package-lock.json

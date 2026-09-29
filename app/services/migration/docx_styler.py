@@ -126,6 +126,7 @@ class DocxStyler:
         is_ordered: Optional[bool] = None,
         icon_paths: Optional[list[str | Path]] = None,
         icon_size_pt: float = 20.0,
+        start_index: int = 1,
     ) -> list[Any]:
         """Insert a bulleted or numbered list with clean hanging indents and stripped prefix markers."""
         if not items:
@@ -159,7 +160,8 @@ class DocxStyler:
             # Strip prefixes to prevent double bullets/numbers
             if is_ordered:
                 cleaned_text = self.ORDERED_PREFIX_RE.sub("", item_text).strip()
-                prefix_label = f"{idx + 1}.\t" if sub_level == 0 else f"{chr(97 + (idx % 26))}.\t"
+                item_num = start_index + idx
+                prefix_label = f"{item_num}.\t" if sub_level == 0 else f"{chr(97 + (idx % 26))}.\t"
             else:
                 cleaned_text = self.UNORDERED_PREFIX_RE.sub("", item_text).strip()
                 prefix_label = "•\t"
@@ -193,6 +195,8 @@ class DocxStyler:
             text_run = para.add_run(cleaned_text)
             text_run.font.name = font_family
             text_run.font.size = Pt(font_size_pt)
+            if is_ordered and cleaned_text.endswith(":"):
+                text_run.bold = True
             paras.append(para)
 
         return paras

@@ -252,7 +252,9 @@ class TemplateStore:
         if upload_path:
             Path(upload_path).unlink(missing_ok=True)
         if output_path:
-            Path(output_path).unlink(missing_ok=True)
+            p = Path(output_path)
+            p.unlink(missing_ok=True)
+            p.with_name(f"{p.stem}_migration.json").unlink(missing_ok=True)
 
         # If no siblings left, clean image/icon directories and any leftover files
         if remaining == 0:

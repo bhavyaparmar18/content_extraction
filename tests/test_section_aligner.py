@@ -55,6 +55,19 @@ async def test_section_aligner(mock_chain_factory):
     assert len(plan.section_plans) == 1
     assert plan.section_plans[0].template_section_heading == "1 PURPOSE"
 
+    # Verify messages passed to LLM
+    mock_structured = mock_chain_factory.create_structured_planner.return_value
+    assert mock_structured.ainvoke.call_count == 1
+    messages = mock_structured.ainvoke.call_args[0][0]
+    assert len(messages) == 2
+    system_msg, human_msg = messages
+    assert "You are a document migration planning engine" in system_msg.content
+    assert "### 1. TARGET TEMPLATE INSTRUCTIONS & RULES:" in human_msg.content
+    assert "### 2. TARGET TEMPLATE PROFILE:" in human_msg.content
+    assert "test.docx" in human_msg.content
+    assert "### 3. SOURCE CONTENT SUMMARY:" in human_msg.content
+    assert "doc_1" in human_msg.content
+
 
 def test_api_health():
     client = TestClient(app)

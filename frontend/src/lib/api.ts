@@ -277,11 +277,11 @@ export const api = {
   },
 
   // --- Migration Engine ---
-  async migrateDocument(documentId: string, templateId?: string, templateFile?: File): Promise<MigrationResult> {
+  async migrateDocument(documentId: string, templateId?: unknown, templateFile?: File): Promise<MigrationResult> {
     const formData = new FormData();
     formData.append('document_id', documentId);
-    if (templateId) {
-      formData.append('template_id', templateId);
+    if (typeof templateId === 'string' && templateId.trim() && templateId.trim() !== '[object Object]') {
+      formData.append('template_id', templateId.trim());
     }
     if (templateFile) {
       formData.append('template_file', templateFile);
