@@ -215,10 +215,14 @@ class SOPMetadataExtractor:
         doc_title = doc_name = doc_number = doc_version = doc_type = ""
 
         try:
+            from app.services.parser.docx_parser import DocxParser
+
             doc = docx.Document(file_path)
             for table in doc.tables[:3]:
                 for row in table.rows:
-                    cls._classify_row([c.text for c in row.cells], values)
+                    cls._classify_row(
+                        [DocxParser.cell_visible_text(c) for c in row.cells], values
+                    )
 
             doc_title, doc_name, doc_number, doc_version, doc_type = (
                 values["title"], values["name"], values["number"], values["version"], values["type"]

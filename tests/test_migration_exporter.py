@@ -263,6 +263,43 @@ def test_subsections_do_not_create_separate_sections():
     assert "6.2 ACCESSIBILITY" in elem_texts
 
 
+def test_unnumbered_heading1_opens_its_own_section():
+    """DOCX Heading 1 titles have no leading number and must not stay in preamble."""
+    ast = DocumentNode()
+    ast.children = [
+        ParagraphNode(text="Cover metadata"),
+        SectionNode(
+            heading=HeadingNode(level=1, text="PURPOSE"),
+            level=1,
+            children=[
+                ParagraphNode(text="This SOP:"),
+                SectionNode(
+                    heading=HeadingNode(level=2, text="Overview of The Learning Lifecycle"),
+                    level=2,
+                    children=[ParagraphNode(text="Every Required Learning.")],
+                ),
+            ],
+        ),
+        SectionNode(
+            heading=HeadingNode(level=1, text="APPLICABILITY"),
+            level=1,
+            children=[ParagraphNode(text="This SOP is applicable:")],
+        ),
+    ]
+
+    output = MigrationExporter.export("unnumbered_headings", ast)
+    assert [(s.section_number, s.title) for s in output.sections] == [
+        ("0", "0 PREAMBLE"),
+        ("1", "PURPOSE"),
+        ("2", "APPLICABILITY"),
+    ]
+    purpose = output.sections[1]
+    headings = [e.text for e in purpose.elements if e.element_type == "heading"]
+    assert "Overview of The Learning Lifecycle" in headings
+    assert "APPLICABILITY" not in headings
+    assert any(e.text == "Cover metadata" for e in output.sections[0].elements)
+
+
 def test_list_items_do_not_create_new_sections():
     """Verify that numbered tips ending with ':' and bullet items do not create sections and are classed as lists."""
     ast = DocumentNode()

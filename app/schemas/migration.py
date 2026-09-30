@@ -36,6 +36,51 @@ class MigrationIconRef(BaseModel):
     semantic_meaning: Optional[str] = None
 
 
+class MigrationHighlightSpan(BaseModel):
+    """A highlighted range within an element's text."""
+    text: str = ""
+    color_name: str = ""
+    color_hex: str = ""
+    start_offset: int = 0
+    end_offset: int = 0
+
+    def to_clean_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "text": self.text,
+            "start_offset": self.start_offset,
+            "end_offset": self.end_offset,
+        }
+        if self.color_name:
+            data["color_name"] = self.color_name
+        if self.color_hex:
+            data["color_hex"] = self.color_hex
+        return data
+
+
+class MigrationContentBlock(BaseModel):
+    """One ordered block inside a callout: a paragraph or a list."""
+    type: str
+    text: Optional[str] = None
+    items: list[str] = Field(default_factory=list)
+    bold: bool = False
+    background_color: Optional[str] = None
+    highlights: list[MigrationHighlightSpan] = Field(default_factory=list)
+
+    def to_clean_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"type": self.type}
+        if self.text:
+            data["text"] = self.text
+        if self.items:
+            data["items"] = self.items
+        if self.bold:
+            data["bold"] = True
+        if self.background_color:
+            data["background_color"] = self.background_color
+        if self.highlights:
+            data["highlights"] = [span.to_clean_dict() for span in self.highlights]
+        return data
+
+
 class MigrationTableCell(BaseModel):
     """A genuine origin cell in a table, ready for .docx table construction."""
     row_index: int
@@ -73,8 +118,11 @@ class MigrationElement(BaseModel):
     - 'heading': uses level, text
     - 'paragraph': uses text, icons
     - 'list': uses items (list of strings), icons
+    - 'callout': uses content (ordered paragraph/list blocks), icons, background_color
     - 'table': uses title, num_rows, num_cols, cells
     - 'image': uses title/caption, image_path
+    - 'float': a picture with text wrapped beside it. Uses image_path,
+      image_align, wrap, image_width_in, image_height_in, and content
 
     ``section_name`` is stamped by the parent ``MigrationSection`` during
     serialisation so every element carries its section context for QA retrieval.
@@ -86,11 +134,18 @@ class MigrationElement(BaseModel):
     text: Optional[str] = None
     icons: list[MigrationIconRef] = Field(default_factory=list)
     items: list[str] = Field(default_factory=list)
+    background_color: Optional[str] = None
+    highlights: list[MigrationHighlightSpan] = Field(default_factory=list)
+    content: list[MigrationContentBlock] = Field(default_factory=list)
     title: Optional[str] = None
     num_rows: Optional[int] = None
     num_cols: Optional[int] = None
     cells: list[MigrationTableCell] = Field(default_factory=list)
     image_path: Optional[str] = None
+    image_align: Optional[str] = None       # left | right | center, for a float
+    wrap: Optional[str] = None              # square | tight | through
+    image_width_in: Optional[float] = None
+    image_height_in: Optional[float] = None
 
     def to_clean_dict(self, section_name: Optional[str] = None) -> dict[str, Any]:
         """Serialise to a plain dict.
@@ -111,10 +166,16 @@ class MigrationElement(BaseModel):
             d["level"] = self.level
         if self.text is not None:
             d["text"] = self.text
+        if self.background_color is not None:
+            d["background_color"] = self.background_color
+        if self.highlights:
+            d["highlights"] = [span.to_clean_dict() for span in self.highlights]
         if self.icons:
             d["icons"] = [icon.model_dump(exclude_none=True) for icon in self.icons]
         if self.items:
             d["items"] = self.items
+        if self.content:
+            d["content"] = [block.to_clean_dict() for block in self.content]
         if self.title is not None:
             d["title"] = self.title
         if self.num_rows is not None:
@@ -125,6 +186,14 @@ class MigrationElement(BaseModel):
             d["cells"] = [c.to_clean_dict() for c in self.cells]
         if self.image_path is not None:
             d["image_path"] = self.image_path
+        if self.image_align is not None:
+            d["image_align"] = self.image_align
+        if self.wrap is not None:
+            d["wrap"] = self.wrap
+        if self.image_width_in:
+            d["image_width_in"] = round(self.image_width_in, 2)
+        if self.image_height_in:
+            d["image_height_in"] = round(self.image_height_in, 2)
         return d
 
 

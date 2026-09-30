@@ -22,6 +22,7 @@ class ElementType(str, Enum):
     NUMBERED_STEP = "numbered_step"
     TABLE = "table"
     IMAGE = "image"
+    FLOAT = "float"          # picture with text wrapped beside it
     ICON = "icon"
     CAPTION = "caption"
     HEADER = "header"
@@ -54,6 +55,20 @@ class BoundingBox(BaseModel):
 
 # ── Extracted Elements ─────────────────────────────────────────────────
 
+class ExtractedHighlightSpan(BaseModel):
+    """A run-level highlight within an extracted element's text.
+
+    Offsets are into the stripped element content. ``color_name`` is the
+    ``w:highlight`` value (``yellow``, ``lightGray``, …) when the source was a
+    marker pen; character shading carries only ``color_hex``.
+    """
+    text: str = ""
+    color_hex: str = ""
+    color_name: str = ""
+    start_offset: int = 0
+    end_offset: int = 0
+
+
 class ExtractedElement(BaseModel):
     """Base schema for any element pulled out of a document."""
     element_type: ElementType
@@ -62,8 +77,9 @@ class ExtractedElement(BaseModel):
     sequence: int = 0
     bbox: Optional[BoundingBox] = None
     confidence: float = 1.0
-    outline_level: Optional[int] = None       # DOCX outline level (0-8)
-    highlight_color: Optional[str] = None     # Named highlight color if detected
+    outline_level: Optional[int] = None       # DOCX outline level (0-8), or list ilvl
+    highlight_color: Optional[str] = None     # Named highlight color if the whole element is one colour
+    highlight_spans: list[ExtractedHighlightSpan] = Field(default_factory=list)
     font_color_hex: Optional[str] = None      # Run/paragraph font colour, hex only ("0075FF")
     color_detection_method: Optional[str] = None  # run_color | paragraph_color | style_name | theme_color
     shading_hex: Optional[str] = None         # Paragraph background fill from w:shd/@w:fill
@@ -90,6 +106,7 @@ class ExtractedTableCell(BaseModel):
     text_direction: Optional[str] = None    # w:textDirection val, e.g. "btLr" for rotated headers
     valign: Optional[str] = None            # w:vAlign val: top | center | bottom
     bold: bool = False
+    blocks: list[ExtractedElement] = Field(default_factory=list)  # cell paragraphs, in order
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -113,6 +130,25 @@ class ExtractedImage(ExtractedElement):
     width: int = 0
     height: int = 0
     content_hash: Optional[str] = None   # md5[:10] of the image bytes — stable across runs
+
+
+class ExtractedFloat(ExtractedElement):
+    """A floating picture with the blocks that sit beside it.
+
+    ``align`` is where the picture sits (left, right, or center) and ``wrap``
+    is the Word wrap mode that lets text flow next to it (square, tight,
+    through). ``blocks`` are those paragraphs and list items, in reading order.
+    """
+    element_type: ElementType = ElementType.FLOAT
+    image_path: str = ""
+    width: int = 0
+    height: int = 0
+    content_hash: Optional[str] = None
+    align: str = "left"
+    wrap: str = "square"
+    image_width_in: float = 0.0
+    image_height_in: float = 0.0
+    blocks: list[ExtractedElement] = Field(default_factory=list)
 
 
 class ExtractedIcon(ExtractedElement):

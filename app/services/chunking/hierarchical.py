@@ -19,6 +19,7 @@ from app.schemas.document import (
 )
 from app.schemas.ast_nodes import (
     DocumentNode,
+    FloatNode,
     SectionNode,
     ParagraphNode,
     ListNode,
@@ -141,6 +142,18 @@ class HierarchicalChunker(BaseChunker):
                         )
                     )
                     contains_table = True
+                elif isinstance(child, FloatNode):
+                    for block in child.blocks:
+                        if isinstance(block, ParagraphNode) and block.text:
+                            content_parts.append(block.text)
+                        elif isinstance(block, ListNode):
+                            for item in block.items:
+                                marker_str = f"{item.index}." if getattr(item, "index", None) is not None else "-"
+                                content_parts.append(f"{marker_str} {item.text}")
+                    if child.asset_path:
+                        content_parts.append(f"[Image: image | Path: {child.asset_path}]")
+                        images.append(ExtractedImage(content="[Image]", image_path=child.asset_path))
+                        contains_image = True
                 elif isinstance(child, ImageNode):
                     caption_str = str(getattr(child.caption, "text", child.caption)) if child.caption else "image"
                     marker_str = f"[Image: {caption_str} | Path: {child.asset_path}]"

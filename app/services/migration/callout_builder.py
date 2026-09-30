@@ -117,6 +117,16 @@ class CalloutBuilder:
         if elem is None:
             return ""
 
+        if elem.content:
+            lines: list[str] = []
+            for block in elem.content:
+                if block.type == "list" and block.items:
+                    lines.extend(block.items)
+                elif (block.text or "").strip():
+                    lines.append(block.text.strip())
+            if lines:
+                return "\n".join(lines)
+
         if elem.element_type == "paragraph" and elem.text:
             return elem.text.strip()
 

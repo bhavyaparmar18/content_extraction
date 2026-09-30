@@ -73,12 +73,30 @@ export interface MigrationTableCell {
   is_header?: boolean;
   icon_path?: string | null;
   image_path?: string | null;
+  background_color?: string | null;
   raw_bbox?: number[];
+}
+
+export interface MigrationHighlightSpan {
+  text: string;
+  color_name?: string;
+  color_hex?: string;
+  start_offset: number;
+  end_offset: number;
+}
+
+export interface MigrationContentBlock {
+  type: 'paragraph' | 'list' | string;
+  text?: string;
+  items?: string[];
+  bold?: boolean;
+  background_color?: string | null;
+  highlights?: MigrationHighlightSpan[];
 }
 
 export interface MigrationElement {
   id?: string;
-  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon" | string;
+  element_type: "heading" | "paragraph" | "list" | "table" | "image" | "icon" | "callout" | "float" | string;
   page: number;
   section_name?: string;
   level?: number;
@@ -90,9 +108,16 @@ export interface MigrationElement {
   num_cols?: number;
   cells?: MigrationTableCell[];
   image_path?: string;
+  image_align?: "left" | "right" | "center" | string;
+  wrap?: string;
+  image_width_in?: number;
+  image_height_in?: number;
   asset_filename?: string;
   confidence?: number;
   raw_bbox?: number[];
+  background_color?: string | null;
+  highlights?: MigrationHighlightSpan[];
+  content?: MigrationContentBlock[];
 }
 
 export interface MigrationSection {

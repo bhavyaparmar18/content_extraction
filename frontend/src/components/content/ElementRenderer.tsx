@@ -1,6 +1,8 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import {
+  MigrationContentBlock,
   MigrationElement,
+  MigrationHighlightSpan,
   MigrationIconRef,
   MigrationTableCell,
   TemplateCalloutStyle,
@@ -85,20 +87,112 @@ function iconLabel(icon: unknown, iconLibrary?: IconLibraryMap): string {
   return meaning || 'Extracted icon';
 }
 
+function HighlightedText({
+  text,
+  highlights,
+}: {
+  text?: string;
+  highlights?: MigrationHighlightSpan[];
+}) {
+  if (!text) return null;
+  const spans = (highlights || [])
+    .filter(
+      (span) =>
+        span.end_offset > span.start_offset &&
+        span.start_offset >= 0 &&
+        span.end_offset <= text.length
+    )
+    .sort((a, b) => a.start_offset - b.start_offset);
+  if (spans.length === 0) return <>{text}</>;
+
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  spans.forEach((span, index) => {
+    const start = Math.max(span.start_offset, cursor);
+    if (start > cursor) parts.push(text.slice(cursor, start));
+    if (span.end_offset > start) {
+      parts.push(
+        <mark
+          key={index}
+          className="rounded-sm px-0.5 text-slate-950"
+          style={{ backgroundColor: toCssColor(span.color_hex) || '#FDE047' }}
+        >
+          {text.slice(start, span.end_offset)}
+        </mark>
+      );
+      cursor = span.end_offset;
+    }
+  });
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
+function ContentBlocks({
+  blocks,
+  onFill,
+}: {
+  blocks: MigrationContentBlock[];
+  onFill: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        if (block.type === 'list') {
+          const items = block.items || [];
+          if (items.length === 0) return null;
+          return (
+            <ul
+              key={index}
+              className={clsx(
+                'list-disc space-y-1 pl-5 text-sm leading-relaxed marker:text-current',
+                onFill ? 'text-slate-900' : 'text-text-main/90'
+              )}
+            >
+              {items.map((item, itemIndex) => (
+                <li key={itemIndex}>{item}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (!block.text) return null;
+        return (
+          <p
+            key={index}
+            className={clsx(
+              'whitespace-pre-line text-sm leading-relaxed',
+              block.bold && 'font-bold',
+              onFill ? 'text-slate-900' : 'text-text-main/90'
+            )}
+          >
+            <HighlightedText text={block.text} highlights={block.highlights} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function IconThumbs({
   icons,
   documentId,
   isTemplate,
   iconLibrary,
+  large,
 }: {
   icons?: Array<string | MigrationIconRef | TemplateIconRef>;
   documentId: string;
   isTemplate?: boolean;
   iconLibrary?: IconLibraryMap;
+  large?: boolean;
 }) {
   if (!icons || icons.length === 0) return null;
   return (
-    <div className="flex shrink-0 flex-col items-center gap-1.5 pt-0.5">
+    <div
+      className={clsx(
+        'flex shrink-0 flex-col items-center gap-1.5',
+        large ? 'self-center' : 'pt-0.5'
+      )}
+    >
       {icons.map((icon, idx) => {
         const url = resolveAssetUrl(documentId, icon, isTemplate, iconLibrary);
         if (!url) return null;
@@ -109,7 +203,10 @@ function IconThumbs({
             src={url}
             alt={alt}
             title={alt}
-            className="size-6 rounded border border-border bg-white/5 object-contain p-0.5 shadow-sm"
+            className={clsx(
+              'rounded border border-border bg-white object-contain p-0.5 shadow-sm',
+              large ? 'size-12' : 'size-6'
+            )}
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLElement).style.display = 'none';
@@ -189,14 +286,18 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
 
     case 'paragraph': {
       const isInst = (element as any).is_instruction;
+      const background = toCssColor(element.background_color);
       return (
         <div
           className={clsx(
             'flex items-start gap-2 py-1.5 leading-relaxed text-sm',
             isInst
               ? 'text-sky-300 font-medium pl-3 border-l-2 border-sky-400 bg-sky-500/5 rounded-r-lg py-2 my-1'
-              : 'text-text-main/90'
+              : background
+                ? 'rounded-md px-3 text-slate-900'
+                : 'text-text-main/90'
           )}
+          style={background && !isInst ? { backgroundColor: background } : undefined}
         >
           <IconThumbs
             icons={element.icons}
@@ -204,7 +305,9 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
             isTemplate={isTemplate}
             iconLibrary={iconLibrary}
           />
-          <p className="min-w-0 flex-1 whitespace-pre-line">{element.text}</p>
+          <p className="min-w-0 flex-1 whitespace-pre-line">
+            <HighlightedText text={element.text} highlights={element.highlights} />
+          </p>
         </div>
       );
     }
@@ -213,6 +316,7 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
       const calloutType = (element as TemplateElement).callout_type || undefined;
       const style = calloutType ? calloutStyles?.[calloutType] : undefined;
       const background =
+        toCssColor(element.background_color) ||
         toCssColor((element as TemplateElement).shading_hex) ||
         toCssColor(style?.background_color_hex);
       const borderColor = toCssColor(style?.left_border_color_hex) || background;
@@ -232,7 +336,7 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
       return (
         <div
           className={clsx(
-            'my-3 flex items-start gap-3 rounded-r-lg border-l-4 px-4 py-3',
+            'my-3 flex items-center gap-3 rounded-r-lg border-l-4 px-4 py-3',
             !background && 'border-primary/60 bg-primary/[0.06]'
           )}
           style={background ? { backgroundColor: background, borderLeftColor: borderColor } : undefined}
@@ -242,6 +346,7 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
             documentId={documentId}
             isTemplate={isTemplate}
             iconLibrary={iconLibrary}
+            large
           />
           <div className="min-w-0 flex-1 space-y-1">
             {calloutType && (
@@ -254,15 +359,19 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
                 {style?.display_name || calloutType.replace(/_/g, ' ')}
               </div>
             )}
-            <p
-              className={clsx(
-                'whitespace-pre-line text-sm leading-relaxed',
-                background ? 'text-slate-900' : 'text-text-main/90'
-              )}
-              style={background && fontColor ? { color: fontColor } : undefined}
-            >
-              {element.text}
-            </p>
+            {element.content && element.content.length > 0 ? (
+              <ContentBlocks blocks={element.content} onFill={Boolean(background)} />
+            ) : (
+              <p
+                className={clsx(
+                  'whitespace-pre-line text-sm leading-relaxed',
+                  background ? 'text-slate-900' : 'text-text-main/90'
+                )}
+                style={background && fontColor ? { color: fontColor } : undefined}
+              >
+                <HighlightedText text={element.text} highlights={element.highlights} />
+              </p>
+            )}
           </div>
         </div>
       );
@@ -271,12 +380,15 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
     case 'list': {
       const items = element.items || (element.text ? [element.text] : []);
       const isInst = (element as any).is_instruction;
+      const background = toCssColor(element.background_color);
       return (
         <div
           className={clsx(
             'flex items-start gap-2 py-2',
-            isInst && 'rounded-lg bg-sky-500/5 p-2 border-l-2 border-sky-400'
+            isInst && 'rounded-lg bg-sky-500/5 p-2 border-l-2 border-sky-400',
+            background && !isInst && 'rounded-md px-3 text-slate-900'
           )}
+          style={background && !isInst ? { backgroundColor: background } : undefined}
         >
           <IconThumbs
             icons={element.icons}
@@ -284,7 +396,12 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
             isTemplate={isTemplate}
             iconLibrary={iconLibrary}
           />
-          <ul className="min-w-0 flex-1 list-disc space-y-1.5 pl-5 text-sm text-text-main/90 marker:text-primary">
+          <ul
+            className={clsx(
+              'min-w-0 flex-1 list-disc space-y-1.5 pl-5 text-sm marker:text-primary',
+              background && !isInst ? 'text-slate-900' : 'text-text-main/90'
+            )}
+          >
             {items.map((item, idx) => (
               <li key={idx} className={clsx('leading-relaxed', isInst && 'text-sky-200')}>
                 {item}
@@ -380,7 +497,9 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
                           ) || resolveAssetUrl(documentId, c.icon_path, isTemplate, iconLibrary);
                           const cellImageUrl = resolveAssetUrl(documentId, c.image_path, isTemplate, iconLibrary);
                           const hasOnlyIcon = !c.text && (cellIconUrl || cellImageUrl);
-                          const cellShading = toCssColor(templateCell.shading_hex);
+                          const cellShading = toCssColor(
+                            (c as MigrationTableCell).background_color || templateCell.shading_hex
+                          );
                           // Rotated headers in the role matrix need the same
                           // orientation they have in the template.
                           const isVerticalText =
@@ -453,6 +572,49 @@ const ElementRendererInner: React.FC<ElementRendererProps> = ({
                   })}
               </tbody>
             </table>
+          </div>
+        </div>
+      );
+    }
+
+    case 'float': {
+      const url = resolveAssetUrl(
+        documentId,
+        (element as any).asset_filename || element.image_path,
+        isTemplate,
+        iconLibrary
+      );
+      const imageOnRight = element.image_align === 'right';
+      return (
+        <div
+          className={clsx(
+            'my-4 flex items-start gap-4',
+            imageOnRight && 'flex-row-reverse'
+          )}
+        >
+          <div className="w-2/5 max-w-xs shrink-0">
+            {url ? (
+              <img
+                src={url}
+                alt={element.title || 'Figure'}
+                className="w-full rounded border border-border bg-white object-contain"
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="flex h-24 items-center justify-center rounded border border-border text-xs text-text-muted">
+                Image unavailable
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            {element.content && element.content.length > 0 ? (
+              <ContentBlocks blocks={element.content} onFill={false} />
+            ) : (
+              element.text && <p className="text-sm leading-relaxed text-text-main/90">{element.text}</p>
+            )}
           </div>
         </div>
       );

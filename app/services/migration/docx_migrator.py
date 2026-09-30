@@ -473,7 +473,7 @@ class DocxMigrator:
             if placement.action == "insert_heading":
                 running_ordered_counter = 1
                 paras_since_list = 0
-            elif placement.action in ("insert_table", "insert_image", "insert_callout", "populate_placeholder"):
+            elif placement.action in ("insert_table", "insert_image", "insert_float", "insert_callout", "populate_placeholder"):
                 running_ordered_counter = 1
                 paras_since_list = 0
             elif placement.action == "insert_paragraph":
@@ -667,6 +667,10 @@ class DocxMigrator:
                         action = "insert_table"
                 elif elem.element_type == "image":
                     action = "insert_image"
+                elif elem.element_type == "float":
+                    action = "insert_float"
+                elif elem.element_type == "callout":
+                    action = "insert_callout"
 
                 # Skip source headings that ARE the section title itself — the
                 # template already provides the correct heading name and number.
@@ -693,6 +697,9 @@ class DocxMigrator:
                         action=action,
                         heading_level=target_level,
                         embed_icons_inline=True if elem.icons else False,
+                        callout_background_hex=(
+                            elem.background_color if action == "insert_callout" else None
+                        ),
                     )
                 )
 
@@ -808,6 +815,16 @@ class DocxMigrator:
                             doc=doc,
                             image_path=source_elem.image_path,
                             caption=source_elem.title,
+                        )
+
+                case "insert_float":
+                    if source_elem.image_path:
+                        created_items = self.styler.insert_float(
+                            doc=doc,
+                            image_path=source_elem.image_path,
+                            blocks=source_elem.content,
+                            align=source_elem.image_align or "left",
+                            width_inches=source_elem.image_width_in or 2.5,
                         )
 
                 case "insert_callout":

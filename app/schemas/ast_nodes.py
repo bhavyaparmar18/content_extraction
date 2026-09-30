@@ -80,6 +80,7 @@ class HeadingNode(ASTNode):
     font_color_hex: Optional[str] = None
     color_detection_method: Optional[str] = None
     shading_hex: Optional[str] = None
+    highlights: list["HighlightSpan"] = Field(default_factory=list)
 
 
 # ── Text Content Nodes ────────────────────────────────────────────────
@@ -128,6 +129,7 @@ class ListNode(ASTNode):
     list_type: str = ListType.UNORDERED  # "ordered" | "unordered"
     nesting_depth: int = 0
     items: list["ListItemNode"] = Field(default_factory=list)
+    shading_hex: Optional[str] = None
 
 
 class ListItemNode(ASTNode):
@@ -139,6 +141,8 @@ class ListItemNode(ASTNode):
     text: str = ""
     index: Optional[int] = None  # 1-based for ordered lists
     children: list["ChildNode"] = Field(default_factory=list)
+    highlights: list[HighlightSpan] = Field(default_factory=list)
+    shading_hex: Optional[str] = None
 
 
 
@@ -225,6 +229,17 @@ class IconNode(ASTNode):
     content_hash: Optional[str] = None  # md5[:10] of the asset bytes — stable across runs
 
 
+class FloatNode(ASTNode):
+    """A floating picture and the blocks wrapped beside it."""
+    node_type: str = "float"
+    asset_path: str = ""
+    align: str = "left"
+    wrap: str = "square"
+    image_width_in: float = 0.0
+    image_height_in: float = 0.0
+    blocks: list["ChildNode"] = Field(default_factory=list)
+
+
 class CaptionNode(ASTNode):
     """A caption associated with an image or table."""
     node_type: str = "caption"
@@ -259,6 +274,7 @@ ChildNode = Annotated[
         Annotated[TableRowNode, Tag("table_row")],
         Annotated[TableCellNode, Tag("table_cell")],
         Annotated[ImageNode, Tag("image")],
+        Annotated[FloatNode, Tag("float")],
         Annotated[IconNode, Tag("icon")],
         Annotated[CaptionNode, Tag("caption")],
     ],
@@ -274,9 +290,11 @@ ASTNodeUnion = ChildNode
 # Pydantic v2 requires explicit model_rebuild() to resolve forward references
 # in self-referential models (ChildNode depends on all node types being defined).
 DocumentNode.model_rebuild()
+HeadingNode.model_rebuild()
 SectionNode.model_rebuild()
 ListNode.model_rebuild()
 ListItemNode.model_rebuild()
 TableNode.model_rebuild()
 TableRowNode.model_rebuild()
 TableCellNode.model_rebuild()
+FloatNode.model_rebuild()

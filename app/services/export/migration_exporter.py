@@ -22,6 +22,7 @@ from app.schemas.ast_nodes import (
     TableNode,
     TableRowNode,
     TableCellNode,
+    HighlightSpan,
     ImageNode,
     IconNode,
     CaptionNode,
@@ -29,6 +30,8 @@ from app.schemas.ast_nodes import (
 from app.schemas.document import BoundingBox, ExtractedImage, ExtractedTableCell
 from app.schemas.migration import (
     DocxMigrationOutput,
+    MigrationContentBlock,
+    MigrationHighlightSpan,
     MigrationMetadata,
     MigrationSection,
     MigrationElement,
@@ -38,7 +41,18 @@ from app.schemas.migration import (
 from app.services.extraction.tables import (
     collapse_sparse_grid,
     clean_table_cell_text,
+    is_shaded_callout,
 )
+
+
+def _next_section_number(current_section_number: Optional[str]) -> str:
+    """The section number that follows *current_section_number*.
+
+    Preamble is ``"0"``, so the first real heading becomes ``"1"``.
+    """
+    if current_section_number and current_section_number.isdigit():
+        return str(int(current_section_number) + 1)
+    return "1"
 
 
 def _is_major_section_heading(
@@ -47,12 +61,17 @@ def _is_major_section_heading(
     current_section_number: Optional[str] = None,
 ) -> Optional[str]:
     stripped = title.strip()
+    if not stripped:
+        return None
     if level is not None and level > 1:
         return None
     if stripped.endswith(":") or re.match(r"^[\u2022\u2023\u25E6\u2043\u2219\u25AA\u25AB\u25CF\u25CB\u25A0\u25A1\u2013\u2014○●◆◇■□▪▫–—•‣⁃]", stripped):
         return None
     # Subsections like 6.1, 6.5.1 are not major sections
     if re.match(r"^\d+\.\d+", stripped):
+        return None
+    # "1. Active Voice" is a list label, not a chapter.
+    if re.match(r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s)", stripped):
         return None
     match = re.match(r"^(\d+)\s+([A-Z0-9\s&/\-_,]+)$", stripped)
     if match:
@@ -66,6 +85,10 @@ def _is_major_section_heading(
             if new_n < curr_n:
                 return None
         return sec_num
+    # DOCX Heading 1 often has no leading number ("PURPOSE", "Appendix").
+    # Heading 2 and below stay inside the current section.
+    if level == 1 and re.search(r"[A-Za-z]", stripped):
+        return _next_section_number(current_section_number)
     return None
 
 
@@ -149,6 +172,49 @@ class MigrationExporter:
             page_count=getattr(doc_meta, "page_count", 0),
             gpdat_version=gpdat_version,
         )
+
+    @staticmethod
+    def _norm_hex(value: Optional[str]) -> Optional[str]:
+        """Normalise a colour to ``#RRGGBB``. Empty and non-hex values are dropped."""
+        if not value:
+            return None
+        cleaned = value.strip().lstrip("#").upper()
+        if len(cleaned) != 6:
+            return None
+        return f"#{cleaned}"
+
+    @classmethod
+    def _migration_highlights(cls, node: Any) -> list[MigrationHighlightSpan]:
+        """Copy highlight spans off a paragraph, heading, or list (via its items)."""
+        spans = list(getattr(node, "highlights", None) or [])
+        if getattr(node, "node_type", None) == "list":
+            for item in getattr(node, "items", None) or []:
+                spans.extend(getattr(item, "highlights", None) or [])
+        exported: list[MigrationHighlightSpan] = []
+        for span in spans:
+            if not isinstance(span, HighlightSpan):
+                continue
+            exported.append(
+                MigrationHighlightSpan(
+                    text=span.text,
+                    color_name=span.highlight_color or "",
+                    color_hex=cls._norm_hex(span.color_hex) or "",
+                    start_offset=span.start_offset,
+                    end_offset=span.end_offset,
+                )
+            )
+        return exported
+
+    @classmethod
+    def _apply_formatting(cls, elem: MigrationElement, node: Any) -> MigrationElement:
+        """Copy background fill and highlights from an AST node onto an element."""
+        background = cls._norm_hex(getattr(node, "shading_hex", None))
+        if background:
+            elem.background_color = background
+        highlights = cls._migration_highlights(node)
+        if highlights:
+            elem.highlights = highlights
+        return elem
 
     @classmethod
     def _get_page(cls, node: Any) -> int:
@@ -260,20 +326,26 @@ class MigrationExporter:
                             or (re.match(r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s)", h_stripped) and h_stripped.endswith(":"))
                         ):
                             add_element(
-                                MigrationElement(
-                                    element_type="list",
-                                    page=page,
-                                    items=[heading_text],
+                                cls._apply_formatting(
+                                    MigrationElement(
+                                        element_type="list",
+                                        page=page,
+                                        items=[heading_text],
+                                    ),
+                                    heading,
                                 ),
                                 bbox=bbox,
                             )
                         else:
                             add_element(
-                                MigrationElement(
-                                    element_type="heading",
-                                    page=page,
-                                    level=max(2, heading_level),
-                                    text=heading_text,
+                                cls._apply_formatting(
+                                    MigrationElement(
+                                        element_type="heading",
+                                        page=page,
+                                        level=max(2, heading_level),
+                                        text=heading_text,
+                                    ),
+                                    heading,
                                 ),
                                 bbox=bbox,
                             )
@@ -292,11 +364,14 @@ class MigrationExporter:
                     if major_sec:
                         ensure_section(text, page, section_number=major_sec)
                         add_element(
-                            MigrationElement(
-                                element_type="heading",
-                                page=page,
-                                level=1,
-                                text=text,
+                            cls._apply_formatting(
+                                MigrationElement(
+                                    element_type="heading",
+                                    page=page,
+                                    level=1,
+                                    text=text,
+                                ),
+                                node,
                             ),
                             bbox=bbox,
                         )
@@ -309,20 +384,26 @@ class MigrationExporter:
                             or (re.match(r"^(?:\d{1,3}[.)]\s|[a-zA-Z][.)]\s)", h_stripped) and h_stripped.endswith(":"))
                         ):
                             add_element(
-                                MigrationElement(
-                                    element_type="list",
-                                    page=page,
-                                    items=[text],
+                                cls._apply_formatting(
+                                    MigrationElement(
+                                        element_type="list",
+                                        page=page,
+                                        items=[text],
+                                    ),
+                                    node,
                                 ),
                                 bbox=bbox,
                             )
                         else:
                             add_element(
-                                MigrationElement(
-                                    element_type="heading",
-                                    page=page,
-                                    level=max(2, level),
-                                    text=text,
+                                cls._apply_formatting(
+                                    MigrationElement(
+                                        element_type="heading",
+                                        page=page,
+                                        level=max(2, level),
+                                        text=text,
+                                    ),
+                                    node,
                                 ),
                                 bbox=bbox,
                             )
@@ -331,10 +412,13 @@ class MigrationExporter:
                 text = (getattr(node, "text", "") or "").strip()
                 if text:
                     add_element(
-                        MigrationElement(
-                            element_type="paragraph",
-                            page=page,
-                            text=text,
+                        cls._apply_formatting(
+                            MigrationElement(
+                                element_type="paragraph",
+                                page=page,
+                                text=text,
+                            ),
+                            node,
                         ),
                         bbox=bbox,
                     )
@@ -353,18 +437,45 @@ class MigrationExporter:
                         items.append(item_text)
                 if items:
                     add_element(
-                        MigrationElement(
-                            element_type="list",
-                            page=page,
-                            items=items,
+                        cls._apply_formatting(
+                            MigrationElement(
+                                element_type="list",
+                                page=page,
+                                items=items,
+                                icons=cls._icons_in_list(node),
+                            ),
+                            node,
                         ),
                         bbox=bbox,
                     )
 
             elif node_type == "table":
-                table_elem = cls._convert_table(node, page)
-                if table_elem:
-                    add_element(table_elem, bbox=bbox)
+                callouts = cls._callout_elements(node, page)
+                if callouts is not None:
+                    for callout in callouts:
+                        add_element(callout, bbox=bbox)
+                else:
+                    table_elem = cls._convert_table(node, page)
+                    if table_elem:
+                        add_element(table_elem, bbox=bbox)
+
+            elif node_type == "float":
+                path = getattr(node, "asset_path", "") or ""
+                content = cls._content_blocks(node, items=getattr(node, "blocks", None) or [])
+                if path or content:
+                    add_element(
+                        MigrationElement(
+                            element_type="float",
+                            page=page,
+                            image_path=path or None,
+                            image_align=getattr(node, "align", None) or "left",
+                            wrap=getattr(node, "wrap", None) or "square",
+                            image_width_in=getattr(node, "image_width_in", None) or None,
+                            image_height_in=getattr(node, "image_height_in", None) or None,
+                            content=content,
+                        ),
+                        bbox=bbox,
+                    )
 
             elif node_type == "image":
                 path = getattr(node, "asset_path", "")
@@ -538,6 +649,150 @@ class MigrationExporter:
                         continue
                     elems[dest].icons.append(icon)
                     dest += 1
+
+    @staticmethod
+    def _icons_in_list(node: Any) -> list[MigrationIconRef]:
+        """Icons absorbed into list items, so the list stays one element."""
+        refs: list[MigrationIconRef] = []
+        for item in getattr(node, "items", None) or []:
+            for child in getattr(item, "children", None) or []:
+                kind = getattr(child, "node_type", None)
+                path = getattr(child, "asset_path", "") or ""
+                if kind not in ("icon", "image") or not path:
+                    continue
+                meaning = getattr(child, "semantic_meaning", None) or None
+                refs.append(
+                    MigrationIconRef(
+                        icon_id=str(getattr(child, "node_id", "") or "icon"),
+                        path=path,
+                        semantic_meaning=meaning,
+                    )
+                )
+        return refs
+
+    @classmethod
+    def _cell_plain_text(cls, cell: Any) -> str:
+        parts: list[str] = []
+        for item in getattr(cell, "content", None) or []:
+            kind = getattr(item, "node_type", None)
+            if kind in ("paragraph", "heading"):
+                text = (getattr(item, "text", "") or "").strip()
+                if text:
+                    parts.append(text)
+            for list_item in getattr(item, "items", None) or []:
+                text = (getattr(list_item, "text", "") or "").strip()
+                if text:
+                    parts.append(text)
+        return " ".join(parts)
+
+    @classmethod
+    def _is_shaded_callout_table(cls, table: TableNode) -> bool:
+        """A shaded icon-and-text box, not a data table.
+
+        ``is_shaded_callout`` is the shape test (at most two columns, and the
+        first column carries no text). Shading is required as well: an
+        unshaded two-column icon table is still a table.
+        """
+        grid: list[list[ExtractedTableCell]] = []
+        shaded = False
+        for row in table.rows:
+            cells: list[ExtractedTableCell] = []
+            for cell in row.cells:
+                if getattr(cell, "shading_hex", None):
+                    shaded = True
+                cells.append(ExtractedTableCell(content_text=cls._cell_plain_text(cell)))
+            grid.append(cells)
+        return shaded and is_shaded_callout(grid)
+
+    @classmethod
+    def _content_blocks(cls, cell: Any, items: list | None = None) -> list[MigrationContentBlock]:
+        blocks: list[MigrationContentBlock] = []
+        source = items if items is not None else (getattr(cell, "content", None) or [])
+        for item in source:
+            kind = getattr(item, "node_type", None)
+            if kind in ("paragraph", "heading"):
+                text = (getattr(item, "text", "") or "").strip()
+                if not text:
+                    continue
+                blocks.append(
+                    MigrationContentBlock(
+                        type="paragraph",
+                        text=text,
+                        bold=bool((getattr(item, "metadata", None) or {}).get("bold")),
+                        background_color=cls._norm_hex(getattr(item, "shading_hex", None)),
+                        highlights=cls._migration_highlights(item),
+                    )
+                )
+            elif kind == "list":
+                list_type = getattr(item, "list_type", "") or ""
+                items: list[str] = []
+                for list_item in getattr(item, "items", None) or []:
+                    text = (getattr(list_item, "text", "") or "").strip()
+                    if not text:
+                        continue
+                    index = getattr(list_item, "index", None)
+                    if str(list_type) == "ordered" and index:
+                        items.append(f"{index}. {text}")
+                    else:
+                        items.append(text)
+                if items:
+                    blocks.append(
+                        MigrationContentBlock(
+                            type="list",
+                            items=items,
+                            background_color=cls._norm_hex(getattr(item, "shading_hex", None)),
+                            highlights=cls._migration_highlights(item),
+                        )
+                    )
+        return blocks
+
+    @staticmethod
+    def _media_icons(cell: Any) -> list[MigrationIconRef]:
+        refs: list[MigrationIconRef] = []
+        for item in getattr(cell, "content", None) or []:
+            kind = getattr(item, "node_type", None)
+            path = getattr(item, "asset_path", "") or ""
+            if kind not in ("icon", "image") or not path:
+                continue
+            refs.append(
+                MigrationIconRef(
+                    icon_id=str(getattr(item, "node_id", "") or "icon"),
+                    path=path,
+                    semantic_meaning=getattr(item, "semantic_meaning", None) or None,
+                )
+            )
+        return refs
+
+    @classmethod
+    def _callout_elements(cls, table: TableNode, page: int) -> Optional[list[MigrationElement]]:
+        """One callout per row when the table is a shaded icon-and-text box."""
+        if not cls._is_shaded_callout_table(table):
+            return None
+
+        elements: list[MigrationElement] = []
+        for row in table.rows:
+            icons: list[MigrationIconRef] = []
+            blocks: list[MigrationContentBlock] = []
+            background: Optional[str] = None
+            for cell in row.cells:
+                if not getattr(cell, "is_merge_origin", True):
+                    continue
+                if background is None:
+                    background = cls._norm_hex(getattr(cell, "shading_hex", None))
+                blocks.extend(cls._content_blocks(cell))
+                icons.extend(cls._media_icons(cell))
+            if not blocks and not icons:
+                continue
+            elements.append(
+                MigrationElement(
+                    element_type="callout",
+                    page=page,
+                    background_color=background,
+                    icons=icons,
+                    content=blocks,
+                )
+            )
+        return elements or None
 
     @classmethod
     def _convert_table(cls, table: TableNode, page: int) -> Optional[MigrationElement]:

@@ -267,3 +267,71 @@ class DocxStyler:
             logger.warning(f"Failed to insert image '{path}': {exc}")
 
         return created
+
+    def insert_float(
+        self,
+        doc: Document,
+        image_path: str | Path,
+        blocks: list,
+        align: str = "left",
+        width_inches: float = 2.5,
+    ) -> list[Any]:
+        """Put the picture and its wrapped text side by side.
+
+        A borderless two-column table keeps the same reading order a side
+        wrap has: the picture on the left or the right, and the blocks that
+        sat beside it in the other column.
+        """
+        path = Path(image_path)
+        if not path.exists():
+            logger.warning(f"Image file not found for float insertion: {path}")
+            return []
+
+        try:
+            table = doc.add_table(rows=1, cols=2)
+            self._clear_table_borders(table)
+            picture_first = align != "right"
+            picture_cell = table.cell(0, 0 if picture_first else 1)
+            text_cell = table.cell(0, 1 if picture_first else 0)
+            picture_para = picture_cell.paragraphs[0]
+            run = picture_para.add_run()
+            run.add_picture(str(path), width=Inches(max(0.4, min(width_inches, 4.5))))
+
+            wrote = False
+            for block in blocks or []:
+                kind = getattr(block, "type", None)
+                if kind == "list":
+                    for item in getattr(block, "items", None) or []:
+                        text = (item or "").strip()
+                        if not text:
+                            continue
+                        para = text_cell.paragraphs[0] if not wrote else text_cell.add_paragraph()
+                        wrote = True
+                        para.add_run(text)
+                else:
+                    text = (getattr(block, "text", None) or "").strip()
+                    if not text:
+                        continue
+                    para = text_cell.paragraphs[0] if not wrote else text_cell.add_paragraph()
+                    wrote = True
+                    run = para.add_run(text)
+                    if getattr(block, "bold", False):
+                        run.bold = True
+            return [table]
+        except Exception as exc:
+            logger.warning(f"Failed to insert float '{path}': {exc}")
+            return []
+
+    @staticmethod
+    def _clear_table_borders(table) -> None:
+        tbl = table._tbl
+        tbl_pr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+        borders = OxmlElement("w:tblBorders")
+        for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            edge = OxmlElement(f"w:{side}")
+            edge.set(qn("w:val"), "nil")
+            edge.set(qn("w:sz"), "0")
+            edge.set(qn("w:space"), "0")
+            edge.set(qn("w:color"), "auto")
+            borders.append(edge)
+        tbl_pr.append(borders)

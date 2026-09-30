@@ -31,6 +31,7 @@ from app.schemas.document import (
     DocumentMetadata,
     ElementType,
     ExtractedElement,
+    ExtractedFloat,
     ExtractedHeading,
     ExtractedImage,
     ExtractedIcon,
@@ -42,7 +43,9 @@ from app.schemas.ast_nodes import (
     ASTNode,
     CaptionNode,
     DocumentNode,
+    FloatNode,
     HeadingNode,
+    HighlightSpan,
     IconNode,
     ImageNode,
     ListItemNode,
@@ -153,6 +156,11 @@ class ASTBuilder:
                 current.children.append(table_node)
                 sequence += 1
 
+            elif element.element_type == ElementType.FLOAT:
+                current = stack[-1]
+                current.children.append(self._make_float_node(element, sequence))
+                sequence += 1
+
             elif element.element_type == ElementType.IMAGE:
                 image_el = element  # type: ExtractedImage
                 image_node = self._make_image_node(image_el, sequence)
@@ -248,6 +256,7 @@ class ASTBuilder:
             font_color_hex=getattr(el, "font_color_hex", None),
             color_detection_method=getattr(el, "color_detection_method", None),
             shading_hex=getattr(el, "shading_hex", None),
+            highlights=self._highlight_spans(el),
         )
 
     def _make_paragraph_node(
@@ -264,6 +273,7 @@ class ASTBuilder:
             font_color_hex=getattr(el, "font_color_hex", None),
             color_detection_method=getattr(el, "color_detection_method", None),
             shading_hex=getattr(el, "shading_hex", None),
+            highlights=self._highlight_spans(el),
         )
 
     def _make_table_node(
@@ -290,7 +300,10 @@ class ASTBuilder:
                 bold=bool(getattr(raw_cell, "bold", False)),
             )
 
-            if raw_cell.content_text:
+            blocks = getattr(raw_cell, "blocks", None) or []
+            if blocks:
+                cell_node.content.extend(self._content_from_blocks(blocks))
+            elif raw_cell.content_text:
                 cell_node.content.append(ParagraphNode(
                     node_id=str(uuid.uuid4()),
                     text=raw_cell.content_text,
@@ -349,6 +362,22 @@ class ASTBuilder:
             style_name=getattr(el, "style_name", None),
             col_widths_pt=list(getattr(el, "col_widths_pt", []) or []),
             header_rows=int(getattr(el, "header_rows", 0) or 0),
+        )
+
+    def _make_float_node(self, el: ExtractedElement, seq: int) -> FloatNode:
+        """Convert a wrapped picture and the blocks beside it."""
+        floated = el if isinstance(el, ExtractedFloat) else None
+        return FloatNode(
+            node_id=str(uuid.uuid4()),
+            asset_path=getattr(el, "image_path", "") or "",
+            align=getattr(floated, "align", None) or "left",
+            wrap=getattr(floated, "wrap", None) or "square",
+            image_width_in=getattr(floated, "image_width_in", 0.0) or 0.0,
+            image_height_in=getattr(floated, "image_height_in", 0.0) or 0.0,
+            blocks=self._content_from_blocks(getattr(el, "blocks", None) or []),
+            sequence=seq,
+            source_location=self._make_source_loc(el),
+            confidence=el.confidence,
         )
 
     def _make_image_node(
@@ -469,9 +498,15 @@ class ASTBuilder:
         i = start_index
         seq = start_seq
 
-        # Determine list type from first item
-        first_text = elements[i].content.strip()
-        list_type = self._detect_list_type(first_text)
+        # Prefer the parser's numbering decision. Text-prefix detection is only
+        # a fallback for paragraphs whose marker was written into the text.
+        first = elements[i]
+        if first.element_type == ElementType.NUMBERED_STEP:
+            list_type = "ordered"
+        elif first.element_type == ElementType.LIST_ITEM:
+            list_type = "unordered"
+        else:
+            list_type = self._detect_list_type(first.content.strip())
 
         item_index = 1
         while i < len(elements):
@@ -490,9 +525,24 @@ class ASTBuilder:
                     source_location=self._make_source_loc(el),
                     confidence=el.confidence,
                     metadata=dict(getattr(el, "metadata", {}) or {}),
+                    highlights=self._highlight_spans(el),
+                    shading_hex=getattr(el, "shading_hex", None),
                 )
                 items.append(item)
                 item_index += 1
+                seq += 1
+                i += 1
+            elif (
+                items
+                and el.element_type in (ElementType.IMAGE, ElementType.ICON)
+                and (el.metadata or {}).get("anchor_is_list_item")
+            ):
+                # The picture belongs to the list item it was anchored in.
+                # Keeping it here stops the list from splitting around it.
+                if el.element_type == ElementType.IMAGE:
+                    items[-1].children.append(self._make_image_node(el, seq))
+                else:
+                    items[-1].children.append(self._make_icon_node(el, seq))
                 seq += 1
                 i += 1
             else:
@@ -508,12 +558,14 @@ class ASTBuilder:
                 # Not a list item and not a continuation -> break
                 break
 
+        shades = {item.shading_hex for item in items}
         list_node = ListNode(
             node_id=str(uuid.uuid4()),
             list_type=list_type,
             nesting_depth=0,
             items=items,
             sequence=start_seq,
+            shading_hex=shades.pop() if len(shades) == 1 else None,
         )
 
         consumed = i - start_index
@@ -576,12 +628,20 @@ class ASTBuilder:
         Looks both forward and backward so a left-rail icon that was read
         before its paragraph still binds to that paragraph, not to a heading
         that happens to share the page.
+
+        Icons anchored inside a list paragraph stay where they were read.
+        Moving them would split the list they belong to.
         """
-        icons = [el for el in elements if el.element_type == ElementType.ICON]
+        icons = [
+            el for el in elements
+            if el.element_type == ElementType.ICON
+            and not (el.metadata or {}).get("anchor_is_list_item")
+        ]
         if not icons:
             return list(elements)
 
-        rest = [el for el in elements if el.element_type != ElementType.ICON]
+        movable = {id(el) for el in icons}
+        rest = [el for el in elements if id(el) not in movable]
         text_types = (
             ElementType.PARAGRAPH,
             ElementType.LIST_ITEM,
@@ -637,6 +697,40 @@ class ASTBuilder:
             if not inserted:
                 out.append(ic)
         return out
+
+    def _content_from_blocks(self, blocks: list[ExtractedElement]) -> list:
+        """Turn a cell's paragraphs into paragraph and list nodes, in order."""
+        nodes = []
+        index = 0
+        seq = 0
+        while index < len(blocks):
+            element = blocks[index]
+            if self._is_list_item(element):
+                list_node, consumed = self._consume_list_items(blocks, index, seq)
+                nodes.append(list_node)
+                seq += consumed
+                index += consumed
+            else:
+                nodes.append(self._make_paragraph_node(element, seq))
+                seq += 1
+                index += 1
+        return nodes
+
+    @staticmethod
+    def _highlight_spans(el: ExtractedElement) -> list[HighlightSpan]:
+        """Map parser highlight spans onto the AST model."""
+        spans: list[HighlightSpan] = []
+        for span in getattr(el, "highlight_spans", None) or []:
+            spans.append(
+                HighlightSpan(
+                    text=span.text,
+                    highlight_color=span.color_name or "",
+                    color_hex=span.color_hex or "",
+                    start_offset=span.start_offset,
+                    end_offset=span.end_offset,
+                )
+            )
+        return spans
 
     @staticmethod
     def _make_source_loc(el: ExtractedElement) -> SourceLocation:
