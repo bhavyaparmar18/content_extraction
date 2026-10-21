@@ -477,7 +477,56 @@ export interface TemplateRecord {
   total_callouts?: number;
   global_rules_json?: string | null;
   status: "uploaded" | "extracting" | "ready" | "failed";
+  /** v2 template model readiness: only 'ready' templates can be migrated onto. */
+  readiness_status?: "ready" | "needs_normalization" | "needs_review" | null;
   created_at: string;
   updated_at?: string;
 }
 
+// --- Template readiness for migration (v2 template model) ---
+
+export type RegionDecision = 'fixed' | 'instruction' | 'slot' | 'conditional';
+
+export interface TemplateReadinessIssue {
+  code: string;
+  /** 'normalization' or 'review' block migration; 'warning' does not. */
+  severity: 'normalization' | 'review' | 'warning';
+  message: string;
+  ref?: string;
+}
+
+export interface TemplateAmbiguousRegion {
+  region_id: string;
+  kind: string;
+  section_key?: string;
+  text: string;
+  suggestion: RegionDecision;
+  decision?: RegionDecision;
+}
+
+export interface TemplateReadinessReport {
+  template_id: string;
+  template_version: number;
+  status: 'ready' | 'needs_normalization' | 'needs_review';
+  slot_count: number;
+  anchors?: Record<string, number>;
+  issues?: TemplateReadinessIssue[];
+  ambiguous_regions?: TemplateAmbiguousRegion[];
+}
+
+export interface TemplateNormalizeResult {
+  template_id: string;
+  template_version: number;
+  readiness_status: TemplateReadinessReport['status'];
+  wrapped_slots: number;
+  skipped_slots: { slot_id: string; reason: string }[];
+  readiness: TemplateReadinessReport;
+}
+
+/** Human overrides of a detected template (data/template_config/<uid>.json). */
+export interface TemplateSlotConfig {
+  callout_palette: Record<string, string>;
+  regions: Record<string, RegionDecision>;
+  sections: Record<string, unknown>;
+  slots: Record<string, unknown>;
+}

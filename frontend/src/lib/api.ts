@@ -6,12 +6,12 @@ import {
   Issue,
   ReprocessingRequest,
   WorkflowVersion,
-  MigrationResult,
-  MigrationPlan,
-  MigrationQAReport,
   TemplateRecord,
   TemplateExtractionOutput,
   TemplateGlobalRules,
+  TemplateNormalizeResult,
+  TemplateReadinessReport,
+  TemplateSlotConfig,
 } from '@/types';
 import { useAuthStore } from './authStore';
 
@@ -57,41 +57,47 @@ async function _ensureFreshToken(): Promise<void> {
   return _refreshPromise;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  // Proactively refresh the token if it's expired or about to expire
-  await _ensureFreshToken();
-
-  const url = `${API_BASE}${path}`;
+function authHeaders(options: RequestInit): Headers {
   const headers = new Headers(options.headers || {});
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  // Inject Bearer token if available
   const token = useAuthStore.getState().accessToken;
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
+  return headers;
+}
 
-  const res = await fetch(url, { credentials: 'include', ...options, headers });
+async function throwApiError(res: Response): Promise<never> {
+  // If still a 401 after refresh attempt, clear session to force re-login
+  if (res.status === 401) {
+    useAuthStore.getState().clearSession();
+  }
+  let errData: any;
+  try {
+    errData = await res.json();
+  } catch {
+    errData = { message: res.statusText };
+  }
+  const message =
+    errData?.error?.message ||
+    errData?.error?.code ||
+    errData?.detail ||
+    errData?.message ||
+    `HTTP ${res.status}: ${res.statusText}`;
+  throw new ApiError(message, res.status, errData);
+}
+
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Proactively refresh the token if it's expired or about to expire
+  await _ensureFreshToken();
+
+  const headers = authHeaders(options);
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers });
   if (!res.ok) {
-    // If still a 401 after refresh attempt, clear session to force re-login
-    if (res.status === 401) {
-      useAuthStore.getState().clearSession();
-    }
-    let errData: any;
-    try {
-      errData = await res.json();
-    } catch {
-      errData = { message: res.statusText };
-    }
-    const message =
-      errData?.error?.message ||
-      errData?.error?.code ||
-      errData?.detail ||
-      errData?.message ||
-      `HTTP ${res.status}: ${res.statusText}`;
-    throw new ApiError(message, res.status, errData);
+    await throwApiError(res);
   }
 
   if (res.status === 204) {
@@ -99,6 +105,34 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return res.json();
+}
+
+/** A file from an authenticated route (``window.open`` cannot send the Bearer token). */
+export async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  await _ensureFreshToken();
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options, headers: authHeaders(options) });
+  if (!res.ok) {
+    await throwApiError(res);
+  }
+  return res.blob();
+}
+
+/** Save a blob under the given file name. */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** The ``fieldErrors`` messages of an API error (plan problems, export blockers), or none. */
+export function apiErrorDetails(err: unknown): string[] {
+  const fields = err instanceof ApiError ? err.data?.error?.fieldErrors : null;
+  return Array.isArray(fields) ? fields.map((f: { message: string }) => f.message) : [];
 }
 
 export const api = {
@@ -276,34 +310,6 @@ export const api = {
     });
   },
 
-  // --- Migration Engine ---
-  async migrateDocument(documentId: string, templateId?: unknown, templateFile?: File): Promise<MigrationResult> {
-    const formData = new FormData();
-    formData.append('document_id', documentId);
-    if (typeof templateId === 'string' && templateId.trim() && templateId.trim() !== '[object Object]') {
-      formData.append('template_id', templateId.trim());
-    }
-    if (templateFile) {
-      formData.append('template_file', templateFile);
-    }
-    return request<MigrationResult>('/documents/migrate', {
-      method: 'POST',
-      body: formData,
-    });
-  },
-
-  async getMigrationStatus(documentId: string): Promise<MigrationQAReport> {
-    return request<MigrationQAReport>(`/documents/${encodeURIComponent(documentId)}/migration-status`);
-  },
-
-  async getMigrationPlan(documentId: string): Promise<MigrationPlan> {
-    return request<MigrationPlan>(`/documents/${encodeURIComponent(documentId)}/migration-plan`);
-  },
-
-  getDownloadDocxUrl(documentId: string): string {
-    return `${API_BASE}/documents/${encodeURIComponent(documentId)}/download-docx`;
-  },
-
   // --- Template Management ---
   async getTemplates(status?: string): Promise<TemplateRecord[]> {
     const qs = status ? `?status=${encodeURIComponent(status)}` : '';
@@ -337,6 +343,27 @@ export const api = {
   async extractTemplate(templateId: string): Promise<any> {
     return request(`/templates/${encodeURIComponent(templateId)}/extract`, {
       method: 'POST',
+    });
+  },
+
+  // --- Template readiness for migration ---
+  async getTemplateReadiness(templateId: string): Promise<TemplateReadinessReport> {
+    return request<TemplateReadinessReport>(`/templates/${encodeURIComponent(templateId)}/readiness`);
+  },
+
+  /** Detect the slots and write the normalized template the migration fills. */
+  async normalizeTemplate(templateId: string): Promise<TemplateNormalizeResult> {
+    return request<TemplateNormalizeResult>(`/templates/${encodeURIComponent(templateId)}/normalize`, { method: 'POST' });
+  },
+
+  async getTemplateSlotConfig(templateId: string): Promise<TemplateSlotConfig> {
+    return request<TemplateSlotConfig>(`/templates/${encodeURIComponent(templateId)}/slot-config`);
+  },
+
+  async saveTemplateSlotConfig(templateId: string, config: TemplateSlotConfig): Promise<TemplateReadinessReport> {
+    return request<TemplateReadinessReport>(`/templates/${encodeURIComponent(templateId)}/slot-config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
     });
   },
 

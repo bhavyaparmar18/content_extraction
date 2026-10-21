@@ -17,6 +17,7 @@ import { SopGrid } from '@/components/repository/SopGrid';
 import { UploadSops } from '@/components/repository/UploadSops';
 import { JobProgressBanner } from '@/components/repository/JobProgressBanner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { StartMigrationDialog } from '@/features/migrations/components/StartMigrationDialog';
 import { useToast } from '@/components/ui/ToastStack';
 import { calculateRepositoryStats } from '@/lib/stats';
 import { useJobPolling } from '@/lib/useJobPolling';
@@ -32,6 +33,7 @@ export const SopRepository: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [sopToDelete, setSopToDelete] = useState<SopRecord | null>(null);
+  const [sopToMigrate, setSopToMigrate] = useState<SopRecord | null>(null);
 
   // Active batch job state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -253,11 +255,13 @@ export const SopRepository: React.FC = () => {
         <SopTable
           sops={filteredSops}
           onDelete={(sop) => setSopToDelete(sop)}
+          onMigrate={setSopToMigrate}
         />
       ) : (
         <SopGrid
           sops={filteredSops}
           onDelete={(sop) => setSopToDelete(sop)}
+          onMigrate={setSopToMigrate}
         />
       )}
 
@@ -267,6 +271,8 @@ export const SopRepository: React.FC = () => {
         onClose={() => setIsUploadOpen(false)}
         onUploadSuccess={handleUploadSuccess}
       />
+
+      <StartMigrationDialog sop={sopToMigrate} onClose={() => setSopToMigrate(null)} />
 
       {/* Delete Confirmation Modal */}
       <ConfirmDialog

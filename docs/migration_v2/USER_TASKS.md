@@ -4,12 +4,13 @@ Last updated: 2026-10-10
 
 ## Where things stand
 
-- **Done:** Phases 0–12 (contracts, SOP and template extraction, GWP rules, job API, preservation checks, section planner, slot planner, drafter, validation/critic/repair/gates, Word renderer, assembly/references/reconciliation/audit/export) and the SOP inspection tool.
+- **Done:** Phases 0–13 (contracts, SOP and template extraction, GWP rules, job API, preservation checks, section planner, slot planner, drafter, validation/critic/repair/gates, Word renderer, assembly/references/reconciliation/audit/export, review UI) and the SOP inspection tool.
 - **GWP rules are now extracted by the app** from the guide (no hand-curated rules): `BI-VQD-24416-G` v3, all 76 rules approved (2026-10-08).
 - **New:** each SOP now has a rendered Word review draft: `documents/reports/<SOP>/docx_v1.docx` (placement mode) and `documents/reports_gwp/<SOP>/docx_v1.docx` (with the GWP).
 - **New (Phase 12):** cross-references show the new numbers (Word REF fields), a reconciliation pass checks the whole document, every LLM call is in the job's audit trail, and the final Word file comes from `GET /api/v1/migrations/{job}/export/word` once the job has completed (plus `/traceability`, JSON or CSV).
-- **Next:** Phase 13 (review UI) or Phase 14 (evaluation).
-- **Code:** branch `features/migration-v2`; Phases 9–12 are not committed yet (last commit `ec9a19a`).
+- **New (Phase 13):** the review UI. Start a migration from the SOP Repository ("Migrate…" in a row's menu), then review it at `/migrations/<job>`: section mapping, slot mapping, draft and issues, final document, always next to the original SOP and the template.
+- **Next:** Phase 14 (evaluation).
+- **Code:** branch `features/migration-v2`; Phases 0–12 committed (`6f9ad77`); Phase 13 not committed yet.
 
 ---
 
@@ -76,6 +77,17 @@ Last updated: 2026-10-10
 - [ ] **5j. Two decisions about Phase 12** (current behaviour in brackets)
   1. The LLM reconciliation pass (contradictions, duplicates, one thing named two ways across sections): [only for jobs with a GWP, where rewriting can introduce them; in placement mode the text is the SOP's own]. Run it always (`reconcile_llm: on`), or never?
   2. A reference whose target lost its own heading, e.g. RPAS "Chapter 5.2" → "Chapter 5" (5.2 is part of the roles tables now): [a medium item to check the wording; it blocks the job only when the passage is high-risk, as in RPAS (an approval)]. Fine, or should it always block?
+
+### B4. Review UI (Phase 13)
+
+- [ ] **5k. Click through one SOP in the app** (backend and frontend running, see "Run the app" below):
+  1. SOP Repository → row menu → **Migrate…** → the template, no GWP, "Review the plans".
+  2. **Section mapping:** hover the rows (both side panes follow), move a section, save, put it back, approve.
+  3. **Slot mapping:** open a section with a gap or unplaced passages, approve.
+  4. **Draft & issues:** hover claims (the SOP pane shows the passage), compare one with the source, edit a slot and re-check, resolve or accept the issues.
+  5. **Final document:** check the preview, then download.
+  *Tell Claude* what is unclear or missing, and whether the in-browser Word rendering is close enough to Word.
+- [ ] **5l. Node version:** the frontend needs Node 20.19 or later (Vite 8). This machine has 20.12: install Node 22 LTS, or run `npx node@22 node_modules/vite/bin/vite.js` in `frontend/`.
 
 ### C. Template
 
@@ -158,7 +170,8 @@ venv\Scripts\activate
 uvicorn app.main:app --reload --port 8000
 ```
 - Open `http://localhost:8000/docs` for the API. The v2 endpoints are under `/api/v1/migrations` and `/api/v1/gwp`, and need a login.
-- Frontend: `cd frontend` and then `npm run dev`.
+- Frontend: `cd frontend`, `npm install`, then `npm run dev` (Node 20.19 or later) and open `http://localhost:5173`. Unit tests: `npm test`.
+- Migrations: SOP Repository → row menu → **Migrate…**; every job is under **Migrations** in the sidebar.
 
 ---
 
@@ -178,9 +191,9 @@ uvicorn app.main:app --reload --port 8000
 | 9 | Drafter (GWP or placement mode) | ✅ Done |
 | 10 | Validation, critic, repair, gates | ✅ Done |
 | 11 | Word renderer v2 | ✅ Done |
-| 12 | Assembly, cross-references, audit, export | ⏳ Next |
-| 13 | Frontend review UI | ⬜ |
-| 14 | Evaluation, calibration, cutover | ⬜ |
+| 12 | Assembly, cross-references, audit, export | ✅ Done |
+| 13 | Frontend review UI | ✅ Done (click-through pending, task 5k) |
+| 14 | Evaluation, calibration, cutover | ⏳ Next |
 
 ---
 

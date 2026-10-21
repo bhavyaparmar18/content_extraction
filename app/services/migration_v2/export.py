@@ -10,15 +10,18 @@ first, so a reviewer has filled each required slot or accepted it as N/A. It the
    ``traceability``; records one ``gap_removed`` event per accepted gap and an ``export`` event;
 4. marks the SOP record with the exported file.
 
-Asking again with nothing changed (same drafts, same accepted gaps) returns the saved export.
+Asking again with nothing changed (same drafts, same accepted gaps) returns the saved export. ``render_final`` does
+steps 1 and 2 only, in memory: the review UI previews the final document with it before anyone exports.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from app.schemas.v2 import (
@@ -137,60 +140,106 @@ def traceability_csv(trace: Traceability) -> str:
     return out.getvalue()
 
 
-def export_word(job: MigrationJob, store: Any, artifacts: Any, sop_store: Any = None, actor: Optional[str] = None,
-                page_counter: Optional[Callable] = None) -> Export:
+@dataclass
+class FinalRender:
+    """The final document rendered in memory, with everything ``export_word`` needs to save it."""
+
+    data: bytes
+    report: RenderReport
+    assembly: Any
+    drafts: list[SectionDraft]
+    source: SourceDocument
+    template: TemplateModel
+    gaps: list[dict]
+    accepted: tuple[str, ...]
+    versions: dict[str, int]
+
+
+def _check_exportable(job: MigrationJob, artifacts: Any) -> None:
     if job.status not in EXPORTABLE:
         report = artifacts.latest(job, ArtifactKind.QUALITY_REPORT, QualityReport)
         open_gates = [i.message for i in (report.open_gate_issues if report else [])]
         raise ExportBlocked("EXPORT_BLOCKED", f"Job {job.job_id} is {job.status.value}; the final document is exported once "
                             "the job has completed (every gate issue resolved, gaps filled or accepted)", open_gates)
+
+
+def _accepted(job: MigrationJob, artifacts: Any, template: TemplateModel) -> tuple[list[dict], tuple[str, ...], dict[str, int]]:
+    gaps = accepted_gaps(artifacts.latest(job, ArtifactKind.QUALITY_REPORT, QualityReport))
+    versions = {d.target_section_id: d.version for d in _latest_drafts(artifacts, job, template)}
+    return gaps, tuple(sorted(g["slot_id"] for g in gaps)), versions
+
+
+def previous_export(job: MigrationJob, store: Any, artifacts: Any) -> Optional[ArtifactRef]:
+    """The saved final document, if it was exported from the current drafts and accepted gaps."""
+    template = artifacts.latest(job, ArtifactKind.TEMPLATE_MODEL, TemplateModel)
+    if template is None:
+        return None
+    _, accepted, versions = _accepted(job, artifacts, template)
+    previous = next((e["detail"] for e in reversed(store.list_events(job.job_id)) if e["event"] == "export"), None)
+    last = job.latest_artifact(ArtifactKind.DOCX, FINAL)
+    if previous and last and previous.get("draft_versions") == versions and tuple(previous.get("accepted_gaps", [])) == accepted:
+        return last
+    return None
+
+
+def render_final(job: MigrationJob, store: Any, artifacts: Any, page_counter: Optional[Callable] = None) -> FinalRender:
+    """Assemble and render the final document without saving anything (``export_word`` saves it; the review UI
+    previews it). Raises ``ExportBlocked`` when the job has not completed or a gap is still open."""
+    _check_exportable(job, artifacts)
     source = artifacts.latest(job, ArtifactKind.SOURCE_MODEL, SourceDocument)
     template = artifacts.latest(job, ArtifactKind.TEMPLATE_MODEL, TemplateModel)
     slot_plan = artifacts.latest(job, ArtifactKind.SLOT_PLAN, SlotPlan)
     section_plan = artifacts.latest(job, ArtifactKind.SECTION_PLAN, SectionPlan)
-    quality = artifacts.latest(job, ArtifactKind.QUALITY_REPORT, QualityReport)
     drafts = _latest_drafts(artifacts, job, template)
-    gaps = accepted_gaps(quality)
-    accepted = tuple(sorted(g["slot_id"] for g in gaps))
-    versions = {d.target_section_id: d.version for d in drafts}
-
-    previous = next((e["detail"] for e in reversed(store.list_events(job.job_id)) if e["event"] == "export"), None)
-    last = job.latest_artifact(ArtifactKind.DOCX, FINAL)
-    if previous and last and previous.get("draft_versions") == versions and tuple(previous.get("accepted_gaps", [])) == accepted:
-        return Export(last, artifacts.latest(job, ArtifactKind.RENDER_REPORT, RenderReport, FINAL), reused=True)
+    gaps, accepted, versions = _accepted(job, artifacts, template)
 
     assembly = assemble(template, drafts, source, section_plan, job_id=job.job_id,
                         version=store.next_artifact_version(job.job_id, ArtifactKind.ASSEMBLED_DRAFT, FINAL),
                         number_map_version=store.next_artifact_version(job.job_id, ArtifactKind.NUMBER_MAP, FINAL),
                         accepted_gaps=accepted)
-    work = artifacts.job_dir(job.job_id) / f".export-{store.next_artifact_version(job.job_id, ArtifactKind.DOCX, FINAL)}.docx"
-    try:
-        report = render_document(template, drafts, source, work, job_id=job.job_id,
-                                 version=store.next_artifact_version(job.job_id, ArtifactKind.RENDER_REPORT, FINAL),
-                                 slot_plan=slot_plan, mode=RenderMode.FINAL, accepted_gaps=accepted,
-                                 page_counter=page_counter, assembled=assembly.document, number_map=assembly.number_map)
-        if report.problems:
-            artifacts.write(job.job_id, ArtifactKind.RENDER_REPORT, report, scope=FINAL, created_by=actor)
-            raise ExportBlocked("EXPORT_CHECK_FAILED", "The final document failed its post-render check", report.problems)
-        docx = artifacts.write_file(job.job_id, ArtifactKind.DOCX, work.read_bytes(), ".docx", scope=FINAL, created_by=actor)
-    except RenderBlocked as exc:
-        raise ExportBlocked("GAPS_UNRESOLVED", str(exc), exc.slot_ids) from exc
-    except RenderError as exc:
-        raise ExportBlocked("RENDER_FAILED", str(exc)) from exc
-    finally:
-        work.unlink(missing_ok=True)
+    job_dir = artifacts.job_dir(job.job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=job_dir) as tmp:
+        work = Path(tmp) / "final.docx"
+        try:
+            report = render_document(template, drafts, source, work, job_id=job.job_id,
+                                     version=store.next_artifact_version(job.job_id, ArtifactKind.RENDER_REPORT, FINAL),
+                                     slot_plan=slot_plan, mode=RenderMode.FINAL, accepted_gaps=accepted,
+                                     page_counter=page_counter, assembled=assembly.document, number_map=assembly.number_map)
+        except RenderBlocked as exc:
+            raise ExportBlocked("GAPS_UNRESOLVED", str(exc), exc.slot_ids) from exc
+        except RenderError as exc:
+            raise ExportBlocked("RENDER_FAILED", str(exc)) from exc
+        data = work.read_bytes() if not report.problems else b""
+    return FinalRender(data, report, assembly, drafts, source, template, gaps, accepted, versions)
+
+
+def export_word(job: MigrationJob, store: Any, artifacts: Any, sop_store: Any = None, actor: Optional[str] = None,
+                page_counter: Optional[Callable] = None) -> Export:
+    _check_exportable(job, artifacts)
+    last = previous_export(job, store, artifacts)
+    if last is not None:
+        return Export(last, artifacts.latest(job, ArtifactKind.RENDER_REPORT, RenderReport, FINAL), reused=True)
+
+    final = render_final(job, store, artifacts, page_counter)
+    report, assembly = final.report, final.assembly
+    if report.problems:
+        artifacts.write(job.job_id, ArtifactKind.RENDER_REPORT, report, scope=FINAL, created_by=actor)
+        raise ExportBlocked("EXPORT_CHECK_FAILED", "The final document failed its post-render check", report.problems)
+    docx = artifacts.write_file(job.job_id, ArtifactKind.DOCX, final.data, ".docx", scope=FINAL, created_by=actor)
     artifacts.write(job.job_id, ArtifactKind.RENDER_REPORT, report, scope=FINAL, created_by=actor)
     artifacts.write(job.job_id, ArtifactKind.NUMBER_MAP, assembly.number_map, scope=FINAL, created_by=actor)
     artifacts.write(job.job_id, ArtifactKind.ASSEMBLED_DRAFT, assembly.document, scope=FINAL, created_by=actor)
-    trace = build_traceability(job.job_id, drafts, source, template, assembly.document, accepted)
+    trace = build_traceability(job.job_id, final.drafts, final.source, final.template, assembly.document, final.accepted)
     artifacts.write(job.job_id, ArtifactKind.TRACEABILITY, trace, created_by=actor)
 
-    for gap in gaps:
+    for gap in final.gaps:
         store.add_event(job.job_id, "gap_removed", actor, gap)
     store.add_event(job.job_id, "export", actor, {
-        "docx_version": docx.version, "sha256": docx.sha256, "draft_versions": versions, "accepted_gaps": list(accepted),
-        "sections_removed": assembly.document.sections_removed, "toc_page_numbers": report.toc_page_numbers,
-        "refs": len(assembly.document.refs), "traceability_rows": len(trace.rows), "warnings": len(report.warnings),
+        "docx_version": docx.version, "sha256": docx.sha256, "draft_versions": final.versions,
+        "accepted_gaps": list(final.accepted), "sections_removed": assembly.document.sections_removed,
+        "toc_page_numbers": report.toc_page_numbers, "refs": len(assembly.document.refs),
+        "traceability_rows": len(trace.rows), "warnings": len(report.warnings),
     })
     if sop_store is not None:
         sop_store.mark_migrated(job.sop_record_id, job.job_id, docx.path)

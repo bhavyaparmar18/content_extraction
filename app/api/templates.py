@@ -243,6 +243,7 @@ async def list_templates(
             total_icons=r["total_icons"],
             total_callouts=r.get("total_callouts") or 0,
             status=r["status"],
+            readiness_status=r.get("readiness_status"),
             created_at=r["created_at"],
         )
         for r in records

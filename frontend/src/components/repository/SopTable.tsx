@@ -20,9 +20,11 @@ interface SopTableProps {
   sops: SopRecord[];
   onDelete: (sop: SopRecord) => void;
   onStatusChange?: (sop: SopRecord, newStatus: string) => void;
+  /** Start a migration of this SOP (opens the start dialog). */
+  onMigrate?: (sop: SopRecord) => void;
 }
 
-export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChange }) => {
+export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChange, onMigrate }) => {
   const navigate = useNavigate();
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
 
@@ -154,11 +156,11 @@ export const SopTable: React.FC<SopTableProps> = ({ sops, onDelete, onStatusChan
 
                             <button
                               type="button"
-                              onClick={(e) => handleAction(e, () => navigate(`/review/${sop.id}?mode=migration`))}
+                              onClick={(e) => handleAction(e, () => (onMigrate ? onMigrate(sop) : navigate(`/review/${sop.id}?mode=migration`)))}
                               className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-xs text-text-muted hover:bg-white/5 hover:text-text-main transition"
                             >
                               <ArrowRightLeft className="size-3.5 text-emerald-400" />
-                              <span>Start Migration</span>
+                              <span>Migrate…</span>
                             </button>
 
                             <div className="my-1 h-px bg-border" />

@@ -43,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
       items: [
         { label: 'SOP Extraction', path: '/', icon: ScanText },
         { label: 'Translation', path: '/#translation', icon: Languages },
-        { label: 'Migration', path: '/#migration', icon: ArrowRightLeft },
+        { label: 'Migrations', path: '/migrations', icon: ArrowRightLeft },
       ],
     },
     {
@@ -99,10 +99,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
             <div className="space-y-1">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const isActive =
-                  item.path === '/'
+                // Placeholder links ('/#dashboard') are never active; '/' only on the repository itself.
+                const isActive = item.path.includes('#')
+                  ? false
+                  : item.path === '/'
                     ? location.pathname === '/'
-                    : location.pathname.startsWith(item.path.split('#')[0]) && item.path !== '/';
+                    : location.pathname.startsWith(item.path);
 
                 return (
                   <NavLink

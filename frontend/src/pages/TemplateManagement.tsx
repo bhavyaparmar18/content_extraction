@@ -23,6 +23,7 @@ import {
   FileText,
   BookOpen,
   ExternalLink,
+  Wand2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { TemplateRecord, TemplateExtractionOutput, TemplateSection, TemplateElement } from '@/types';
@@ -30,6 +31,7 @@ import { ElementRenderer } from '@/components/content/ElementRenderer';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/ToastStack';
+import { ReadinessBadge, TemplateReadinessDialog } from '@/components/templates/TemplateReadinessDialog';
 
 export const TemplateManagement: React.FC = () => {
   const navigate = useNavigate();
@@ -44,6 +46,7 @@ export const TemplateManagement: React.FC = () => {
   const [extractingId, setExtractingId] = useState<string | null>(null);
   const [templateToDelete, setTemplateToDelete] = useState<TemplateRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [templateToPrepare, setTemplateToPrepare] = useState<TemplateRecord | null>(null);
 
   // Inspector modal state
   const [inspectTemplateId, setInspectTemplateId] = useState<string | null>(null);
@@ -91,7 +94,7 @@ export const TemplateManagement: React.FC = () => {
   // Stats calculation
   const stats = useMemo(() => {
     const total = templates.length;
-    const ready = templates.filter((t) => t.status === 'ready').length;
+    const ready = templates.filter((t) => t.readiness_status === 'ready').length; // prepared, not just extracted
     const instructions = templates.reduce((acc, t) => acc + (t.total_instructions || 0), 0);
     const icons = templates.reduce((acc, t) => acc + (t.total_icons || 0), 0);
     return { total, ready, instructions, icons };
@@ -307,6 +310,7 @@ export const TemplateManagement: React.FC = () => {
                   <th className="py-3 px-4">Template Name</th>
                   <th className="py-3 px-4">Version</th>
                   <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Migration</th>
                   <th className="py-3 px-4 text-center">Sections</th>
                   <th className="py-3 px-4 text-center">Instructions (Blue)</th>
                   <th className="py-3 px-4 text-center">Icons</th>
@@ -347,7 +351,7 @@ export const TemplateManagement: React.FC = () => {
                       <td className="py-3.5 px-4">
                         {tpl.status === 'ready' && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            <CheckCircle2 className="size-3" /> Ready
+                            <CheckCircle2 className="size-3" /> Extracted
                           </span>
                         )}
                         {tpl.status === 'extracting' && (
@@ -365,6 +369,10 @@ export const TemplateManagement: React.FC = () => {
                             <AlertCircle className="size-3" /> Failed
                           </span>
                         )}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <ReadinessBadge template={tpl} onOpen={() => setTemplateToPrepare(tpl)} />
                       </td>
 
                       <td className="py-3.5 px-4 text-center font-mono font-medium text-text-main">
@@ -404,6 +412,17 @@ export const TemplateManagement: React.FC = () => {
                               >
                                 View
                               </Button>
+                              {tpl.readiness_status !== 'ready' && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => setTemplateToPrepare(tpl)}
+                                  leftIcon={<Wand2 className="size-3.5 text-primary" />}
+                                  title="Detect the instruction slots and prepare the template for SOP migration"
+                                >
+                                  Prepare
+                                </Button>
+                              )}
                               <Button
                                 variant="secondary"
                                 size="sm"
@@ -915,6 +934,8 @@ export const TemplateManagement: React.FC = () => {
       </AnimatePresence>
 
       {/* Confirm Delete Dialog */}
+      <TemplateReadinessDialog template={templateToPrepare} onClose={() => setTemplateToPrepare(null)} />
+
       <ConfirmDialog
         isOpen={!!templateToDelete}
         title="Delete Template Record"

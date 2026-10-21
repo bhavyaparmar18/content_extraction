@@ -136,3 +136,26 @@ class InputResolver:
         if not guide.get("rules_path") or not Path(guide["rules_path"]).exists():
             raise InputError(409, "GWP_RULES_MISSING", f"GWP guide '{job.gwp_id}' has no rules file")
         return load_rule_set(Path(guide["rules_path"]))
+
+    # ── Original files (shown to the reviewer) ────────────────────────
+
+    def source_file(self, job: MigrationJob, upload_dir: Path, extensions: list[str]) -> Path:
+        """The SOP file as uploaded (``.docx`` or ``.pdf``)."""
+        sop = self._sop_record(job.sop_record_id)
+        uid = sop.get("document_Uid") or sop.get("document_uid")  # the SOP store renames it for the frontend
+        for ext in extensions:
+            candidate = Path(upload_dir) / f"{uid}{ext}"
+            if candidate.is_file():
+                return candidate
+        raise InputError(404, "SOURCE_FILE_MISSING", f"The uploaded file of SOP {uid} is missing")
+
+    def template_file(self, job: MigrationJob, variant: str = "normalized") -> Path:
+        """The job's template version as a ``.docx``: the normalized file the renderer fills (the default, when
+        there is one) or the file as uploaded (``variant='original'``)."""
+        template = self._template_record(job.template_id, job.template_version)
+        paths = [template.get("upload_path")] if variant == "original" else [template.get("normalized_path"),
+                                                                              template.get("upload_path")]
+        for path in paths:
+            if path and Path(path).is_file():
+                return Path(path)
+        raise InputError(404, "TEMPLATE_FILE_MISSING", f"The file of template '{job.template_id}' v{job.template_version} is missing")

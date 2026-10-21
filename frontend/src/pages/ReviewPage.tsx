@@ -13,7 +13,8 @@ import { ReviewHeader } from '@/components/review/ReviewHeader';
 import { ActionFooter } from '@/components/review/ActionFooter';
 import { ExtractionReviewMode } from '@/components/review/ExtractionReviewMode';
 import { TranslationReviewMode } from '@/components/review/TranslationReviewMode';
-import { MigrationReviewMode } from '@/components/review/MigrationReviewMode';
+import { SopMigrationJobs } from '@/features/migrations/components/SopMigrationJobs';
+import { useSopRecord } from '@/features/migrations/hooks';
 import { ReprocessingRequestDialog } from '@/components/review/ReprocessingRequestDialog';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/ToastStack';
@@ -33,9 +34,6 @@ export const ReviewPage: React.FC = () => {
   const [isReprocessingOpen, setIsReprocessingOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
-  const [selectedTemplateUid, setSelectedTemplateUid] = useState<string>('');
-  const [customTemplateFile, setCustomTemplateFile] = useState<File | null>(null);
 
   // Local state for AI suggestions and issues
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([
@@ -55,6 +53,7 @@ export const ReviewPage: React.FC = () => {
   ]);
 
   const [issues, setIssues] = useState<Issue[]>([]);
+  const sopRecord = useSopRecord(numRecordId || undefined);
 
   // 1. Fetch Review Bootstrap Data
   const {
@@ -198,27 +197,6 @@ export const ReviewPage: React.FC = () => {
     );
   }
 
-  // AI Migration execution
-  const handleTriggerMigration = async (templateId?: unknown) => {
-    if (!bootstrap?.document?.documentUid) return;
-    setIsMigrating(true);
-    try {
-      toastInfo('Running AI template migration & DOCX generation...', 'Migrating');
-      const cleanTemplateId =
-        typeof templateId === 'string' && templateId.trim() && templateId.trim() !== '[object Object]'
-          ? templateId.trim()
-          : (selectedTemplateUid || undefined);
-      await api.migrateDocument(bootstrap.document.documentUid, cleanTemplateId, customTemplateFile || undefined);
-      queryClient.invalidateQueries({ queryKey: ['migrationStatus', bootstrap.document.documentUid] });
-      queryClient.invalidateQueries({ queryKey: ['migrationPlan', bootstrap.document.documentUid] });
-      toastSuccess('AI migration complete! DOCX template generated.', 'Migration Ready');
-    } catch (err: any) {
-      toastError(err.message || 'Migration pipeline encountered an issue.');
-    } finally {
-      setIsMigrating(false);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full overflow-hidden bg-app">
       {/* Top Review Header */}
@@ -260,22 +238,7 @@ export const ReviewPage: React.FC = () => {
           />
         )}
 
-        {currentMode === 'migration' && (
-          <MigrationReviewMode
-            documentUid={bootstrap.document.documentUid}
-            v2Content={v2Content || null}
-            suggestions={suggestions}
-            onAcceptSuggestion={handleAcceptSuggestion}
-            onRejectSuggestion={handleRejectSuggestion}
-            onGenerateSuggestion={handleGenerateSuggestion}
-            selectedTemplateUid={selectedTemplateUid}
-            onSelectTemplateUid={setSelectedTemplateUid}
-            customTemplateFile={customTemplateFile}
-            onSelectTemplateFile={setCustomTemplateFile}
-            isMigrating={isMigrating}
-            onTriggerMigration={handleTriggerMigration}
-          />
-        )}
+        {currentMode === 'migration' && <SopMigrationJobs sop={sopRecord.data} sopRecordId={numRecordId} />}
       </div>
 
       {/* Sticky Bottom Action Footer */}
@@ -283,7 +246,6 @@ export const ReviewPage: React.FC = () => {
         availableActions={bootstrap.availableActions}
         isSaving={isSaving}
         isApproving={isApproving}
-        isMigrating={isMigrating}
         onSave={handleSaveDraft}
         onApprove={handleApprove}
         onRequestReprocessing={() => setIsReprocessingOpen(true)}
@@ -293,13 +255,9 @@ export const ReviewPage: React.FC = () => {
         onRunQa={() => {
           toastSuccess('All 6 translation QA checks passed without blocking errors.', 'QA Complete');
         }}
-        onValidateMigration={() => {
-          toastSuccess('Template mapping validation passed. Ready for DOCX render.', 'Validation OK');
-        }}
         onAiTranslate={() => {
           toastSuccess('AI Translation complete with GxP terminology enforcement.', 'Translated');
         }}
-        onAiMigrate={() => handleTriggerMigration(selectedTemplateUid)}
       />
 
       {/* Reprocessing Request Dialog */}
