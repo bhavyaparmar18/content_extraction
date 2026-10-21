@@ -66,7 +66,7 @@ Each new phase adds its output and checks to the report.
 | 10 | Validation, semantic critic, targeted repair, quality gates (done 2026-10-08) | 6, 9 | M |
 | 11 ★ | Anchor-based Word renderer v2 (done 2026-10-09) | 3, 9 | L |
 | 12 | Document assembly, cross-reference resolution, reconciliation, audit and export (done 2026-10-10) | 10, 11 | M |
-| 13 ★ | Frontend: migration review UI | 5, 7, 8, 10 | L |
+| 13 ★ | Frontend: migration review UI (done 2026-10-11) | 5, 7, 8, 10 | L |
 | 14 | Evaluation harness, calibration and cutover | all | M |
 
 Phases 2, 3 and 4 are independent of each other, as are 6 and 5, and 11 and 10. Phase 13 can start after Phase 8 using API stubs.

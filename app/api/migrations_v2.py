@@ -9,10 +9,11 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_user
+from app.config.settings import get_settings
 from app.core.exceptions import AppError, NotFoundError
 from app.schemas.auth import ApiFieldError
 from app.schemas.v2 import (
@@ -37,7 +38,15 @@ from app.schemas.v2 import (
 )
 from app.services.migration_v2.artifacts import ArtifactCorrupted
 from app.services.migration_v2.drafting.checks import draft_report
-from app.services.migration_v2.export import ExportBlocked, build_traceability, export_word, traceability_csv
+from app.services.migration_v2.export import (
+    EXPORTABLE,
+    ExportBlocked,
+    build_traceability,
+    export_word,
+    previous_export,
+    render_final,
+    traceability_csv,
+)
 from app.services.migration_v2.render.pages import word_page_counter
 from app.services.migration_v2.quality.gates import final_status, gate_counts
 from app.services.migration_v2.inputs import InputError
@@ -479,11 +488,72 @@ async def export_word_document(job_id: str, request: Request, user: dict = Depen
         result = await run_in_threadpool(export_word, job, orch.store, orch.artifacts, orch.inputs.sop_store,
                                          _actor(user), counter)
     except ExportBlocked as exc:
-        raise AppError(409, exc.code, exc.message,
-                       field_errors=[ApiFieldError(field="export", code="blocked", message=d[:500]) for d in exc.details[:20]])
+        raise _blocked(exc) from exc
     data = orch.artifacts.read_bytes(result.docx)
     name = f"{job.job_id}_final_v{result.docx.version}.docx"
     return Response(data, media_type=DOCX_MEDIA_TYPE, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/{job_id}/export/preview")
+async def preview_final_document(job_id: str, request: Request):
+    """The final document for viewing in the app before export: rendered as ``export/word`` would render it, but
+    nothing is saved, recorded or marked (no TOC page numbers from Word). Refused with the same 409 codes as the export.
+    """
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    if orch.is_running(job_id):
+        raise AppError(409, "JOB_RUNNING", f"Job {job_id} is running; preview once it has finished")
+    exported = previous_export(job, orch.store, orch.artifacts) if job.status in EXPORTABLE else None
+    if exported is not None:
+        data = orch.artifacts.read_bytes(exported)
+    else:
+        try:
+            final = await run_in_threadpool(render_final, job, orch.store, orch.artifacts)
+        except ExportBlocked as exc:
+            raise _blocked(exc) from exc
+        if final.report.problems:
+            raise _blocked(ExportBlocked("EXPORT_CHECK_FAILED", "The final document failed its post-render check",
+                                         final.report.problems))
+        data = final.data
+    return Response(data, media_type=DOCX_MEDIA_TYPE,
+                    headers={"Content-Disposition": f'inline; filename="{job_id}_final_preview.docx"'})
+
+
+def _blocked(exc: ExportBlocked) -> AppError:
+    return AppError(409, exc.code, exc.message,
+                    field_errors=[ApiFieldError(field="export", code="blocked", message=d[:500]) for d in exc.details[:20]])
+
+
+# ── Original files (the reviewer's context panes) ─────────────────────
+
+PDF_MEDIA_TYPE = "application/pdf"
+
+
+@router.get("/{job_id}/source/file")
+async def get_source_file(job_id: str, request: Request):
+    """The SOP as uploaded (``.docx`` or ``.pdf``), for viewing next to the plans and drafts."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    settings = orch.settings or get_settings()
+    try:
+        path = orch.inputs.source_file(job, settings.upload_dir, list(settings.allowed_extensions))
+    except InputError as exc:
+        raise AppError(exc.status, exc.code, exc.message) from exc
+    media_type = PDF_MEDIA_TYPE if path.suffix.lower() == ".pdf" else DOCX_MEDIA_TYPE
+    return FileResponse(path, media_type=media_type, filename=path.name, content_disposition_type="inline")
+
+
+@router.get("/{job_id}/template/file")
+async def get_template_file(job_id: str, request: Request,
+                            variant: str = Query("normalized", pattern="^(normalized|original)$")):
+    """The job's template version (``.docx``): normalized (what the renderer fills) or as uploaded."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    try:
+        path = orch.inputs.template_file(job, variant)
+    except InputError as exc:
+        raise AppError(exc.status, exc.code, exc.message) from exc
+    return FileResponse(path, media_type=DOCX_MEDIA_TYPE, filename=path.name, content_disposition_type="inline")
 
 
 # ── Drafts (Level 3) ──────────────────────────────────────────────────

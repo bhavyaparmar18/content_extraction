@@ -7,6 +7,8 @@ import { ReviewPage } from '@/pages/ReviewPage';
 import { ReprocessingAdminPage } from '@/pages/ReprocessingAdminPage';
 import { TemplateManagement } from '@/pages/TemplateManagement';
 import { TemplateContentView } from '@/pages/TemplateContentView';
+import { MigrationsList } from '@/pages/MigrationsList';
+import { MigrationWorkspace } from '@/pages/MigrationWorkspace';
 import { SignupPage } from '@/pages/SignupPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
@@ -38,6 +40,8 @@ export const App: React.FC = () => {
                   <Route path="/templates/:templateId" element={<TemplateContentView />} />
                   <Route path="/sops/:recordId" element={<SopContentView />} />
                   <Route path="/review/:recordId" element={<ReviewPage />} />
+                  <Route path="/migrations" element={<MigrationsList />} />
+                  <Route path="/migrations/:jobId" element={<MigrationWorkspace />} />
                   <Route path="/admin/reprocessing" element={<ReprocessingAdminPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
