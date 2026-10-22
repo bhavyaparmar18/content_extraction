@@ -43,6 +43,7 @@ from app.services.migration_v2.render import GAP_MARKER_TEXT, RenderBlocked, gap
 from app.services.migration_v2.render.verify import verify_rendered
 from app.services.migration_v2.template.colour import TextColour
 from app.services.migration_v2.template.service import build_template_model, normalize_and_save
+from tests.db_helpers import seed_job_inputs
 from tests.test_v2_template_slots import _decide_all, _png, _template
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -452,9 +453,10 @@ async def test_assembling_and_rendering_stages_write_the_model_document_and_repo
     settings = Settings(project_root=tmp_path)
     settings.resolve_paths(tmp_path)
     settings.ensure_directories()
-    store = MigrationStore(tmp_path / "m.db", settings)
+    store = MigrationStore(settings.db_path, settings)
     writer = ArtifactWriter(tmp_path / "artifacts", store)
-    job = store.create_job(MigrationJob(job_id="MIG-R", sop_record_id=1, template_id="tpl", template_version=1))
+    sop_id = seed_job_inputs(settings.db_path, settings)
+    job = store.create_job(MigrationJob(job_id="MIG-R", sop_record_id=sop_id, template_id="tpl", template_version=1))
     source, drafts, plan = scenario(tmp_path)
     writer.write(job.job_id, ArtifactKind.SOURCE_MODEL, source)
     writer.write(job.job_id, ArtifactKind.TEMPLATE_MODEL, tpl)

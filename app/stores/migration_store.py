@@ -2,15 +2,18 @@
 
 Same SQLite pattern as the other stores. Every status change goes through
 ``set_status``, which also writes an event, so the audit log is complete.
+Artifact paths are stored relative to the data folder (``app.db.paths``).
 """
 
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.config.settings import Settings
+from app.db import ensure_schema, transaction
+from app.db.paths import data_root, from_stored, to_stored
 from app.schemas.v2 import ArtifactKind, ArtifactRef, JobMode, JobStatus, MigrationJob, SectionState, SectionStatus
 
 # Columns update_job may change; status goes through set_status.
@@ -23,81 +26,16 @@ def _now() -> str:
 
 class MigrationStore:
     def __init__(self, db_path: Path, settings: Optional[Settings] = None):
-        self.db_path = db_path
+        self.db_path = Path(db_path)
         self.settings = settings
-        self._init_db()
-
-    def _get_connection(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self):
-        with self._get_connection() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS migration_jobs (
-                    job_id           TEXT PRIMARY KEY,
-                    sop_record_id    INTEGER NOT NULL,
-                    template_id      TEXT    NOT NULL,
-                    template_version INTEGER NOT NULL,
-                    gwp_id           TEXT,
-                    gwp_version      INTEGER,
-                    mode             TEXT    NOT NULL,
-                    status           TEXT    NOT NULL,
-                    created_by       TEXT,
-                    error            TEXT,
-                    failed_stage     TEXT,
-                    cancel_requested INTEGER NOT NULL DEFAULT 0,
-                    created_at       TEXT    NOT NULL,
-                    updated_at       TEXT    NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_mig_status ON migration_jobs(status);
-
-                CREATE TABLE IF NOT EXISTS migration_sections (
-                    job_id            TEXT    NOT NULL,
-                    target_section_id TEXT    NOT NULL,
-                    position          INTEGER NOT NULL DEFAULT 0,
-                    status            TEXT    NOT NULL,
-                    attempts          INTEGER NOT NULL DEFAULT 0,
-                    last_error        TEXT,
-                    PRIMARY KEY (job_id, target_section_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS migration_artifacts (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id     TEXT    NOT NULL,
-                    kind       TEXT    NOT NULL,
-                    scope      TEXT    NOT NULL DEFAULT '',
-                    version    INTEGER NOT NULL,
-                    path       TEXT    NOT NULL,
-                    sha256     TEXT    NOT NULL,
-                    created_at TEXT    NOT NULL,
-                    created_by TEXT,
-                    UNIQUE (job_id, kind, scope, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_mig_art_job ON migration_artifacts(job_id);
-
-                CREATE TABLE IF NOT EXISTS migration_events (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    job_id      TEXT NOT NULL,
-                    at          TEXT NOT NULL,
-                    actor       TEXT,
-                    event       TEXT NOT NULL,
-                    from_status TEXT,
-                    to_status   TEXT,
-                    detail      TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_mig_evt_job ON migration_events(job_id);
-                """
-            )
+        self._root = data_root(settings)
+        ensure_schema(self.db_path)
 
     # ── Jobs ──────────────────────────────────────────────────────────
 
     def create_job(self, job: MigrationJob) -> MigrationJob:
         now = _now()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO migration_jobs (
@@ -114,7 +52,7 @@ class MigrationStore:
         return self.get_job(job.job_id)
 
     def get_job(self, job_id: str) -> Optional[MigrationJob]:
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             row = conn.execute("SELECT * FROM migration_jobs WHERE job_id = ?", (job_id,)).fetchone()
             if row is None:
                 return None
@@ -149,7 +87,7 @@ class MigrationStore:
 
     def get_job_row(self, job_id: str) -> Optional[dict[str, Any]]:
         """Raw row, including the store-only columns (failed_stage, cancel_requested)."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             row = conn.execute("SELECT * FROM migration_jobs WHERE job_id = ?", (job_id,)).fetchone()
             return dict(row) if row else None
 
@@ -161,14 +99,14 @@ class MigrationStore:
             params.append(status)
         query += " ORDER BY created_at DESC, job_id DESC LIMIT ? OFFSET ?"
         params += [limit, offset]
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             return [dict(r) for r in conn.execute(query, params).fetchall()]
 
     def job_ids_with_status(self, statuses: list[JobStatus]) -> list[str]:
         if not statuses:
             return []
         marks = ",".join("?" for _ in statuses)
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             rows = conn.execute(
                 f"SELECT job_id FROM migration_jobs WHERE status IN ({marks}) ORDER BY created_at",
                 [s.value for s in statuses],
@@ -182,7 +120,7 @@ class MigrationStore:
         if not fields:
             return
         assignments = ", ".join(f"{name} = ?" for name in fields)
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 f"UPDATE migration_jobs SET {assignments}, updated_at = ? WHERE job_id = ?",
                 (*fields.values(), _now(), job_id),
@@ -198,7 +136,7 @@ class MigrationStore:
         expected: Optional[JobStatus] = None,
     ) -> bool:
         """Change the status and log it. With ``expected``, only if the job is still in that status."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path, immediate=True) as conn:
             row = conn.execute("SELECT status FROM migration_jobs WHERE job_id = ?", (job_id,)).fetchone()
             if row is None:
                 raise KeyError(job_id)
@@ -215,7 +153,7 @@ class MigrationStore:
 
     def init_sections(self, job_id: str, target_section_ids: list[str]) -> None:
         """Create the per-section rows once; keeps existing rows (a stage re-run must not reset them)."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             for position, section_id in enumerate(target_section_ids):
                 conn.execute(
                     """
@@ -240,7 +178,7 @@ class MigrationStore:
             fields["attempts"] = attempts
         fields["last_error"] = last_error
         assignments = ", ".join(f"{name} = ?" for name in fields)
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 f"UPDATE migration_sections SET {assignments} WHERE job_id = ? AND target_section_id = ?",
                 (*fields.values(), job_id, target_section_id),
@@ -249,7 +187,7 @@ class MigrationStore:
     # ── Artifacts ─────────────────────────────────────────────────────
 
     def next_artifact_version(self, job_id: str, kind: ArtifactKind, scope: Optional[str] = None) -> int:
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             row = conn.execute(
                 "SELECT MAX(version) AS v FROM migration_artifacts WHERE job_id = ? AND kind = ? AND scope = ?",
                 (job_id, kind.value, scope or ""),
@@ -257,28 +195,52 @@ class MigrationStore:
         return (row["v"] or 0) + 1
 
     def add_artifact(self, job_id: str, ref: ArtifactRef) -> None:
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO migration_artifacts (job_id, kind, scope, version, path, sha256, created_at, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    job_id, ref.kind.value, ref.scope or "", ref.version, ref.path, ref.sha256,
-                    (ref.created_at.isoformat() if ref.created_at else _now()), ref.created_by,
-                ),
-            )
-            self._add_event(
-                conn, job_id, ref.created_by, "artifact", None, None,
-                {"kind": ref.kind.value, "scope": ref.scope, "version": ref.version},
-            )
+        with transaction(self.db_path) as conn:
+            self._insert_artifact(conn, job_id, ref)
 
-    @staticmethod
-    def _artifact(row: sqlite3.Row) -> ArtifactRef:
+    def add_next_artifact(
+        self, job_id: str, kind: ArtifactKind, scope: Optional[str], write: Callable[[int], ArtifactRef]
+    ) -> ArtifactRef:
+        """Allocate the next version, let ``write(version)`` create the file, and index it, all under one write lock.
+
+        Two writers can never pick the same version. If indexing fails, the file just written is removed.
+        """
+        ref: Optional[ArtifactRef] = None
+        try:
+            with transaction(self.db_path, immediate=True) as conn:
+                row = conn.execute(
+                    "SELECT MAX(version) AS v FROM migration_artifacts WHERE job_id = ? AND kind = ? AND scope = ?",
+                    (job_id, kind.value, scope or ""),
+                ).fetchone()
+                ref = write((row["v"] or 0) + 1)
+                self._insert_artifact(conn, job_id, ref)
+        except BaseException:
+            if ref is not None:
+                Path(ref.path).unlink(missing_ok=True)
+            raise
+        return ref
+
+    def _insert_artifact(self, conn: sqlite3.Connection, job_id: str, ref: ArtifactRef) -> None:
+        conn.execute(
+            """
+            INSERT INTO migration_artifacts (job_id, kind, scope, version, path, sha256, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_id, ref.kind.value, ref.scope or "", ref.version, to_stored(ref.path, self._root), ref.sha256,
+                (ref.created_at.isoformat() if ref.created_at else _now()), ref.created_by,
+            ),
+        )
+        self._add_event(
+            conn, job_id, ref.created_by, "artifact", None, None,
+            {"kind": ref.kind.value, "scope": ref.scope, "version": ref.version},
+        )
+
+    def _artifact(self, row: sqlite3.Row) -> ArtifactRef:
         return ArtifactRef(
             kind=ArtifactKind(row["kind"]),
             version=row["version"],
-            path=row["path"],
+            path=from_stored(row["path"], self._root),
             sha256=row["sha256"],
             scope=row["scope"] or None,
             created_at=row["created_at"],
@@ -298,11 +260,11 @@ class MigrationStore:
         )
 
     def add_event(self, job_id: str, event: str, actor: Optional[str] = None, detail: Optional[dict] = None) -> None:
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             self._add_event(conn, job_id, actor, event, None, None, detail)
 
     def list_events(self, job_id: str) -> list[dict[str, Any]]:
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             rows = conn.execute("SELECT * FROM migration_events WHERE job_id = ? ORDER BY id", (job_id,)).fetchall()
         events = []
         for r in rows:

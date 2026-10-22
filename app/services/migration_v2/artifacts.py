@@ -51,19 +51,7 @@ class ArtifactWriter:
             payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
         )
         raw = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
-        version = self.store.next_artifact_version(job_id, kind, scope)
-        name = f"{kind.value}{'_' + _safe(scope) if scope else ''}_v{version}.json"
-        path = self.job_dir(job_id) / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():  # never overwrite, even if the store and the disk disagree
-            raise FileExistsError(path)
-        path.write_bytes(raw)
-        ref = ArtifactRef(
-            kind=kind, version=version, path=str(path), sha256=hashlib.sha256(raw).hexdigest(),
-            scope=scope, created_at=datetime.now(timezone.utc), created_by=created_by,
-        )
-        self.store.add_artifact(job_id, ref)
-        return ref
+        return self._write(job_id, kind, raw, ".json", scope, created_by)
 
     def write_file(
         self,
@@ -75,18 +63,26 @@ class ArtifactWriter:
         created_by: Optional[str] = None,
     ) -> ArtifactRef:
         """A binary artifact (the rendered ``.docx``): ``{kind}[_{scope}]_v{n}{suffix}``, same rules as ``write``."""
-        version = self.store.next_artifact_version(job_id, kind, scope)
-        path = self.job_dir(job_id) / f"{kind.value}{'_' + _safe(scope) if scope else ''}_v{version}{suffix}"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            raise FileExistsError(path)
-        path.write_bytes(data)
-        ref = ArtifactRef(
-            kind=kind, version=version, path=str(path), sha256=hashlib.sha256(data).hexdigest(),
-            scope=scope, created_at=datetime.now(timezone.utc), created_by=created_by,
-        )
-        self.store.add_artifact(job_id, ref)
-        return ref
+        return self._write(job_id, kind, data, suffix, scope, created_by)
+
+    def _write(
+        self, job_id: str, kind: ArtifactKind, data: bytes, suffix: str, scope: Optional[str], created_by: Optional[str]
+    ) -> ArtifactRef:
+        """The store allocates the version and indexes the file under one write lock (no two writers share a version)."""
+        sha256 = hashlib.sha256(data).hexdigest()
+
+        def create(version: int) -> ArtifactRef:
+            path = self.job_dir(job_id) / f"{kind.value}{'_' + _safe(scope) if scope else ''}_v{version}{suffix}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():  # never overwrite, even if the store and the disk disagree
+                raise FileExistsError(path)
+            path.write_bytes(data)
+            return ArtifactRef(
+                kind=kind, version=version, path=str(path), sha256=sha256,
+                scope=scope, created_at=datetime.now(timezone.utc), created_by=created_by,
+            )
+
+        return self.store.add_next_artifact(job_id, kind, scope, create)
 
     @staticmethod
     def read_bytes(ref: ArtifactRef) -> bytes:

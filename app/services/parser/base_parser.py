@@ -48,9 +48,6 @@ class BaseParser(ABC):
         try:
             from app.stores.sop_store import SopStore
 
-            db_path = getattr(self.settings, "sop_db_path", None)
-            if db_path is None:
-                db_path = self.settings.project_root / "data" / "sop_records.db"
-            return SopStore(db_path, self.settings).get_next_version(document_id)
+            return SopStore(self.settings.db_path, self.settings).get_next_version(document_id)
         except Exception:
             return 1

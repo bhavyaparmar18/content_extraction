@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     extracted_icons_dir: Path = Path("data/extracted_icons")
     temp_dir: Path = Path("data/temp")
     output_dir: Path = Path("data/output")
+    db_path: Path = Path("data/app.db")  # every application table (SOPs, templates, GWP, migrations, auth)
 
     # --- Processing ---
     max_upload_size_mb: int = 50
@@ -143,7 +144,6 @@ class Settings(BaseSettings):
     jwt_access_token_expire_seconds: int = 900
     jwt_issuer: str = "governance-sop-api"
     jwt_audience: str = "governance-sop-web"
-    auth_db_path: Optional[Path] = None
     auth_refresh_token_expire_days: int = 1
     auth_remember_me_expire_days: int = 30
     auth_max_failed_attempts: int = 5
@@ -172,6 +172,7 @@ class Settings(BaseSettings):
         self.extracted_icons_dir = base / self.extracted_icons_dir
         self.temp_dir = base / self.temp_dir
         self.output_dir = base / self.output_dir
+        self.db_path = base / self.db_path
         self.migration_output_dir = base / self.migration_output_dir
         self.migration_template_dir = base / self.migration_template_dir
         self.template_upload_dir = base / self.template_upload_dir

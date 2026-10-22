@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -386,23 +385,6 @@ def test_instruction_ids_link_to_the_v1_extraction(template):
 
 
 # ── Store and API ──────────────────────────────────────────────────────
-
-def test_template_model_columns_are_added_to_an_existing_database(tmp_path):
-    db = tmp_path / "old.db"
-    with sqlite3.connect(db) as conn:
-        conn.execute(
-            "CREATE TABLE template_records (id INTEGER PRIMARY KEY AUTOINCREMENT, template_uid TEXT NOT NULL, "
-            "template_name TEXT NOT NULL, template_version INTEGER DEFAULT 1, file_type TEXT DEFAULT 'docx', "
-            "file_size_bytes INTEGER DEFAULT 0, source_filename TEXT, upload_path TEXT, output_path TEXT, "
-            "total_sections INTEGER DEFAULT 0, total_elements INTEGER DEFAULT 0, total_instructions INTEGER DEFAULT 0, "
-            "total_icons INTEGER DEFAULT 0, global_rules_json TEXT, status TEXT NOT NULL DEFAULT 'uploaded', "
-            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(template_uid, template_version))"
-        )
-    store = TemplateStore(db, Settings(project_root=tmp_path))
-    record = store.upsert_record(template_uid="t", template_name="T")
-    updated = store.update_template_model(record["id"], "m.json", "n.docx", "ready")
-    assert (updated["model_path"], updated["normalized_path"], updated["readiness_status"]) == ("m.json", "n.docx", "ready")
-
 
 @pytest.fixture
 def api(tmp_path):
