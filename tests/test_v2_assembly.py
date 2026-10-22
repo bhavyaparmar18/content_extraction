@@ -289,10 +289,12 @@ def _export_env(tmp_path, tpl, gap=True):  # noqa: F811
     settings = Settings(project_root=tmp_path)
     settings.resolve_paths(tmp_path)
     settings.ensure_directories()
-    store = MigrationStore(tmp_path / "m.db", settings)
+    from tests.db_helpers import seed_job_inputs
+
+    store = MigrationStore(settings.db_path, settings)
     writer = ArtifactWriter(tmp_path / "artifacts", store)
-    sops = SopStore(tmp_path / "sop.db", settings)
-    sop = sops.upsert_record(job_id="x", document_uid="SOP-T")
+    sops = SopStore(settings.db_path, settings)
+    sop = sops.get_record_by_id(seed_job_inputs(settings.db_path, settings))
     job = store.create_job(MigrationJob(job_id="MIG-X", sop_record_id=sop["id"], template_id="tpl", template_version=1))
     source, drafts, plan = scenario(tmp_path, gap_geography=gap)
     writer.write(job.job_id, ArtifactKind.SOURCE_MODEL, source)

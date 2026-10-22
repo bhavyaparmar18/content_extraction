@@ -8,76 +8,38 @@ from typing import Optional, Any
 from loguru import logger
 
 from app.config.settings import Settings
+from app.db import RecordInUseError, ensure_schema, transaction
+from app.db.paths import data_root, row_from_stored, to_stored
+
+PATH_COLUMNS = ("upload_path", "output_path", "model_path", "normalized_path")
+_JOBS_USING = (
+    "SELECT job_id FROM migration_jobs WHERE template_id = ? AND template_version = ? ORDER BY created_at"
+)
 
 
 class TemplateStore:
     """Manages persistence of Template metadata, version history, extraction state, and global rules."""
 
     def __init__(self, db_path: Path, settings: Settings):
-        self.db_path = db_path
+        self.db_path = Path(db_path)
         self.settings = settings
-        self._init_db()
-
-    def _get_connection(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self):
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS template_records (
-                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-                    template_uid       TEXT    NOT NULL,
-                    template_name      TEXT    NOT NULL,
-                    template_version   INTEGER DEFAULT 1,
-                    file_type          TEXT    DEFAULT 'docx',
-                    file_size_bytes    INTEGER DEFAULT 0,
-                    source_filename    TEXT,
-                    upload_path        TEXT,
-                    output_path        TEXT,
-                    total_sections     INTEGER DEFAULT 0,
-                    total_elements     INTEGER DEFAULT 0,
-                    total_instructions INTEGER DEFAULT 0,
-                    total_icons        INTEGER DEFAULT 0,
-                    total_callouts     INTEGER DEFAULT 0,
-                    global_rules_json  TEXT,
-                    status             TEXT    NOT NULL DEFAULT 'uploaded'
-                                       CHECK(status IN ('uploaded','extracting','ready','failed')),
-                    created_at         TEXT    NOT NULL,
-                    updated_at         TEXT    NOT NULL,
-                    UNIQUE(template_uid, template_version)
-                );
-                """
-            )
-            existing_columns = {
-                row["name"] for row in conn.execute("PRAGMA table_info(template_records);")
-            }
-            if "total_callouts" not in existing_columns:
-                conn.execute(
-                    "ALTER TABLE template_records ADD COLUMN total_callouts INTEGER DEFAULT 0;"
-                )
-            # Migration v2 template model (Phase 3)
-            for column in ("model_path", "normalized_path", "readiness_status"):
-                if column not in existing_columns:
-                    conn.execute(f"ALTER TABLE template_records ADD COLUMN {column} TEXT;")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tpl_uid ON template_records(template_uid);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tpl_status ON template_records(status);")
-            conn.commit()
+        self._root = data_root(settings)
+        ensure_schema(self.db_path)
 
     def get_next_version(self, template_uid: str) -> int:
-        """Return the next template_version for a template_uid."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT MAX(template_version) AS max_ver FROM template_records WHERE template_uid = ?",
-                (template_uid,),
-            )
-            row = cursor.fetchone()
-            if row and row["max_ver"] is not None:
-                return row["max_ver"] + 1
-            return 1
+        """Preview the next template_version for a template_uid (``upsert_record`` allocates it atomically)."""
+        with transaction(self.db_path) as conn:
+            return self._next_version(conn, template_uid)
+
+    @staticmethod
+    def _next_version(conn: sqlite3.Connection, template_uid: str) -> int:
+        row = conn.execute(
+            "SELECT MAX(template_version) AS max_ver FROM template_records WHERE template_uid = ?",
+            (template_uid,),
+        ).fetchone()
+        if row and row["max_ver"] is not None:
+            return row["max_ver"] + 1
+        return 1
 
     def upsert_record(
         self,
@@ -92,9 +54,9 @@ class TemplateStore:
     ) -> dict[str, Any]:
         """Insert a new version record for a template."""
         now = datetime.utcnow().isoformat() + "Z"
-        next_ver = self.get_next_version(template_uid)
 
-        with self._get_connection() as conn:
+        with transaction(self.db_path, immediate=True) as conn:
+            next_ver = self._next_version(conn, template_uid)
             cursor = conn.execute(
                 """
                 INSERT INTO template_records (
@@ -111,16 +73,15 @@ class TemplateStore:
                     file_type,
                     file_size_bytes,
                     source_filename,
-                    upload_path,
-                    output_path,
+                    to_stored(upload_path, self._root),
+                    to_stored(output_path, self._root),
                     status,
                     now,
                     now,
                 ),
             )
             record_id = cursor.lastrowid
-            conn.commit()
-            return self.get_record_by_id(record_id)
+        return self.get_record_by_id(record_id)
 
     def get_records(
         self,
@@ -143,49 +104,40 @@ class TemplateStore:
         query += " ORDER BY id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        with self._get_connection() as conn:
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
-            return [self._row_to_dict(row) for row in rows]
+        with transaction(self.db_path) as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._row_to_dict(row) for row in rows]
 
     def get_record_by_id(self, record_id: int) -> Optional[dict[str, Any]]:
-        with self._get_connection() as conn:
-            cursor = conn.execute("SELECT * FROM template_records WHERE id = ?", (record_id,))
-            row = cursor.fetchone()
-            if row:
-                return self._row_to_dict(row)
-            return None
+        with transaction(self.db_path) as conn:
+            row = conn.execute("SELECT * FROM template_records WHERE id = ?", (record_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
 
     def get_record_by_uid(self, template_uid: str) -> Optional[dict[str, Any]]:
         """Fetch the latest version of a template by UID."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
+        with transaction(self.db_path) as conn:
+            row = conn.execute(
                 "SELECT * FROM template_records WHERE template_uid = ? ORDER BY template_version DESC LIMIT 1",
                 (template_uid,),
-            )
-            row = cursor.fetchone()
-            if row:
-                return self._row_to_dict(row)
-            return None
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
 
     def get_all_ready_templates(self) -> list[dict[str, Any]]:
         """All templates with status='ready' — for migration dropdown."""
-        with self._get_connection() as conn:
-            cursor = conn.execute(
+        with transaction(self.db_path) as conn:
+            rows = conn.execute(
                 "SELECT * FROM template_records WHERE status = 'ready' ORDER BY template_name ASC, template_version DESC"
-            )
-            rows = cursor.fetchall()
-            return [self._row_to_dict(row) for row in rows]
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
 
     def update_status(self, record_id: int, new_status: str) -> Optional[dict[str, Any]]:
         now = datetime.utcnow().isoformat() + "Z"
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 "UPDATE template_records SET status = ?, updated_at = ? WHERE id = ?",
                 (new_status, now, record_id),
             )
-            conn.commit()
-            return self.get_record_by_id(record_id)
+        return self.get_record_by_id(record_id)
 
     def update_extraction_results(
         self,
@@ -201,7 +153,7 @@ class TemplateStore:
     ) -> Optional[dict[str, Any]]:
         """Update extraction results post-pipeline."""
         now = datetime.utcnow().isoformat() + "Z"
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 """
                 UPDATE template_records
@@ -217,7 +169,7 @@ class TemplateStore:
                 WHERE id = ?
                 """,
                 (
-                    output_path,
+                    to_stored(output_path, self._root),
                     total_sections,
                     total_elements,
                     total_instructions,
@@ -229,8 +181,7 @@ class TemplateStore:
                     record_id,
                 ),
             )
-            conn.commit()
-            return self.get_record_by_id(record_id)
+        return self.get_record_by_id(record_id)
 
     def update_template_model(
         self,
@@ -241,20 +192,22 @@ class TemplateStore:
     ) -> Optional[dict[str, Any]]:
         """Record the v2 TemplateModel files and readiness status of a template version."""
         now = datetime.utcnow().isoformat() + "Z"
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             conn.execute(
                 """
                 UPDATE template_records
                 SET model_path = ?, normalized_path = ?, readiness_status = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (model_path, normalized_path, readiness_status, now, record_id),
+                (to_stored(model_path, self._root), to_stored(normalized_path, self._root), readiness_status, now, record_id),
             )
-            conn.commit()
-            return self.get_record_by_id(record_id)
+        return self.get_record_by_id(record_id)
 
     def delete_record(self, record_id: int) -> bool:
-        """Delete a template record. If no sibling versions remain, perform smart cleanup."""
+        """Delete a template record. If no sibling versions remain, perform smart cleanup.
+
+        Raises ``RecordInUseError`` (and touches no file) if a migration job uses this version.
+        """
         record = self.get_record_by_id(record_id)
         if not record:
             return False
@@ -265,15 +218,15 @@ class TemplateStore:
         model_path = record.get("model_path")
         normalized_path = record.get("normalized_path")
 
-        with self._get_connection() as conn:
+        with transaction(self.db_path, immediate=True) as conn:
+            using = [r["job_id"] for r in conn.execute(_JOBS_USING, (template_uid, record["template_version"]))]
+            if using:
+                raise RecordInUseError("Template", f"{template_uid} v{record['template_version']}", using)
             conn.execute("DELETE FROM template_records WHERE id = ?", (record_id,))
-            conn.commit()
-
-            cursor = conn.execute(
+            remaining = conn.execute(
                 "SELECT COUNT(*) AS cnt FROM template_records WHERE template_uid = ?",
                 (template_uid,),
-            )
-            remaining = cursor.fetchone()["cnt"]
+            ).fetchone()["cnt"]
 
         # Delete specific version files
         if upload_path:
@@ -320,5 +273,5 @@ class TemplateStore:
             logger.warning(f"Error during smart cleanup of template {template_uid}: {e}")
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
-        """Convert sqlite3.Row to standard dict."""
-        return dict(row)
+        """Convert sqlite3.Row to a dict with absolute file paths."""
+        return row_from_stored(dict(row), PATH_COLUMNS, self._root)

@@ -13,6 +13,8 @@ from app.config.settings import get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging_config import setup_logging
 from app.core.logging_middleware import LoggingContextMiddleware
+from app.db import ensure_schema
+from app.db.legacy_import import import_legacy, needs_import
 from app.api import health, upload, extract, documents, jobs, migration, sops, review, auth, templates, gwp, migrations_v2
 from app.services.job_manager import JobManager
 from app.stores.sop_store import SopStore
@@ -33,18 +35,21 @@ async def lifespan(application: FastAPI):
     )
     settings.ensure_directories()
 
-    sop_db_path = settings.project_root / "data" / "sop_records.db"
-    sop_store = SopStore(sop_db_path, settings)
+    # One database for every store. The first start after the switch imports the old per-store files.
+    if needs_import(settings):
+        logger.info("Importing the legacy databases into {path}", path=settings.db_path)
+        logger.info(import_legacy(settings).summary())
+    logger.info("Database {path} at schema version {v}", path=settings.db_path, v=ensure_schema(settings.db_path))
+
+    sop_store = SopStore(settings.db_path, settings)
     application.state.sop_store = sop_store
 
-    template_db_path = settings.project_root / "data" / "template_records.db"
-    template_store = TemplateStore(template_db_path, settings)
+    template_store = TemplateStore(settings.db_path, settings)
     application.state.template_store = template_store
 
-    application.state.gwp_store = GwpStore(settings.project_root / "data" / "gwp_guides.db", settings)
+    application.state.gwp_store = GwpStore(settings.db_path, settings)
 
-    auth_db_path = settings.auth_db_path or (settings.project_root / "data" / "auth.db")
-    auth_store = AuthStore(auth_db_path, settings)
+    auth_store = AuthStore(settings.db_path, settings)
     application.state.auth_store = auth_store
 
     job_manager = JobManager(settings, concurrency=1, sop_store=sop_store)
@@ -62,7 +67,7 @@ async def lifespan(application: FastAPI):
     from app.services.migration_v2.orchestrator import Orchestrator
     from app.stores.migration_store import MigrationStore
 
-    migration_store = MigrationStore(settings.project_root / "data" / "migrations.db", settings)
+    migration_store = MigrationStore(settings.db_path, settings)
     orchestrator = Orchestrator(
         store=migration_store,
         artifacts=ArtifactWriter(settings.migration_v2_dir, migration_store),

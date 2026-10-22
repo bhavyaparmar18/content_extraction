@@ -34,7 +34,7 @@ class IconExtractor(BaseExtractor):
 
     def _load_reference_library(self) -> dict[str, list[imagehash.ImageHash]]:
         """Load icon reference hashes from data/config/icon_library.json"""
-        library_path = Path("data/config/icon_library.json")
+        library_path = self.settings.project_root / "data" / "config" / "icon_library.json"
         if not library_path.exists():
             # Create a default empty template
             library_path.parent.mkdir(parents=True, exist_ok=True)

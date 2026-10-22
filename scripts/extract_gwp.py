@@ -50,7 +50,7 @@ async def main() -> int:
     if path.suffix.lower() not in settings.gwp_allowed_extensions:
         raise SystemExit(f"Unsupported GWP file type: {path.suffix}")
 
-    store = GwpStore(settings.project_root / "data" / "gwp_guides.db", settings)  # the store the API uses
+    store = GwpStore(settings.db_path, settings)  # the store the API uses
     guide_id = SOPMetadataExtractor.sanitize_string(path.stem) or "GWP"
     version = store.get_next_version(guide_id)
     upload = settings.gwp_upload_dir / f"{guide_id}_v{version}{path.suffix.lower()}"

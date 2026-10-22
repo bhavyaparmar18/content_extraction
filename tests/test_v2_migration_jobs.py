@@ -32,6 +32,7 @@ from app.stores.gwp_store import GwpStore
 from app.stores.migration_store import MigrationStore
 from app.stores.sop_store import SopStore
 from app.stores.template_store import TemplateStore
+from tests.db_helpers import seed_users
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "docs" / "migration_v2" / "examples"
 STUB_STAGES: set[str] = set()  # every stage is real since Phase 12
@@ -51,19 +52,21 @@ class Env:
         self.settings.resolve_paths(tmp_path)
         self.settings.ensure_directories()
 
-        self.sop_store = SopStore(tmp_path / "sop.db", self.settings)
+        self.db = tmp_path / "app.db"  # one database: the job store checks its SOP, template, GWP and user
+        seed_users(self.db, "tester", "reviewer", "reviewer-1", "me")
+        self.sop_store = SopStore(self.db, self.settings)
         units = tmp_path / "sop_units.json"
         shutil.copy(EXAMPLES / "source_document.json", units)
         self.sop = self.sop_store.upsert_record(job_id="j1", document_uid="SOP-1", units_path=str(units))
 
-        self.template_store = TemplateStore(tmp_path / "tpl.db", self.settings)
+        self.template_store = TemplateStore(self.db, self.settings)
         model = tmp_path / "tpl_model.json"
         shutil.copy(EXAMPLES / "template_model.json", model)
         tpl = self.template_store.upsert_record(template_uid="TPL", template_name="Template")
         self.template_store.update_template_model(tpl["id"], str(model), None, "ready")
 
-        self.gwp_store = GwpStore(tmp_path / "gwp.db", self.settings)
-        self.store = MigrationStore(tmp_path / "migrations.db", self.settings)
+        self.gwp_store = GwpStore(self.db, self.settings)
+        self.store = MigrationStore(self.db, self.settings)
         self.inputs = InputResolver(self.sop_store, self.template_store, self.gwp_store)
 
     def approved_guide(self, guide_id: str = "GWP") -> dict:

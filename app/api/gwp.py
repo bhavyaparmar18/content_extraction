@@ -26,7 +26,7 @@ class ApproveRequest(BaseModel):
 def _get_store(request: Request, settings: Settings) -> GwpStore:
     store = getattr(request.app.state, "gwp_store", None)
     if store is None:
-        store = GwpStore(settings.project_root / "data" / "gwp_guides.db", settings)
+        store = GwpStore(settings.db_path, settings)
     return store
 
 

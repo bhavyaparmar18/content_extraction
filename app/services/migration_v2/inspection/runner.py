@@ -184,15 +184,15 @@ async def inspect_sop(
     units_file = work / "units.json"
     units_file.write_text(json.dumps(source.to_clean_dict(), ensure_ascii=False), encoding="utf-8")
 
-    sop_store = SopStore(work / "sop.db", settings)
+    sop_store = SopStore(settings.db_path, settings)
     sop = sop_store.upsert_record(job_id="inspect", document_uid=doc_id, units_path=str(units_file))
-    template_store = TemplateStore(work / "templates.db", settings)
+    template_store = TemplateStore(settings.db_path, settings)
     model_file = work / "template_model.json"
     model_file.write_text(json.dumps(template.model.to_clean_dict(), ensure_ascii=False), encoding="utf-8")
     record = template_store.upsert_record(template_uid="TPL", template_name=template.path.stem)
     template_store.update_template_model(record["id"], str(model_file), None, template.readiness.status.value)
 
-    gwp_store = GwpStore(work / "gwp.db", settings)
+    gwp_store = GwpStore(settings.db_path, settings)
     gwp_id = gwp_version = None
     candidates = 0
     if gwp_rules_path:
@@ -205,11 +205,11 @@ async def inspect_sop(
         gwp_store.update_fields(guide["id"], rules_path=str(rules_file), status="approved")
         gwp_id, gwp_version = guide["guide_id"], guide["version"]
 
-    store = MigrationStore(work / "migrations.db", settings)
+    store = MigrationStore(settings.db_path, settings)
     writer = ArtifactWriter(work / "artifacts", store)
     job = store.create_job(MigrationJob(
         job_id=f"INSPECT-{short}", sop_record_id=sop["id"], template_id="TPL", template_version=1,
-        gwp_id=gwp_id, gwp_version=gwp_version, mode=JobMode.AUTO, created_by="inspect",
+        gwp_id=gwp_id, gwp_version=gwp_version, mode=JobMode.AUTO, created_by=None,  # not a user: created_by links to users
     ))
     chain_factory = None
     if llm:

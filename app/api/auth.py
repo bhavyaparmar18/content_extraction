@@ -36,8 +36,7 @@ def get_auth_store(request: Request, settings: Settings = Depends(get_settings))
     """Retrieve or create AuthStore instance from application state."""
     auth_store = getattr(request.app.state, "auth_store", None)
     if auth_store is None:
-        db_path = settings.auth_db_path or (settings.project_root / "data" / "auth.db")
-        auth_store = AuthStore(db_path, settings)
+        auth_store = AuthStore(settings.db_path, settings)
         request.app.state.auth_store = auth_store
     return auth_store
 

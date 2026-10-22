@@ -66,7 +66,7 @@ It is architected as a **local-first POC** — SQLite for all persistence, no ex
 | LLM orchestration | LangChain (`langchain`, `langchain-core`) with Google Gemini / OpenAI / Anthropic / Azure OpenAI backends |
 | Auth | `argon2-cffi` (password hashing), `pyjwt` (JWT access tokens) |
 | Logging | `loguru` (console + rotating file + SQLite sinks) |
-| Persistence | SQLite (`sop_records.db`, `auth.db`, `logs.db`) via stdlib `sqlite3` |
+| Persistence | SQLite via stdlib `sqlite3`: `app.db` (every application table) and `logs/logs.db` (operational logs) |
 | Testing | `pytest`, `pytest-asyncio`, `httpx` |
 
 ### Frontend
@@ -114,9 +114,14 @@ app/
 │   ├── llm/                      # ChainFactory, rate limiter, prompt templates
 │   ├── auth/                     # Login/Signup services, password & token services
 │   └── job_manager.py             # Async background worker pool
-└── stores/
-    ├── sop_store.py              # SQLite: sop_records
-    └── auth_store.py             # SQLite: users, sessions, roles, audit_events
+├── db/                           # app.db: connection helper, schema migrations, stored paths, legacy import
+│   └── migrations/0001_initial.sql
+└── stores/                       # One store per area, all in data/app.db
+    ├── sop_store.py              # sop_records
+    ├── template_store.py         # template_records
+    ├── gwp_store.py              # gwp_guides
+    ├── migration_store.py        # migration_jobs, _sections, _artifacts, _events
+    └── auth_store.py             # users, sessions, roles, audit_events
 
 frontend/
 └── src/
@@ -134,7 +139,7 @@ data/                             # Runtime artifacts (mostly git-ignored)
 ├── uploads/, temp/, output/, extracted_images/, extracted_icons/
 ├── migrated/, templates/
 ├── logs/ (app.log, error.log, logs.db)
-├── sop_records.db, auth.db
+├── app.db                      # every application table (one SQLite file)
 tests/                            # pytest suite
 docs/plans/                       # Design/spec documents
 Documentation/                    # This folder (USER_GUIDE.md, TECHNICAL_ARCHITECTURE.md)
@@ -167,10 +172,10 @@ Documentation/                    # This folder (USER_GUIDE.md, TECHNICAL_ARCHIT
 └───────────────┬───────────────────────────┬─────────────────────────---┘
                  │                           │
         ┌────────▼────────┐         ┌────────▼─────────┐
-        │ SQLite stores    │         │ Filesystem (data/) │
-        │ sop_records.db   │         │ uploads, output,   │
-        │ auth.db          │         │ extracted_images,  │
-        │ logs.db          │         │ extracted_icons,   │
+        │ SQLite           │         │ Filesystem (data/) │
+        │ app.db           │         │ uploads, output,   │
+        │ logs/logs.db     │         │ extracted_images,  │
+        │                  │         │ extracted_icons,   │
         └──────────────────┘         │ migrated, templates│
                                       └────────────────────┘
                                               │
@@ -189,7 +194,7 @@ Documentation/                    # This folder (USER_GUIDE.md, TECHNICAL_ARCHIT
 
 1. `get_settings()` — build and resolve the `Settings` singleton (paths resolved against `project_root`, directories created).
 2. `setup_logging(settings)` — configure loguru sinks **first**, before any store/service that might log.
-3. Instantiate `SopStore` and `AuthStore` (SQLite, auto-create schema) and attach to `app.state`.
+3. On the first start after the single-database switch, import the old per-store files into `data/app.db` (`app/db/legacy_import.py`). Apply pending schema migrations (`ensure_schema`), then instantiate `SopStore`, `TemplateStore`, `GwpStore`, `AuthStore` and `MigrationStore` on `settings.db_path` and attach them to `app.state`.
 4. Instantiate `JobManager(settings, concurrency=1, sop_store=sop_store)` and `await job_manager.start()` — spins up its asyncio worker pool.
 5. Instantiate `ChainFactory(settings)` for LLM access, attach to `app.state`.
 6. On shutdown: `await job_manager.stop()` (cancels worker tasks), then `reset_logging_state()` to flush and close log sinks.
@@ -522,7 +527,7 @@ The API layer (`app/api/migration.py`) persists `plan_{document_id}.json` and `q
   - **Account lockout** — `auth_max_failed_attempts` failures locks the account for `auth_lockout_duration_minutes`; expired locks are cleared atomically on next attempt.
   - **Session creation** — a random `refresh_token` (`secrets.token_urlsafe(32)`) is only ever stored **hashed** (SHA-256) server-side; the raw token is set as an `HttpOnly`, `SameSite=Lax` cookie scoped to `/api/v1/auth`, with `max_age` driven by `rememberMe` (`auth_remember_me_expire_days` vs `auth_refresh_token_expire_days`).
   - **Refresh token rotation + reuse detection** (`refresh_session`) — every refresh issues a **new** session/token and revokes the old one (`rotate_session`); if a *revoked* token is presented again (a sign of theft/replay), the entire token family is revoked and a `REFRESH_TOKEN_REUSE_DETECTED` audit event is recorded.
-  - Every security-relevant outcome (`LOGIN_SUCCEEDED`/`LOGIN_FAILED`/`ACCOUNT_LOCKED`/`TOKEN_REFRESHED`/`REFRESH_TOKEN_REUSE_DETECTED`/`LOGOUT`) is written to `AuthStore.record_audit_event` — the permanent, non-rotating security audit trail (`auth.db` → `audit_events`), intentionally separate from the operational `logs.db` described in [§19](#19-logging--observability).
+  - Every security-relevant outcome (`LOGIN_SUCCEEDED`/`LOGIN_FAILED`/`ACCOUNT_LOCKED`/`TOKEN_REFRESHED`/`REFRESH_TOKEN_REUSE_DETECTED`/`LOGOUT`) is written to `AuthStore.record_audit_event` — the permanent, non-rotating security audit trail (`app.db` → `audit_events`), intentionally separate from the operational `logs.db` described in [§19](#19-logging--observability).
 - **`token_service.py`** (`TokenService`) — issues/decodes short-lived (`jwt_access_token_expire_seconds`, default 900s) HS256 JWTs with claims `sub` (user id), `email`, `role`, `sid` (session id), `iss`/`aud` from settings.
 - **`password_service.py`** (`PasswordService`) — Argon2id hashing/verification wrapper (`argon2-cffi`) for both passwords and secret-question answers.
 
@@ -530,13 +535,26 @@ The API layer (`app/api/migration.py`) persists `plan_{document_id}.json` and `q
 
 ## 15. Backend: Data Stores
 
-Three independent SQLite databases, each owned by one module — no cross-database joins, deliberately:
+Two SQLite files:
 
 | DB | Owner | Purpose |
 |---|---|---|
-| `data/sop_records.db` | `app/stores/sop_store.py` (`SopStore`) | SOP document registry & review workflow state. |
-| `data/auth.db` | `app/stores/auth_store.py` (`AuthStore`) | Identity, credentials, sessions, roles, security audit trail. |
-| `data/logs/logs.db` | `app/core/logging_config.py` | Operational/application logs (see [§19](#19-logging--observability)). |
+| `data/app.db` (`settings.db_path`, env `SOP_DB_PATH`) | `app/stores/*` through `app/db/` | Every application table: SOP, template and GWP versions, migration jobs, identity and the security audit trail. |
+| `data/logs/logs.db` | `app/core/logging_config.py` | Operational/application logs (see [§19](#19-logging--observability)). Kept separate: high volume, pruned after 14 days, written by loguru's own thread. |
+
+**Connections.** `app/db/connection.py` is the only place that opens `app.db`. `transaction(path, immediate=False)` opens a short-lived connection with `foreign_keys=ON`, WAL journaling, `synchronous=NORMAL` and a 5 s busy timeout. It wraps the work in `BEGIN`/`COMMIT` (or `BEGIN IMMEDIATE` for read-then-write steps such as "next version + insert") and always closes the connection.
+
+**Schema.** `app/db/migrations/NNNN_*.sql`, applied in order by `ensure_schema` and tracked in `PRAGMA user_version`. Every store calls it on construction. A schema change is a new numbered file, never an edit to an applied one.
+
+**Links.** `migration_jobs` references `sop_records(id)`, `template_records(template_uid, template_version)`, `gwp_guides(guide_id, version)` (optional) and `users(user_id)` (`created_by`). Sections, artifacts and events cascade from their job. An SOP, template or GWP version a job uses cannot be deleted: the stores raise `RecordInUseError` (HTTP 409 `RECORD_IN_USE`) before touching any file.
+
+**Paths.** File paths are stored relative to `data/` (`app/db/paths.py`). The stores convert them at the boundary, so callers always get absolute paths and moving the project folder keeps them valid.
+
+**Legacy import.** Until 2026-10-22 each store had its own file (`auth.db`, `sop_records.db`, `template_records.db`, `gwp_guides.db`, `migrations.db`). The first start without `app.db` imports them (`app/db/legacy_import.py`, or `scripts/migrate_to_app_db.py [--dry-run]`). The import:
+- backs them up to `data/legacy_db_backup_<timestamp>/`;
+- drops migration jobs whose inputs no longer exist;
+- verifies foreign keys and row counts;
+- leaves the old files in place, unused.
 
 ### `sop_records` (SopStore)
 
@@ -556,12 +574,13 @@ CREATE TABLE sop_records (
 );
 ```
 
-- `get_next_version(document_uid)` → `MAX(gpdat_version)+1` (or 1) — **re-uploading the same document UID never overwrites a row**; it inserts a new version row, preserving history, while on-disk artifacts (`{uid}_v2.json`, upload file, asset directories) remain unversioned/overwritten (the repository always reads "latest by UID", not "latest by version").
-- Deletion (`delete_record`) performs **smart cleanup** — removes the DB row and the corresponding upload file / output JSON / extracted image & icon directories.
+- `upsert_record` allocates `MAX(gpdat_version)+1` (or 1) inside one `BEGIN IMMEDIATE` transaction, so concurrent uploads never share a version; `get_next_version(document_uid)` previews it. **Re-uploading the same document UID never overwrites a row**; it inserts a new version row, preserving history, while on-disk artifacts (`{uid}_v2.json`, upload file, asset directories) remain unversioned/overwritten (the repository always reads "latest by UID", not "latest by version").
+- Deletion (`delete_record`) performs **smart cleanup** — removes the DB row and the corresponding upload file / output JSON / extracted image & icon directories. It refuses (`RecordInUseError`) a version a migration job uses.
+- The full schema, including `units_path` and the `migrated_*` columns, is in `app/db/migrations/0001_initial.sql`.
 
-### `auth.db` tables (AuthStore)
+### Auth tables (AuthStore)
 
-`roles`, `secret_questions` (seeded on first run), `users`, `user_security` (password hash, lockout state, failed-attempt counters), `user_sessions` (refresh-token hash, token family id, expiry, revocation reason), `audit_events` (append-style security log: actor, event type/action/outcome, correlation id, error code, resource type/id, JSON `details`, IP/user-agent, timestamp). Foreign keys enabled (`PRAGMA foreign_keys=ON`); connection opened with `check_same_thread=False` since `AuthStore` is shared across async request handlers.
+`roles`, `secret_questions` (seeded on first run), `users`, `user_security` (password hash, lockout state, failed-attempt counters), `user_sessions` (refresh-token hash, token family id, expiry, revocation reason), `audit_events` (append-style security log: actor, event type/action/outcome, correlation id, error code, resource type/id, JSON `details`, IP/user-agent, timestamp). Foreign keys are enforced like every other table in `app.db`. `record_failed_login` reads and increments the counter inside one `BEGIN IMMEDIATE` transaction, so concurrent failed logins are all counted.
 
 ---
 
@@ -699,7 +718,7 @@ Two **intentionally separate** logging stores:
 
 | Store | Table | Captures | Owner |
 |---|---|---|---|
-| `data/auth.db` | `audit_events` | Security-relevant identity/session events (login/logout/lockout/token reuse) — permanent audit trail | `AuthStore` |
+| `data/app.db` | `audit_events` | Security-relevant identity/session events (login/logout/lockout/token reuse) — permanent audit trail | `AuthStore` |
 | `data/logs/logs.db` | `logs` | HTTP request + extraction-pipeline operational logs, pruned after 14 days | `app/core/logging_config.py` |
 
 Both can be joined by `correlation_id` for support/debugging without merging their retention or purpose. See [§8.3–8.4](#8-backend-core-cross-cutting-concerns) for sink configuration and [§13](#13-backend-job-manager) for how pipeline stages are contextualized.

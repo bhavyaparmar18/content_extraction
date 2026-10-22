@@ -1,7 +1,6 @@
 """Authentication SQLite Store — identity, credentials, roles, and audit persistence."""
 
 import json
-import sqlite3
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Optional, Any
 from loguru import logger
 
 from app.config.settings import Settings
+from app.db import ensure_schema, transaction
 
 
 class AuthStore:
@@ -16,167 +16,19 @@ class AuthStore:
 
     def __init__(self, db_path: Optional[Path] = None, settings: Optional[Settings] = None):
         if db_path is None:
-            if settings:
-                db_path = settings.auth_db_path or (settings.project_root / "data" / "auth.db")
-            else:
-                db_path = Path("data/auth.db")
+            db_path = settings.db_path if settings else Path("data/app.db")
 
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.settings = settings
-        self._init_db()
+        ensure_schema(self.db_path)
+        self._seed()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
-
-    def _init_db(self) -> None:
-        """Create tables, indexes, and seed initial roles and secret questions if needed."""
-        with self._get_connection() as conn:
+    def _seed(self) -> None:
+        """Seed the initial roles and secret questions (tables come from the schema migrations)."""
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 1. Roles table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS roles (
-                    role_id TEXT PRIMARY KEY,
-                    role_code TEXT NOT NULL UNIQUE,
-                    role_name TEXT NOT NULL UNIQUE,
-                    description TEXT,
-                    is_default INTEGER NOT NULL DEFAULT 0,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-            """)
-
-            # 2. Secret Questions table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS secret_questions (
-                    secret_question_id TEXT PRIMARY KEY,
-                    question_code TEXT NOT NULL UNIQUE,
-                    question_text TEXT NOT NULL UNIQUE,
-                    display_order INTEGER NOT NULL DEFAULT 0,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS ix_secret_questions_active_order
-                ON secret_questions (is_active, display_order, question_text);
-            """)
-
-            # 3. Users table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    first_name TEXT NOT NULL,
-                    last_name TEXT NOT NULL,
-                    bi_email TEXT NOT NULL,
-                    role_id TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'ACTIVE',
-                    is_email_verified INTEGER NOT NULL DEFAULT 0,
-                    email_verified_at TEXT,
-                    last_login_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    deactivated_at TEXT,
-                    FOREIGN KEY (role_id) REFERENCES roles(role_id)
-                );
-            """)
-            cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_users_bi_email_ci
-                ON users (lower(bi_email));
-            """)
-
-            # 4. User Security table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_security (
-                    user_id TEXT PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    secret_question_id TEXT NOT NULL,
-                    secret_answer_hash TEXT NOT NULL,
-                    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
-                    is_locked INTEGER NOT NULL DEFAULT 0,
-                    locked_at TEXT,
-                    lock_expires_at TEXT,
-                    lock_reason TEXT,
-                    password_changed_at TEXT NOT NULL,
-                    secret_answer_changed_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-                    FOREIGN KEY (secret_question_id) REFERENCES secret_questions(secret_question_id)
-                );
-            """)
-
-            # Safe migration: ensure lock_expires_at column exists for existing databases
-            try:
-                cursor.execute("ALTER TABLE user_security ADD COLUMN lock_expires_at TEXT;")
-            except sqlite3.OperationalError:
-                pass
-
-            # 5. User Sessions table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    refresh_token_hash TEXT NOT NULL UNIQUE,
-                    token_family_id TEXT NOT NULL,
-                    remember_me INTEGER NOT NULL DEFAULT 0,
-                    expires_at TEXT NOT NULL,
-                    last_used_at TEXT,
-                    revoked_at TEXT,
-                    revoked_reason TEXT,
-                    replaced_by_session_id TEXT,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-                    FOREIGN KEY (replaced_by_session_id) REFERENCES user_sessions(session_id)
-                );
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS ix_user_sessions_user_active
-                ON user_sessions (user_id, expires_at)
-                WHERE revoked_at IS NULL;
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS ix_user_sessions_token_family
-                ON user_sessions (token_family_id);
-            """)
-
-            # 6. Audit Events table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS audit_events (
-                    audit_event_id TEXT PRIMARY KEY,
-                    actor_user_id TEXT,
-                    event_type TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    resource_type TEXT,
-                    resource_id TEXT,
-                    outcome TEXT NOT NULL,
-                    error_code TEXT,
-                    correlation_id TEXT NOT NULL,
-                    event_details TEXT NOT NULL DEFAULT '{}',
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    occurred_at TEXT NOT NULL,
-                    FOREIGN KEY (actor_user_id) REFERENCES users(user_id) ON DELETE SET NULL
-                );
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS ix_audit_events_correlation_id
-                ON audit_events (correlation_id);
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS ix_audit_events_actor_time
-                ON audit_events (actor_user_id, occurred_at DESC);
-            """)
-
-            # 6. Seed initial roles
+            # 1. Seed initial roles
             now_str = datetime.now(timezone.utc).isoformat()
             roles_to_seed = [
                 (str(uuid.uuid4()), "ADMIN", "Administrator", "Full application and administrative access.", 0, 1, now_str, now_str),
@@ -189,7 +41,7 @@ class AuthStore:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                 """, r)
 
-            # 7. Seed initial secret questions
+            # 2. Seed initial secret questions
             questions_to_seed = [
                 (str(uuid.uuid4()), "FIRST_SCHOOL", "What was the name of your first school?", 10, 1, now_str, now_str),
                 (str(uuid.uuid4()), "CHILDHOOD_NICKNAME", "What was your childhood nickname?", 20, 1, now_str, now_str),
@@ -203,11 +55,9 @@ class AuthStore:
                     VALUES (?, ?, ?, ?, ?, ?, ?);
                 """, q)
 
-            conn.commit()
-
     def get_active_secret_questions(self) -> list[dict[str, Any]]:
         """Retrieve all active secret questions sorted by display order and question text."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT secret_question_id AS questionId, question_text AS questionText
@@ -220,7 +70,7 @@ class AuthStore:
 
     def get_secret_question_by_id(self, question_id: str) -> Optional[dict[str, Any]]:
         """Fetch a secret question by its ID."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT secret_question_id AS questionId, question_code AS questionCode, question_text AS questionText, is_active AS isActive
@@ -234,7 +84,7 @@ class AuthStore:
 
     def get_default_role(self) -> Optional[dict[str, Any]]:
         """Fetch the active default role (usually REGULAR_USER)."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT role_id AS roleId, role_code AS roleCode, role_name AS roleName, is_default AS isDefault, is_active AS isActive
@@ -249,7 +99,7 @@ class AuthStore:
 
     def get_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
         """Retrieve user record by email (case-insensitive)."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT u.user_id AS userId, u.first_name AS firstName, u.last_name AS lastName,
@@ -284,7 +134,7 @@ class AuthStore:
         now_str = datetime.now(timezone.utc).isoformat()
         normalized_email = bi_email.strip().lower()
 
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
 
             # Insert user
@@ -328,7 +178,6 @@ class AuthStore:
                 event_details, ip_address, user_agent, now_str
             ))
 
-            conn.commit()
 
         return {
             "userId": user_id,
@@ -360,7 +209,7 @@ class AuthStore:
             now_str = datetime.now(timezone.utc).isoformat()
             event_details = json.dumps(details or {})
 
-            with self._get_connection() as conn:
+            with transaction(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO audit_events (
@@ -373,13 +222,12 @@ class AuthStore:
                     resource_type, resource_id, outcome, error_code,
                     correlation_id, event_details, ip_address, user_agent, now_str
                 ))
-                conn.commit()
         except Exception as exc:
             logger.error(f"Failed to record audit event: {exc}")
 
     def get_user_with_security_by_email(self, email: str) -> Optional[dict[str, Any]]:
         """Retrieve user, role, and security record by case-insensitive bi_email."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT
@@ -412,7 +260,7 @@ class AuthStore:
 
     def get_user_by_id(self, user_id: str) -> Optional[dict[str, Any]]:
         """Retrieve user profile and role by user_id."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT
@@ -438,7 +286,7 @@ class AuthStore:
     def clear_expired_lock(self, user_id: str) -> bool:
         """Clear temporary lock atomically if lock_expires_at has passed."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE user_security
@@ -454,7 +302,6 @@ class AuthStore:
                   AND lock_expires_at IS NOT NULL
                   AND lock_expires_at <= ?;
             """, (now_str, user_id, now_str))
-            conn.commit()
             return cursor.rowcount > 0
 
     def record_failed_login(
@@ -463,19 +310,20 @@ class AuthStore:
         max_failed_attempts: int = 5,
         lock_minutes: int = 15,
     ) -> dict[str, Any]:
-        """Atomically increment failed_login_attempts and apply temporary lock if threshold is reached."""
+        """Atomically increment failed_login_attempts and apply temporary lock if threshold is reached.
+
+        BEGIN IMMEDIATE takes the write lock before reading, so concurrent failed logins never lose a count.
+        """
         now = datetime.now(timezone.utc)
         now_str = now.isoformat()
         lock_expires_at = (now + timedelta(minutes=lock_minutes)).isoformat()
 
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
+        with transaction(self.db_path, immediate=True) as conn:
+            row = conn.execute("""
                 SELECT failed_login_attempts, is_locked, lock_expires_at
                 FROM user_security
                 WHERE user_id = ?;
-            """, (user_id,))
-            row = cursor.fetchone()
+            """, (user_id,)).fetchone()
             if not row:
                 return {"failedLoginAttempts": 0, "isLocked": False, "newlyLocked": False, "lockExpiresAt": None}
 
@@ -483,7 +331,7 @@ class AuthStore:
             will_lock = current_attempts >= max_failed_attempts
 
             if will_lock:
-                cursor.execute("""
+                conn.execute("""
                     UPDATE user_security
                     SET
                         failed_login_attempts = ?,
@@ -495,7 +343,7 @@ class AuthStore:
                     WHERE user_id = ?;
                 """, (current_attempts, now_str, lock_expires_at, now_str, user_id))
             else:
-                cursor.execute("""
+                conn.execute("""
                     UPDATE user_security
                     SET
                         failed_login_attempts = ?,
@@ -503,7 +351,6 @@ class AuthStore:
                     WHERE user_id = ?;
                 """, (current_attempts, now_str, user_id))
 
-            conn.commit()
             return {
                 "failedLoginAttempts": current_attempts,
                 "isLocked": will_lock or bool(row["is_locked"]),
@@ -514,7 +361,7 @@ class AuthStore:
     def reset_failed_attempts_and_update_login(self, user_id: str) -> None:
         """Reset failed attempts/lock and update last_login_at on successful authentication."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE user_security
@@ -534,7 +381,6 @@ class AuthStore:
                     updated_at = ?
                 WHERE user_id = ?;
             """, (now_str, now_str, user_id))
-            conn.commit()
 
     def create_session(
         self,
@@ -549,7 +395,7 @@ class AuthStore:
     ) -> None:
         """Insert a new refresh token session."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO user_sessions (
@@ -560,11 +406,10 @@ class AuthStore:
                 session_id, user_id, refresh_token_hash, token_family_id,
                 1 if remember_me else 0, expires_at, ip_address, user_agent, now_str
             ))
-            conn.commit()
 
     def get_session_by_token_hash(self, refresh_token_hash: str) -> Optional[dict[str, Any]]:
         """Retrieve active or revoked session by refresh token hash with user and role details."""
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT
@@ -607,7 +452,7 @@ class AuthStore:
     ) -> None:
         """Atomically revoke old session and create a replacement session in the same token family."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             # 1. Insert new replacement session first so that foreign key references exist
             cursor.execute("""
@@ -630,12 +475,11 @@ class AuthStore:
                 WHERE session_id = ?
                   AND revoked_at IS NULL;
             """, (now_str, now_str, new_session_id, old_session_id))
-            conn.commit()
 
     def revoke_token_family(self, token_family_id: str, reason: str = "REUSE_DETECTED") -> int:
         """Revoke all active sessions belonging to a compromised token family."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE user_sessions
@@ -645,7 +489,6 @@ class AuthStore:
                 WHERE token_family_id = ?
                   AND revoked_at IS NULL;
             """, (now_str, reason, token_family_id))
-            conn.commit()
             return cursor.rowcount
 
     def revoke_session(
@@ -656,7 +499,7 @@ class AuthStore:
     ) -> bool:
         """Revoke a specific active session."""
         now_str = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with transaction(self.db_path) as conn:
             cursor = conn.cursor()
             if user_id:
                 cursor.execute("""
@@ -677,5 +520,4 @@ class AuthStore:
                     WHERE session_id = ?
                       AND revoked_at IS NULL;
                 """, (now_str, reason, session_id))
-            conn.commit()
             return cursor.rowcount > 0

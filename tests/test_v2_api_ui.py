@@ -9,6 +9,7 @@ from docx import Document
 
 from app.schemas.v2 import ArtifactKind, JobStatus, QualityReport
 from app.services.migration_v2.export import ExportBlocked, export_word, previous_export, render_final
+from app.db import transaction
 from tests.test_v2_assembly import _export_env
 from tests.test_v2_renderer import _texts, tpl  # noqa: F401  (fixture)
 
@@ -80,10 +81,9 @@ def test_api_serves_the_jobs_source_and_template_files_and_refuses_an_early_prev
     original.write_bytes(b"template-original")
     normalized.write_bytes(b"template-normalized")
     record = env.template_store.get_record_by_uid("TPL")
-    with env.template_store._get_connection() as conn:
+    with transaction(env.template_store.db_path) as conn:
         conn.execute("UPDATE template_records SET upload_path = ?, normalized_path = ? WHERE id = ?",
                      (str(original), str(normalized), record["id"]))
-        conn.commit()
 
     with _api(env) as api:
         client, base = api.client, "/api/v1/migrations"

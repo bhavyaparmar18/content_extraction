@@ -38,8 +38,7 @@ def _get_template_store(request: Request, settings: Settings) -> TemplateStore:
     """Retrieve TemplateStore from app state or instantiate fallback."""
     store = getattr(request.app.state, "template_store", None)
     if store is None:
-        db_path = settings.project_root / "data" / "template_records.db"
-        store = TemplateStore(db_path, settings)
+        store = TemplateStore(settings.db_path, settings)
     return store
 
 
