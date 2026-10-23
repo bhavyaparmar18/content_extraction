@@ -9,6 +9,7 @@ from app.main import app
 from app.config.settings import Settings
 from app.stores.auth_store import AuthStore
 from app.services.auth import PasswordService, TokenService, LoginService
+from app.db import transaction
 
 
 @pytest.fixture
@@ -203,7 +204,7 @@ def test_login_expired_lock_cleared(isolated_auth_store, registered_user):
 
     # Set account as locked in the past
     past_time = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
-    with isolated_auth_store._get_connection() as conn:
+    with transaction(isolated_auth_store.db_path) as conn:
         conn.execute(
             """
             UPDATE user_security
@@ -212,7 +213,6 @@ def test_login_expired_lock_cleared(isolated_auth_store, registered_user):
             """,
             (past_time, past_time, registered_user["userId"]),
         )
-        conn.commit()
 
     # Now attempt login with correct credentials
     resp = client.post(
@@ -233,12 +233,11 @@ def test_login_disabled_account(isolated_auth_store, registered_user):
     app.state.auth_store = isolated_auth_store
     client = TestClient(app)
 
-    with isolated_auth_store._get_connection() as conn:
+    with transaction(isolated_auth_store.db_path) as conn:
         conn.execute(
             "UPDATE users SET status = 'DISABLED' WHERE user_id = ?;",
             (registered_user["userId"],),
         )
-        conn.commit()
 
     resp = client.post(
         "/api/v1/auth/login",

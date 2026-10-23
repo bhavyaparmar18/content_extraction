@@ -1,0 +1,63 @@
+[project]
+name = "sop-migration-system"
+version = "1.0.0"
+description = "Extract, migrate and review SOP documents (PDF / DOCX) onto new templates."
+readme = "README.md"
+# Tested on Python 3.12 (uv installs it when missing).
+requires-python = ">=3.12,<3.13"
+
+# Versions are the ones the test suite passes with; uv.lock pins the exact set.
+dependencies = [
+    # --- Web framework, validation and auth ---
+    "fastapi==0.115.12",
+    "uvicorn[standard]==0.34.3",
+    "python-multipart==0.0.20",
+    "pydantic==2.11.7",
+    "pydantic-settings>=2.15.0,<3",
+    "python-dotenv>=1.2.4,<2",
+    "argon2-cffi>=25.1.0,<26",
+    "pyjwt>=2.15.1,<3",
+
+    # --- PDF and DOCX parsing ---
+    "PyMuPDF==1.25.5",
+    "pdfplumber==0.11.6",
+    "python-docx==1.1.2",
+    "lxml>=6.1.3,<7",
+
+    # --- Images and OCR (OCR needs the Tesseract program installed separately) ---
+    "Pillow==11.2.1",
+    "pytesseract==0.3.13",
+    "imagehash==4.3.2",
+
+    # --- Chunking and similarity ---
+    "numpy>=2.5.3,<3",
+    "scikit-learn>=1.9.1,<2",
+
+    # --- Utilities ---
+    "anytree==2.12.1",
+    "aiofiles==24.1.0",
+    "loguru==0.7.3",
+
+    # --- LLM (LangChain); Google and Anthropic are loaded only when chosen as provider ---
+    "langchain>=1.4.3,<2",
+    "langchain-core>=1.6.6,<2",
+    "langchain-openai>=1.6.7,<2",
+    "langchain-google-genai>=4.3.7,<5",
+    "langchain-anthropic>=1.7.5,<2",
+]
+
+[project.optional-dependencies]
+# Not imported by the app today; install with `uv sync --extra nlp` when needed.
+nlp = ["spacy>=3.8.16,<3.9"]
+
+[dependency-groups]
+# Installed by `uv sync` by default.
+dev = [
+    "pytest==8.4.1",
+    "pytest-asyncio==1.0.0",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+# An application, not a library: install the dependencies only.
+package = false

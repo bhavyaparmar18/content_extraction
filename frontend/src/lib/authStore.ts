@@ -11,8 +11,12 @@ export interface AuthState {
   setAuthenticatedSession: (user: AuthenticatedUser, authentication: AuthenticationResult) => void;
   clearSession: () => void;
   initializeAuth: () => Promise<void>;
+  /** The silent refresh behind ``initializeAuth``; call that instead. */
+  _refreshSession: () => Promise<void>;
   logout: () => Promise<void>;
 }
+
+let initialization: Promise<void> | null = null;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
@@ -42,7 +46,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
 
-  initializeAuth: async () => {
+  initializeAuth: () => {
+    // One refresh at a time: the refresh token rotates, so a second concurrent call (React StrictMode runs
+    // effects twice in development) would present a used token and sign the reviewer out.
+    initialization ??= get()._refreshSession().finally(() => {
+      initialization = null;
+    });
+    return initialization;
+  },
+
+  _refreshSession: async () => {
     try {
       // Attempt silent refresh using HttpOnly cookie
       const refreshResponse = await authApi.refresh();

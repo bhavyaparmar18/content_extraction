@@ -21,8 +21,7 @@ def _preview_gpdat_version(settings: Settings, document_id: str) -> int:
 
         sop_store = getattr(settings, "_sop_store", None)
         if sop_store is None:
-            db_path = settings.project_root / "data" / "sop_records.db"
-            sop_store = SopStore(db_path, settings)
+            sop_store = SopStore(settings.db_path, settings)
         return sop_store.get_next_version(document_id)
     except Exception:
         return 1

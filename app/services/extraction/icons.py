@@ -34,7 +34,7 @@ class IconExtractor(BaseExtractor):
 
     def _load_reference_library(self) -> dict[str, list[imagehash.ImageHash]]:
         """Load icon reference hashes from data/config/icon_library.json"""
-        library_path = Path("data/config/icon_library.json")
+        library_path = self.settings.project_root / "data" / "config" / "icon_library.json"
         if not library_path.exists():
             # Create a default empty template
             library_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +61,12 @@ class IconExtractor(BaseExtractor):
     ) -> ExtractedElement:
         """Check if an image element is an icon candidate and convert it."""
         if element.element_type != ElementType.IMAGE:
+            return element
+
+        # A picture displayed large is a figure, whatever its file resolution.
+        # DOCX images carry their displayed size (px at 96 dpi); 0 means unknown.
+        shown_w, shown_h = getattr(element, "width", 0) or 0, getattr(element, "height", 0) or 0
+        if max(shown_w, shown_h) > 128:
             return element
 
         img_path = Path(element.image_path)
@@ -118,6 +124,10 @@ class IconExtractor(BaseExtractor):
                 semantic_meaning=matched_meaning or "unknown",
                 image_path=str(final_path),
                 content_hash=getattr(element, "content_hash", None),
+                metadata={
+                    **(getattr(element, "metadata", None) or {}),
+                    **({"width_px": shown_w, "height_px": shown_h} if shown_w and shown_h else {}),
+                },
             )
             self.logger.debug(f"Identified icon: {matched_meaning or 'unknown'}")
             return icon_el

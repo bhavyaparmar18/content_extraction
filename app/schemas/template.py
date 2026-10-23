@@ -455,4 +455,5 @@ class TemplateListItem(BaseModel):
     total_icons: int
     total_callouts: int = 0
     status: str
+    readiness_status: Optional[str] = None  # v2 template model: 'ready' templates can be migrated onto
     created_at: str

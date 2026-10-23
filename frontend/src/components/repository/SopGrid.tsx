@@ -20,9 +20,11 @@ import { Button } from '@/components/ui/Button';
 interface SopGridProps {
   sops: SopRecord[];
   onDelete: (sop: SopRecord) => void;
+  /** Start a migration of this SOP (opens the start dialog). */
+  onMigrate?: (sop: SopRecord) => void;
 }
 
-export const SopGrid: React.FC<SopGridProps> = ({ sops, onDelete }) => {
+export const SopGrid: React.FC<SopGridProps> = ({ sops, onDelete, onMigrate }) => {
   const navigate = useNavigate();
 
   const downloadJson = (documentUid: string) => {
@@ -81,7 +83,7 @@ export const SopGrid: React.FC<SopGridProps> = ({ sops, onDelete }) => {
                 <Button
                   variant="icon"
                   size="sm"
-                  onClick={() => navigate(`/review/${sop.id}?mode=migration`)}
+                  onClick={() => (onMigrate ? onMigrate(sop) : navigate(`/review/${sop.id}?mode=migration`))}
                   title="Start Migration"
                   aria-label="Migrate"
                 >

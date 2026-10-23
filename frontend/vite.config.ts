@@ -40,7 +40,15 @@ export default defineConfig({
           }
         },
       },
-      '/migrations': 'http://localhost:8000',
+      // `/migrations` is also an app page (the v2 jobs live under /api/v1/migrations)
+      '/migrations': {
+        target: 'http://localhost:8000',
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html')) {
+            return '/index.html';
+          }
+        },
+      },
       '/translations': 'http://localhost:8000',
       '/issues': 'http://localhost:8000',
       '/suggestions': 'http://localhost:8000',
