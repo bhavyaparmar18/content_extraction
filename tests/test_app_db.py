@@ -39,17 +39,18 @@ def _job(store: MigrationStore, sop_id: int, job_id: str = "MIG-1", **kwargs) ->
 
 
 def test_schema_is_versioned_and_idempotent(settings):
-    assert ensure_schema(settings.db_path) == latest_version() == 1
-    assert ensure_schema(settings.db_path) == 1
+    assert ensure_schema(settings.db_path) == latest_version() == 2
+    assert ensure_schema(settings.db_path) == 2
     conn = connect(settings.db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     finally:
         conn.close()
-    assert {"users", "sop_records", "template_records", "gwp_guides", "migration_jobs", "migration_artifacts"} <= tables
+    assert {"users", "sop_records", "template_records", "gwp_guides", "migration_jobs", "migration_artifacts",
+            "glossaries", "language_templates", "translation_jobs", "translation_artifacts"} <= tables
 
 
 def test_every_store_shares_one_file(settings):

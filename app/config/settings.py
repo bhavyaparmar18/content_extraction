@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     gwp_upload_dir: Path = Path("data/gwp/uploads")
     gwp_allowed_extensions: list[str] = [".docx", ".pdf"]
 
+    # --- Translation (docs/translation/IMPLEMENTATION_PLAN.md) ---
+    translation_dir: Path = Path("data/translations")              # data/translations/{job_id}/{kind}_v{n}.json
+    glossary_dir: Path = Path("data/glossaries")                   # Glossary JSON per glossary version
+    glossary_upload_dir: Path = Path("data/glossaries/uploads")
+    glossary_allowed_extensions: list[str] = [".csv", ".xlsx"]
+    language_template_dir: Path = Path("data/language_templates")  # extracted front matter and previews
+    language_template_upload_dir: Path = Path("data/language_templates/uploads")
+
     # --- Migration v2 jobs ---
     migration_v2_dir: Path = Path("data/migrations")  # data/migrations/{job_id}/{kind}_v{n}.json
     section_planner_llm: str = "confirm"   # "confirm": one compact LLM call checks the rule plan; "off": rules only
@@ -183,6 +191,11 @@ class Settings(BaseSettings):
         self.gwp_dir = base / self.gwp_dir
         self.gwp_upload_dir = base / self.gwp_upload_dir
         self.migration_v2_dir = base / self.migration_v2_dir
+        self.translation_dir = base / self.translation_dir
+        self.glossary_dir = base / self.glossary_dir
+        self.glossary_upload_dir = base / self.glossary_upload_dir
+        self.language_template_dir = base / self.language_template_dir
+        self.language_template_upload_dir = base / self.language_template_upload_dir
         self.log_dir = base / self.log_dir
         self.log_file_path = base / self.log_file_path
         self.error_file_path = base / self.error_file_path
@@ -205,6 +218,11 @@ class Settings(BaseSettings):
             self.gwp_dir,
             self.gwp_upload_dir,
             self.migration_v2_dir,
+            self.translation_dir,
+            self.glossary_dir,
+            self.glossary_upload_dir,
+            self.language_template_dir,
+            self.language_template_upload_dir,
             self.log_dir,
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)

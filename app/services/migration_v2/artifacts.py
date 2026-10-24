@@ -1,5 +1,5 @@
 """Immutable, versioned job artifacts: ``data/migrations/{job_id}/{kind}[_{scope}]_v{n}.json``
-(``.docx`` for the rendered document).
+(``.docx`` for the rendered document). Translation jobs use the same writer over ``data/translations``.
 
 A write never overwrites. Each one gets the next version for its (kind, scope),
 a sha256 of the exact bytes on disk, and an ``ArtifactRef`` in the store.
@@ -13,12 +13,11 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Type, TypeVar
+from typing import Callable, Optional, Protocol, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
-from app.schemas.v2 import ArtifactKind, ArtifactRef, MigrationJob
-from app.stores.migration_store import MigrationStore
+from app.schemas.v2 import ArtifactKind, ArtifactRef, MigrationJob, TranslationJob
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -27,12 +26,20 @@ class ArtifactCorrupted(RuntimeError):
     pass
 
 
+class ArtifactIndex(Protocol):
+    """What the writer needs from a job store (``MigrationStore``, ``TranslationStore``)."""
+
+    def add_next_artifact(
+        self, job_id: str, kind: ArtifactKind, scope: Optional[str], write: Callable[[int], ArtifactRef]
+    ) -> ArtifactRef: ...
+
+
 def _safe(scope: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", scope).strip("_") or "scope"
 
 
 class ArtifactWriter:
-    def __init__(self, base_dir: Path, store: MigrationStore):
+    def __init__(self, base_dir: Path, store: ArtifactIndex):
         self.base_dir = Path(base_dir)
         self.store = store
 
@@ -101,6 +108,6 @@ class ArtifactWriter:
     def read_model(self, ref: ArtifactRef, model: Type[M]) -> M:
         return model.model_validate(self.read(ref))
 
-    def latest(self, job: MigrationJob, kind: ArtifactKind, model: Type[M], scope: Optional[str] = None) -> Optional[M]:
+    def latest(self, job: Union[MigrationJob, TranslationJob], kind: ArtifactKind, model: Type[M], scope: Optional[str] = None) -> Optional[M]:
         ref = job.latest_artifact(kind, scope)
         return self.read_model(ref, model) if ref else None

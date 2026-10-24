@@ -1,0 +1,13 @@
+{
+  "job_id": "TRN-20261025-1A2B3C4D",
+  "migration_job_id": "MIG-20261019-7BF76968",
+  "language": "de-DE",
+  "glossary_id": "GLS-de",
+  "glossary_version": 2,
+  "status": "REVIEW_PENDING",
+  "artifacts": [
+    {"kind": "segments", "version": 1, "path": "data/translations/TRN-20261025-1A2B3C4D/segments_v1.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    {"kind": "translation", "version": 1, "scope": "TGT-3", "path": "data/translations/TRN-20261025-1A2B3C4D/translation_TGT-3_v1.json", "sha256": "1111111111111111111111111111111111111111111111111111111111111111"}
+  ],
+  "created_by": "alice"
+}

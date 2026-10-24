@@ -67,6 +67,20 @@ from .refs import (
     make_ref_token,
 )
 from .trace import TraceRow, Traceability
+from .translation import (
+    SOURCE_LANGUAGE,
+    TRANSLATION_TERMINAL_STATUSES,
+    Glossary,
+    GlossaryEntry,
+    LanguageCode,
+    Segment,
+    SegmentKind,
+    SegmentLocator,
+    SegmentOrigin,
+    TranslationJob,
+    TranslationSet,
+    TranslationStatus,
+)
 from .render import RegionOutcome, RegionRender, RenderMode, RenderReport, SlotOutcome, SlotRender
 from .source import (
     AssetKind,
