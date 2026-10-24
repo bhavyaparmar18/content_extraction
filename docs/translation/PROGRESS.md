@@ -46,7 +46,7 @@ Entry format:
 - Files touched:
   - New: `app/schemas/v2/translation.py`, `app/services/translation/{__init__,languages}.py`, `app/db/migrations/0002_translation.sql`, `app/stores/{versioned_store,glossary_store,language_template_store,translation_store}.py`, `docs/translation/{CONTRACTS.md,examples/*}`, `tests/test_translation_{contracts,stores}.py`.
   - Changed: `app/schemas/v2/{__init__,job}.py`, `app/services/migration_v2/artifacts.py`, `app/db/__init__.py`, `app/config/settings.py`, `tests/test_app_db.py` (schema version 2, new tables).
-- Tests: 39 new tests. Full suite: 593 passed, 14 skipped, 1 failed. The failure is the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx` (Text completeness WARN, an extraction issue recorded in the migration v2 PROGRESS; unrelated).
+- Tests: 29 new tests (`test_translation_contracts.py`, `test_translation_stores.py`). Full suite: 593 passed, 14 skipped, 1 failed. The failure is the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx` (Text completeness WARN, an extraction issue recorded in the migration v2 PROGRESS; unrelated).
 - Open issues / decisions:
   - The real `data/app.db` gets schema 2 (new tables only, nothing existing changes) the next time the server starts. The dev server was not running during T1.
   - The stores are not yet wired in `app/main.py`; T2 does that with the glossary API.
