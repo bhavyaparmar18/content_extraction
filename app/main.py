@@ -15,7 +15,8 @@ from app.core.logging_config import setup_logging
 from app.core.logging_middleware import LoggingContextMiddleware
 from app.db import ensure_schema
 from app.db.legacy_import import import_legacy, needs_import
-from app.api import health, upload, extract, documents, jobs, migration, sops, review, auth, templates, gwp, migrations_v2
+from app.api import (health, upload, extract, documents, jobs, migration, sops, review, auth, templates, gwp,
+                     migrations_v2, translations)
 from app.services.job_manager import JobManager
 from app.stores.sop_store import SopStore
 from app.stores.auth_store import AuthStore
@@ -80,6 +81,15 @@ async def lifespan(application: FastAPI):
     application.state.migration_orchestrator = orchestrator
     await orchestrator.start()
 
+    # Translation of completed migrations: glossaries, language templates, translation jobs.
+    from app.stores.glossary_store import GlossaryStore
+    from app.stores.language_template_store import LanguageTemplateStore
+    from app.stores.translation_store import TranslationStore
+
+    application.state.glossary_store = GlossaryStore(settings.db_path, settings)
+    application.state.language_template_store = LanguageTemplateStore(settings.db_path, settings)
+    application.state.translation_store = TranslationStore(settings.db_path, settings)
+
     yield
 
     logger.info("SOP Migration System shutting down.")
@@ -123,3 +133,4 @@ app.include_router(auth.router)
 app.include_router(templates.router)
 app.include_router(gwp.router)
 app.include_router(migrations_v2.router)
+app.include_router(translations.router)

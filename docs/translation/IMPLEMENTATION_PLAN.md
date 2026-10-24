@@ -133,14 +133,15 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
 ### API (`app/api/translations.py`, prefix `/api/v1/translations`)
 
 - **Languages:** `GET /languages`.
-- **Glossaries:**
-  - `POST /glossaries` (upload)
-  - `GET /glossaries?language=`
-  - `GET /glossaries/{id}/{v}` (entries)
-  - `PUT /glossaries/{id}/{v}/entries` (new version)
-  - `POST …/approve`
-  - `GET …/export?format=csv|xlsx`
-  - `DELETE` (409 when in use)
+- **Glossaries** (as built in T2). `{glossary}` is the record id or the `glossary_id`; `?version=` picks a version, and the latest is the default, as in the GWP API.
+  - `POST /glossaries` (multipart: `language`, an optional `file`, `name`, `glossary_id` and `style_notes`; without a file it starts an empty glossary)
+  - `GET /glossaries?language=&status=&glossary_id=`
+  - `GET /glossaries/{glossary}` (the record)
+  - `GET /glossaries/{glossary}/entries` (the Glossary JSON)
+  - `PUT /glossaries/{glossary}/entries` (edits in place while in review; on an approved version, creates the next version)
+  - `POST /glossaries/{glossary}/approve`
+  - `GET /glossaries/{glossary}/export?format=csv|xlsx`
+  - `DELETE /glossaries/{glossary}` (409 `RECORD_IN_USE` when a translation job uses the version)
 - **Language templates:**
   - `POST /language-templates` (upload with a language)
   - `GET` list
