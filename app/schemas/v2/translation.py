@@ -108,7 +108,7 @@ class SegmentOrigin(str, Enum):
 class SegmentLocator(V2Model):
     """Where a segment's text goes back; which fields are set depends on the kind."""
 
-    section_id: Optional[str] = Field(default=None, description="claim: the target section")
+    section_id: Optional[str] = Field(default=None, description="claim, table_cell, table_header: the target section")
     slot_id: Optional[str] = None
     claim_id: Optional[str] = Field(default=None, description="claim, xref: the claim")
     unit_id: Optional[str] = Field(default=None, description="table_cell, table_header: the table unit")
@@ -116,8 +116,13 @@ class SegmentLocator(V2Model):
     col: Optional[int] = Field(default=None, ge=0)
     paragraph: Optional[int] = Field(default=None, ge=0, description="table_cell: index into TableCell.paragraphs")
     ref_index: Optional[int] = Field(default=None, ge=0, description="xref: index into AssembledDocument.refs")
-    block_path: Optional[str] = Field(default=None, description="template_text: the paragraph's place in the body")
+    block_path: Optional[str] = Field(default=None, description="template_text: the paragraph's place in the body, "
+                                      "e.g. 'body/sdt[3]/sdtContent[0]/p[0]'")
 
+
+# The scopes of a job's TranslationSets besides its target sections.
+SCOPE_XREFS = "xrefs"
+SCOPE_TEMPLATE = "template"
 
 _REQUIRED_LOCATOR = {
     SegmentKind.CLAIM: ("section_id", "slot_id", "claim_id"),
@@ -145,6 +150,15 @@ class Segment(V2Model):
             raise ValueError(f"segment {self.segment_id} is translated but has no origin")
         return self
 
+    @property
+    def scope(self) -> str:
+        """The TranslationSet it belongs to: its target section, or ``xrefs`` / ``template``."""
+        if self.kind == SegmentKind.XREF:
+            return SCOPE_XREFS
+        if self.kind == SegmentKind.TEMPLATE_TEXT:
+            return SCOPE_TEMPLATE
+        return self.locator.section_id or SCOPE_TEMPLATE
+
 
 class TranslationSet(V2Model):
     """The segments of one scope (a target section, or ``template`` / ``xrefs``) in one language.
@@ -171,6 +185,46 @@ class TranslationSet(V2Model):
     @property
     def untranslated(self) -> list[Segment]:
         return [s for s in self.segments if s.target_text is None]
+
+
+class SegmentSet(V2Model):
+    """Every segment of the English final document of one translation job, untranslated.
+
+    Written by PREPARING as the ``segments`` artifact, from the migration's final render: the drafts with the
+    accepted gaps left out, the cited table rows, the resolved cross-references and the template's own body text.
+    """
+
+    job_id: str
+    migration_job_id: str
+    language: LanguageCode
+    version: int = Field(ge=1)
+    accepted_gaps: list[str] = Field(default_factory=list, description="slots left out of the final document")
+    draft_versions: dict[str, int] = Field(default_factory=dict, description="target_section_id → draft version used")
+    english_docx_sha256: Optional[str] = Field(default=None, description="the English final rendered in PREPARING")
+    notes: list[str] = Field(default_factory=list, description="information for the reviewer")
+    segments: list[Segment] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> "SegmentSet":
+        ids = [s.segment_id for s in self.segments]
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            raise ValueError(f"segment ids repeat: {dupes}")
+        return self
+
+    @property
+    def counts(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for segment in self.segments:
+            out[segment.kind.value] = out.get(segment.kind.value, 0) + 1
+        return out
+
+    @property
+    def scopes(self) -> list[str]:
+        return list(dict.fromkeys(s.scope for s in self.segments))
+
+    def scope(self, name: str) -> list[Segment]:
+        return [s for s in self.segments if s.scope == name]
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────

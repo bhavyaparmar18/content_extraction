@@ -48,6 +48,7 @@ class ContentContext:
     warnings: list[str] = field(default_factory=list)
     callout_boxes: int = 0
     tables: int = 0
+    generated: set = field(default_factory=set)  # elements built from claims and source rows (not template text)
 
     def text(self, claim: Claim) -> str:
         return show_refs(claim, self.ref_text)
@@ -103,19 +104,26 @@ def build_blocks(claims: list[Claim], ctx: ContentContext, ppr=None, rpr=None,
             j = i
             while j < len(claims) and claims[j].kind == ClaimKind.TABLE_ROW and claims[j].callout_kind == claim.callout_kind:
                 j += 1
-            blocks += table_blocks(claims[i:j], ctx, ppr, rpr)
+            blocks += generated(ctx, table_blocks(claims[i:j], ctx, ppr, rpr))
             i = j
             continue
         if claim.kind in (ClaimKind.BULLET, ClaimKind.STEP) and not claim.is_gap_marker:
             j = i
             while j < len(claims) and claims[j].kind in (ClaimKind.BULLET, ClaimKind.STEP) and claims[j].callout_kind == claim.callout_kind:
                 j += 1
-            blocks += list_blocks(claims[i:j], ctx, ppr, rpr)
+            blocks += generated(ctx, list_blocks(claims[i:j], ctx, ppr, rpr))
             i = j
             continue
-        blocks += single_blocks(claim, ctx, ppr, rpr)
+        blocks += generated(ctx, single_blocks(claim, ctx, ppr, rpr))
         i += 1
     return _separate_tables(blocks)
+
+
+def generated(ctx: ContentContext, blocks: list) -> list:
+    """Record *blocks* as built from the drafts; a callout box's own label stays template text."""
+    for block in blocks:
+        ctx.generated.update(block.iter())
+    return blocks
 
 
 def single_blocks(claim: Claim, ctx: ContentContext, ppr=None, rpr=None) -> list:

@@ -69,12 +69,13 @@ async def lifespan(application: FastAPI):
     from app.stores.migration_store import MigrationStore
 
     migration_store = MigrationStore(settings.db_path, settings)
+    rate_limiter = LLMRateLimiter()
     orchestrator = Orchestrator(
         store=migration_store,
         artifacts=ArtifactWriter(settings.migration_v2_dir, migration_store),
         inputs=InputResolver(sop_store, template_store, application.state.gwp_store),
         settings=settings,
-        rate_limiter=LLMRateLimiter(),
+        rate_limiter=rate_limiter,
         chain_factory=chain_factory,
     )
     application.state.migration_store = migration_store
@@ -84,15 +85,31 @@ async def lifespan(application: FastAPI):
     # Translation of completed migrations: glossaries, language templates, translation jobs.
     from app.stores.glossary_store import GlossaryStore
     from app.stores.language_template_store import LanguageTemplateStore
+    from app.services.translation.orchestrator import TranslationOrchestrator
     from app.stores.translation_store import TranslationStore
 
     application.state.glossary_store = GlossaryStore(settings.db_path, settings)
     application.state.language_template_store = LanguageTemplateStore(settings.db_path, settings)
-    application.state.translation_store = TranslationStore(settings.db_path, settings)
+    translation_store = TranslationStore(settings.db_path, settings)
+    application.state.translation_store = translation_store
+    translation_orchestrator = TranslationOrchestrator(
+        store=translation_store,
+        artifacts=ArtifactWriter(settings.translation_dir, translation_store),
+        migrations=migration_store,
+        migration_artifacts=orchestrator.artifacts,
+        glossaries=application.state.glossary_store,
+        language_templates=application.state.language_template_store,
+        settings=settings,
+        rate_limiter=rate_limiter,
+        chain_factory=chain_factory,
+    )
+    application.state.translation_orchestrator = translation_orchestrator
+    await translation_orchestrator.start()
 
     yield
 
     logger.info("SOP Migration System shutting down.")
+    await application.state.translation_orchestrator.stop()
     await application.state.migration_orchestrator.stop()
     await job_manager.stop()
     from app.core.logging_config import reset_logging_state

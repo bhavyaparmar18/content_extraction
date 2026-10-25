@@ -1,15 +1,19 @@
-"""Translation API (docs/translation/IMPLEMENTATION_PLAN.md): languages, glossaries and language templates.
+"""Translation API (docs/translation/IMPLEMENTATION_PLAN.md): languages, glossaries, language templates and jobs.
 
 Both resources are per language and optional on a translation job:
 - a glossary (Phase T2): without one the LLM translates freely; with one its terms are mandatory;
 - a language template (Phase T3): its first page, headers and footers replace the English ones; without one the
   English front matter is kept.
+
+A translation job (Phase T4) is one language of a completed migration; ``POST /translations`` starts one per
+language.
 """
 
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -17,11 +21,15 @@ from app.api.auth import require_user
 from app.config.settings import Settings, get_settings
 from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.schemas.auth import ApiFieldError
+from app.schemas.v2 import ArtifactKind, SegmentSet, TranslationJob, TranslationStatus
 from app.schemas.v2.translation import GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
-from app.services.translation import glossary_service, language_template_service
+from app.services.migration_v2.artifacts import ArtifactCorrupted
+from app.services.migration_v2.orchestrator import JobStateError
+from app.services.translation import glossary_service, job_service, language_template_service
 from app.services.translation.glossary import GlossaryInvalid, parse_glossary_file, to_csv, to_xlsx
 from app.services.translation.languages import LANGUAGES, get_language
+from app.services.translation.orchestrator import TranslationOrchestrator
 from app.stores.glossary_store import GlossaryStore
 from app.stores.language_template_store import LanguageTemplateStore
 
@@ -354,3 +362,127 @@ async def delete_language_template(request: Request, template: str, version: Opt
     record = _resolve(store, template, version)
     store.delete_record(record["id"])
     return {"deleted": True, "template_id": record["template_id"], "version": record["version"]}
+
+
+# ── Translation jobs (Phase T4) ───────────────────────────────────────
+# Declared after the static routes above, so /languages, /glossaries and /language-templates match first.
+
+
+class LanguageChoice(BaseModel):
+    language: str
+    glossary_id: Optional[str] = None
+    glossary_version: Optional[int] = None
+    language_template_id: Optional[str] = None
+    language_template_version: Optional[int] = None
+
+
+class CreateTranslationsRequest(BaseModel):
+    migration_job_id: str
+    languages: list[LanguageChoice] = Field(default_factory=list)
+
+
+_JOB_ID = r"^TRN-[A-Za-z0-9-]+$"
+
+
+def _orchestrator(request: Request) -> TranslationOrchestrator:
+    orchestrator = getattr(request.app.state, "translation_orchestrator", None)
+    if orchestrator is None:
+        raise AppError(503, "TRANSLATIONS_UNAVAILABLE", "The translation orchestrator is not running")
+    return orchestrator
+
+
+def _job(orch: TranslationOrchestrator, job_id: str) -> TranslationJob:
+    job = orch.store.get_job(job_id)
+    if job is None:
+        raise NotFoundError(f"Translation job '{job_id}' not found", code="TRANSLATION_NOT_FOUND")
+    return job
+
+
+def _view(orch: TranslationOrchestrator, job: TranslationJob) -> dict[str, Any]:
+    data = job.to_clean_dict()
+    data["running"] = orch.is_running(job.job_id)
+    return data
+
+
+@router.post("")
+async def create_translations(request: Request, body: CreateTranslationsRequest, user: dict = Depends(require_user)):
+    """Start one translation job per language of a completed migration (glossary and language template optional)."""
+    orch = _orchestrator(request)
+    try:
+        resolved = job_service.resolve_request(
+            orch.migrations, orch.glossaries, orch.language_templates, body.migration_job_id,
+            [job_service.LanguageRequest(**choice.model_dump()) for choice in body.languages])
+    except job_service.TranslationRequestError as exc:
+        raise AppError(exc.status, exc.code, exc.message) from exc
+    jobs = [orch.create(body.migration_job_id, r.language, r.glossary, r.language_template, created_by=_actor(user))
+            for r in resolved]
+    return [_view(orch, job) for job in jobs]
+
+
+@router.get("")
+async def list_translations(
+    request: Request,
+    migration_job_id: Optional[str] = None,
+    language: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    orch = _orchestrator(request)
+    return orch.store.list_jobs(status=status, migration_job_id=migration_job_id,
+                                language=_language(language) if language else None, limit=limit, offset=offset)
+
+
+@router.get("/{job_id}")
+async def get_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    orch = _orchestrator(request)
+    return _view(orch, _job(orch, job_id))
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                             user: dict = Depends(require_user)):
+    orch = _orchestrator(request)
+    _job(orch, job_id)
+    try:
+        return _view(orch, orch.cancel(job_id, _actor(user)))
+    except JobStateError as exc:
+        raise AppError(409, exc.code, exc.message) from exc
+
+
+@router.post("/{job_id}/retry")
+async def retry_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                            from_stage: Optional[TranslationStatus] = None, user: dict = Depends(require_user)):
+    orch = _orchestrator(request)
+    _job(orch, job_id)
+    try:
+        return _view(orch, orch.retry(job_id, from_stage, _actor(user)))
+    except JobStateError as exc:
+        raise AppError(409, exc.code, exc.message) from exc
+
+
+@router.get("/{job_id}/audit")
+async def get_translation_audit(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    orch = _orchestrator(request)
+    _job(orch, job_id)
+    return orch.store.list_events(job_id)
+
+
+@router.get("/{job_id}/segments")
+async def get_segments(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                       section: Optional[str] = None):
+    """The English document's segments; ``section`` is a target section id, ``xrefs`` or ``template``."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    try:
+        segments = orch.artifacts.latest(job, ArtifactKind.SEGMENTS, SegmentSet)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    if segments is None:
+        raise NotFoundError(f"Job '{job_id}' has no segments yet", code="ARTIFACT_NOT_FOUND")
+    data = segments.to_clean_dict()
+    if section:
+        data["segments"] = [s.to_clean_dict() for s in segments.scope(section)]
+    data["counts"] = segments.counts
+    data["scopes"] = segments.scopes
+    return data

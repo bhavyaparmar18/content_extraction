@@ -38,7 +38,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -69,7 +69,7 @@ from ..drafting.refs import raw_text_by_target
 from ..template.callout_palette import is_heading, palette_from_document, style_name
 from ..template.colour import TextColour
 from .callouts import Callouts
-from .content import ContentContext, RefText, build_blocks, gap_marker
+from .content import ContentContext, RefText, build_blocks, gap_marker, generated
 from .instructions import remove_instructions, settle_regions
 from .numbering import ListNumbering
 from .pages import PageCounter
@@ -113,6 +113,9 @@ from .toc import rebuild_toc
 from .verify import verify_rendered
 
 SLOT_TAG_PREFIX = "CC_"
+
+# (document, elements built from the drafts and source rows) → None; see ``render_document``.
+BodyHook = Callable[[object, frozenset], None]
 
 
 class RenderError(RuntimeError):
@@ -183,12 +186,15 @@ def render_document(
     page_counter: Optional[PageCounter] = None,
     assembled: Optional[AssembledDocument] = None,
     number_map: Optional[NumberMap] = None,
+    body_hook: Optional[BodyHook] = None,
 ) -> RenderReport:
     """Render *drafts* into a copy of the template's normalized file at *out_path*, check it, and report.
 
     *page_counter* (e.g. ``pages.word_page_counter()``) measures the page of each table-of-contents entry on the
     written file; the entries then carry their page numbers and Word is not asked to update fields on opening.
     *assembled* and *number_map* (Phase 12) give the resolved references and the bookmarks they point to.
+    *body_hook* (translation) sees the body once the slots are filled and the instructions removed, before the slot
+    controls are unwrapped and the table of contents is rebuilt, with the elements built from the drafts.
     """
     accepted = set(accepted_gaps)
     if mode == RenderMode.FINAL:
@@ -203,7 +209,7 @@ def render_document(
         ref_text = (assembled_ref_text(assembled, default_ref_text(source), fields=numbered) if assembled
                     else default_ref_text(source))
     renderer = _Renderer(template, source, slot_plan, mode, accepted, ref_text, template_file,
-                         number_map if numbered else None)
+                         number_map if numbered else None, body_hook)
     if number_map is not None and not numbered and assembled is not None and assembled.refs:
         renderer.warnings.append("the template's headings are not numbered by Word: cross-references show the new "
                                  "chapter numbers as plain text, not as REF fields")
@@ -251,12 +257,13 @@ class _Target:
 class _Renderer:
     def __init__(self, template: TemplateModel, source: SourceDocument, slot_plan: Optional[SlotPlan],
                  mode: RenderMode, accepted: set[str], ref_text: RefText, template_file: Path,
-                 number_map: Optional[NumberMap] = None):
+                 number_map: Optional[NumberMap] = None, body_hook: Optional[BodyHook] = None):
         try:
             self.doc = Document(str(template_file))
         except Exception as exc:
             raise RenderError(f"cannot open the template file {template_file}: {exc}") from exc
         self.template, self.source, self.slot_plan, self.number_map = template, source, slot_plan, number_map
+        self.body_hook = body_hook
         self.mode, self.accepted = mode, accepted
         self.body = self.doc.element.body
         self.colour = TextColour(self.doc)
@@ -303,6 +310,8 @@ class _Renderer:
             remove(self.legend)
         self._retain_instructions()
         remove_instructions(self.doc, self.colour, self.keep)
+        if self.body_hook is not None:
+            self.body_hook(self.doc, frozenset(self.ctx.generated))
         if self.mode == RenderMode.FINAL:
             for sdt in list(self.body.iter(W_SDT)):
                 if (sdt_tag(sdt) or "").startswith(SLOT_TAG_PREFIX):
@@ -469,7 +478,7 @@ class _Renderer:
                     place(block)
                 continue
             if template_table.fits(items[0].header):
-                new_rows = [build_row(template_table.prototype, r.cells) for r in items]
+                new_rows = generated(self.ctx, [build_row(template_table.prototype, r.cells) for r in items])
                 if not placed_template:
                     self._replace_rows(target.table, target.example_rows, new_rows, anchor_el)
                     if cursor is not None and cursor.tag == W_TBL:
@@ -486,7 +495,7 @@ class _Renderer:
                 for problem in header_mismatches(template_table, items[0].header):
                     self.warnings.append(f"{slot.slot_id}: {problem} (table {items[0].table_id}); check the column")
             else:
-                place(source_shaped_table(TableStyle.from_template(template_table), items))
+                place(generated(self.ctx, [source_shaped_table(TableStyle.from_template(template_table), items)])[0])
                 self.warnings.append(
                     f"{slot.slot_id}: source table {items[0].table_id} ({' | '.join(items[0].header)}) does not fit the "
                     f"template table ({' | '.join(template_table.header_texts)}); written with its own columns")

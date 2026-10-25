@@ -32,8 +32,8 @@
     {
       "segment_id": "SEG-0004",
       "kind": "template_text",
-      "source_text": "\u27e61\u27e7Purpose\u27e6/1\u27e7",
-      "target_text": "\u27e61\u27e7Zweck\u27e6/1\u27e7",
+      "source_text": "\u27e61\u27e7Note:\u27e6/1\u27e7 keep this record for 10 years.\u27e62\u27e7",
+      "target_text": "\u27e61\u27e7Hinweis:\u27e6/1\u27e7 Diese Aufzeichnung 10 Jahre aufbewahren.\u27e62\u27e7",
       "origin": "llm",
       "locator": {"block_path": "body/p[41]"}
     }

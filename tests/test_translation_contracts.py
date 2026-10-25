@@ -18,6 +18,7 @@ from app.schemas.v2 import (
     LanguageCode,
     Segment,
     SegmentKind,
+    SegmentSet,
     TranslationJob,
     TranslationSet,
     TranslationStatus,
@@ -29,6 +30,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "docs" / "translation" / "ex
 EXAMPLE_MODELS = {
     "glossary.json": Glossary,
     "translation_set.json": TranslationSet,
+    "segment_set.json": SegmentSet,
     "translation_job.json": TranslationJob,
     "front_matter_report.json": FrontMatterReport,
 }
@@ -106,6 +108,17 @@ def test_segment_ids_are_unique_within_a_set():
         TranslationSet(job_id="T", language="fr-FR", scope="template", version=1, segments=[seg, seg])
     assert len(TranslationSet(job_id="T", language="fr-FR", scope="template", version=1,
                               segments=[seg]).untranslated) == 1
+
+
+def test_a_segment_belongs_to_its_section_or_to_xrefs_or_template():
+    segments = SegmentSet.model_validate(_load("segment_set.json"))
+    assert [s.scope for s in segments.segments] == ["TGT-3", "xrefs", "TGT-4", "TGT-4", "template", "template"]
+    assert segments.scopes == ["TGT-3", "xrefs", "TGT-4", "template"]
+    assert [s.segment_id for s in segments.scope("TGT-4")] == ["SEG-0003", "SEG-0004"]
+    assert segments.counts == {"claim": 1, "xref": 1, "table_header": 1, "table_cell": 1, "template_text": 2}
+    seg = segments.segments[0].model_dump()
+    with pytest.raises(ValidationError, match="repeat"):
+        SegmentSet(job_id="T", migration_job_id="M", language="de-DE", version=1, segments=[seg, seg])
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────

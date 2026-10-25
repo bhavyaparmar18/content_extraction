@@ -124,3 +124,32 @@ Entry format:
   - The Spanish first-page header "Página 1 de N" wraps when N has two digits; the German one does not. That is in the template's header, which is copied unchanged.
   - The first page's section of both templates has an **English** default header ("Page 5 of 5 Document Name"). It only shows if the first page runs onto a second page.
   - Not yet registered in the app: `data/app.db` is still at schema version 1 (the translation tables of T1 are created on the next server start).
+
+## 2026-10-25: Phase T4 (segmentation, orchestrator, PREPARING, job API): done
+- Done:
+  - **Renderer body hook** (`render_document(..., body_hook=)`): called once in `_Renderer.run` after `remove_instructions`, before the FINAL unwrap and `rebuild_toc`, with the elements built from the drafts and source rows (`ContentContext.generated`: the leaf blocks of `build_blocks`, and the template-table rows and source-shaped tables of table slots; a callout box's own label is not in it). `export.render_final` passes it through and now returns the `slot_plan`. With no hook the render is unchanged.
+  - **Template text** (`translation/template_text.py`): `harvest_hook` collects every body paragraph not built from the drafts, leaving out the cover (`find_cover`), the TOC field's entries and text without letters. `encode_paragraph` tags formatting: the most-used formatting is plain, other formatting is `⟦k⟧…⟦/k⟧`, spaces never open a tag, and tabs, fields, drawings, links and inline controls are a standalone `⟦k⟧`. `Encoded` keeps what each tag stands for, for T6. `parse_tags` / `strip_tags` are there for T5.
+  - **Segments** (`translation/segments.py`): `build_segments` (claims, table cells, table headers once per table, xrefs with `⟦1⟧`, template text; ids in document order); `block_path` / `find_block`.
+  - **Contract** `SegmentSet` (the `segments` artifact) and `Segment.scope`; `examples/segment_set.json`. The `translation_set.json` template-text example now shows a real mixed-formatting case.
+  - **PREPARING** (`translation/stages.py`): checks the migration is COMPLETED or COMPLETED_WITH_WARNINGS, then calls `render_final` with the harvest hook. It snapshots source, template, slot plan, drafts, assembly and number map, the English `docx` and `render_report` (scope `english`), the glossary and front matter (only when named, each re-checked as approved / ready and of the job's language), then the `SegmentSet`. When there is no glossary or no language template, it adds notes and events. If the English render reports problems, it records `english_render_problems` and goes on.
+  - **`TranslationOrchestrator`** (`translation/orchestrator.py`): the migration orchestrator's pattern (semaphore, compare-and-swap, cooperative cancel, `retry(from_stage)` with required artifacts, audited chain factory). Only PREPARING has a stage, so jobs wait at TRANSLATING; `resume_incomplete` skips statuses without a stage.
+  - **Job API** (`app/api/translations.py`, after the static routes): `POST /translations` (one job per language; `job_service.resolve_request` checks every language first), list, get, cancel, retry, audit, segments. It is wired in `app/main.py`, with one rate limiter shared with the migration orchestrator.
+  - **Checked on the real sample** (a scratch copy of `data/`, the German language template uploaded and marked ready): `MIG-20261019-7BF76968` → TRANSLATING with 373 segments (140 claims, 174 cells, 32 headers, 4 xrefs, 23 template texts; 325 distinct). The template text is the TOC title, the section headings and the template table headers; the cover and TOC entries are left out.
+- Files touched:
+  - New: `app/services/translation/{segments,template_text,stages,orchestrator,job_service}.py`, `tests/test_translation_{segments,jobs}.py`, `docs/translation/examples/segment_set.json`.
+  - Changed: `app/services/migration_v2/render/{renderer,content}.py`, `app/services/migration_v2/export.py`, `app/schemas/v2/{translation,__init__}.py`, `app/api/translations.py`, `app/main.py`, `tests/test_translation_contracts.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`, `docs/translation/examples/translation_set.json`.
+- Tests: 24 new. Full suite in `venv`: 674 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- Open issues / decisions:
+  - **Template text means "not built from the drafts"**, not "outside `CC_` controls" (retained labels and callout labels would be missed otherwise). The plan's segment table is updated.
+  - **Table headers are one set per source table.** A source table that fits the template table renders the template's header, so its source header is only seen in source-shaped tables. It is still a segment (cheap, and deduplicated in T5).
+  - **For T6:**
+    - `TemplateTable.fits(header)` compares the *English* source header with the template's. Decide the fit on the English headers and write the translated ones, or translated tables change shape and the block paths drift.
+    - `show_refs` drops lead words shared by the claim and the phrase ("described in"); after translation they may not match.
+    - The apply hook re-encodes each paragraph at its `block_path` and checks that the tagged English equals `source_text` (a mismatch is a warning and the paragraph keeps its English), then rebuilds the runs from `Encoded.groups` / `objects`, keeping bookmarks.
+    - Text-box paragraphs under `mc:AlternateContent` appear twice (Choice and Fallback); apply both.
+  - If the English final render has post-render problems, `render_final` returns no bytes, so there is no `docx[english]` and `english_docx_sha256` is empty.
+  - `data/app.db` still gets schema 2 on the next server start (no server ran during T4).
+- Next step: T5. `app/services/llm/prompts/v2/translator.py` (`translator/1`, registered in `audit._PROMPTS`), and `translation/translator.py`:
+  - TRANSLATING: distinct source strings packed with `planning/budget.py:pack`, glossary terms per batch from `glossary.terms_in`, `COPIED` for text without letters and for do-not-translate-only text, one `TranslationSet` per scope;
+  - `translation/checks.py`: tags with `parse_tags`, `{{ref:}}` tokens, neutral values with `quality/facts.extract_values`, glossary with `target_present`;
+  - CHECKING ⇄ REPAIRING stages.

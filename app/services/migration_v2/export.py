@@ -153,6 +153,7 @@ class FinalRender:
     gaps: list[dict]
     accepted: tuple[str, ...]
     versions: dict[str, int]
+    slot_plan: Optional[SlotPlan] = None
 
 
 def _check_exportable(job: MigrationJob, artifacts: Any) -> None:
@@ -182,9 +183,11 @@ def previous_export(job: MigrationJob, store: Any, artifacts: Any) -> Optional[A
     return None
 
 
-def render_final(job: MigrationJob, store: Any, artifacts: Any, page_counter: Optional[Callable] = None) -> FinalRender:
+def render_final(job: MigrationJob, store: Any, artifacts: Any, page_counter: Optional[Callable] = None,
+                 body_hook: Optional[Callable] = None) -> FinalRender:
     """Assemble and render the final document without saving anything (``export_word`` saves it; the review UI
-    previews it). Raises ``ExportBlocked`` when the job has not completed or a gap is still open."""
+    previews it; a translation job snapshots it, reading the template's own text with *body_hook*). Raises
+    ``ExportBlocked`` when the job has not completed or a gap is still open."""
     _check_exportable(job, artifacts)
     source = artifacts.latest(job, ArtifactKind.SOURCE_MODEL, SourceDocument)
     template = artifacts.latest(job, ArtifactKind.TEMPLATE_MODEL, TemplateModel)
@@ -205,13 +208,14 @@ def render_final(job: MigrationJob, store: Any, artifacts: Any, page_counter: Op
             report = render_document(template, drafts, source, work, job_id=job.job_id,
                                      version=store.next_artifact_version(job.job_id, ArtifactKind.RENDER_REPORT, FINAL),
                                      slot_plan=slot_plan, mode=RenderMode.FINAL, accepted_gaps=accepted,
-                                     page_counter=page_counter, assembled=assembly.document, number_map=assembly.number_map)
+                                     page_counter=page_counter, assembled=assembly.document, number_map=assembly.number_map,
+                                     body_hook=body_hook)
         except RenderBlocked as exc:
             raise ExportBlocked("GAPS_UNRESOLVED", str(exc), exc.slot_ids) from exc
         except RenderError as exc:
             raise ExportBlocked("RENDER_FAILED", str(exc)) from exc
         data = work.read_bytes() if not report.problems else b""
-    return FinalRender(data, report, assembly, drafts, source, template, gaps, accepted, versions)
+    return FinalRender(data, report, assembly, drafts, source, template, gaps, accepted, versions, slot_plan)
 
 
 def export_word(job: MigrationJob, store: Any, artifacts: Any, sop_store: Any = None, actor: Optional[str] = None,

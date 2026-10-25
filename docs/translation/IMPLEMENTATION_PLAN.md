@@ -54,7 +54,7 @@ What exists today:
 | `claim` | `Claim.text` in every `SectionDraft` (paragraph, bullet, step, caption, heading) | A translated `SectionDraft` copy, keeping `{{ref:…}}` tokens |
 | `table_cell` / `table_header` | `SourceUnit.table_ref.cells[].text/.paragraphs`, `header_cells` (`schemas/v2/source.py:75-91`) | A translated `SourceDocument` copy, passed to `render_document` as `source` |
 | `xref` | `AssembledDocument.refs[].text` (English phrase with the new number) | A translated `ref_text` callable; the number is kept as a `⟦n⟧` placeholder |
-| `template_text` | Template text left in the body outside `CC_` slot controls and outside the cover: section headings, retained labels, callout labels, boilerplate, TOC title | Applied by a new `body_hook` in `_Renderer.run` (just before the `unwrap` at `renderer.py:305`, and before `rebuild_toc` so the TOC shows the translated headings). Runs with mixed formatting are tagged `⟦1⟧…⟦/1⟧` so the formatting survives. |
+| `template_text` | Body text the renderer did not build from the drafts or source rows (as built in T4: retained labels sit inside `CC_` controls and callout labels inside built callout boxes, so "outside the slot controls" was not enough), outside the cover and the TOC entries: section headings, retained labels, callout labels, template table headers, boilerplate, TOC title | Applied by a new `body_hook` in `_Renderer.run` (after `remove_instructions`, just before the FINAL `unwrap`, and before `rebuild_toc` so the TOC shows the translated headings). Runs in other formatting are tagged `⟦k⟧…⟦/k⟧` and objects (tabs, fields, links) are a standalone `⟦k⟧`, so the formatting survives (`CONTRACTS.md`). |
 
 Not translated: figures (next plan), the cover page, headers and footers (replaced), field codes and REF field results, numbering, and document IDs and other protected values.
 
@@ -149,11 +149,11 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `GET …/{t}/preview` (`.docx`: the first page and two placeholder body pages)
   - `POST …/{t}/ready` (409 `LANGUAGE_TEMPLATE_NOT_READY` while the report has problems)
   - `DELETE …/{t}` (409 `RECORD_IN_USE` when a job uses it)
-- **Jobs:**
-  - `POST /translations {migration_job_id, languages:[{language, glossary_id?, glossary_version?, language_template_id?, language_template_version?}]}` (one job per language; both resources optional)
-  - `GET` list (`?migration_job_id=`)
-  - `GET /{id}`, `cancel`, `retry`, `audit`
-  - `GET /{id}/segments?section=`
+- **Jobs** (the first five as built in T4; `{id}` is a `TRN-…` job id):
+  - `POST /translations {migration_job_id, languages:[{language, glossary_id?, glossary_version?, language_template_id?, language_template_version?}]}`: one job per language; both resources are optional. Without a version, the newest approved glossary or ready language template of that id is used. Every language is checked before any job is created: 404 `MIGRATION_NOT_FOUND`, `GLOSSARY_NOT_FOUND`, `LANGUAGE_TEMPLATE_NOT_FOUND`; 409 `MIGRATION_NOT_COMPLETED`, `GLOSSARY_NOT_APPROVED`, `LANGUAGE_TEMPLATE_NOT_READY`; 422 `NO_LANGUAGES`, `UNSUPPORTED_LANGUAGE`, `DUPLICATE_LANGUAGE`, `…_LANGUAGE_MISMATCH`, `…_ID_REQUIRED`.
+  - `GET` list (`?migration_job_id=&language=&status=`)
+  - `GET /{id}`, `POST /{id}/cancel`, `POST /{id}/retry?from_stage=`, `GET /{id}/audit`
+  - `GET /{id}/segments?section=` (the `SegmentSet`; `section` is a target section id, `xrefs` or `template`)
   - `PATCH /{id}/segments/{segment_id}`
   - `GET /{id}/validation`
   - `POST /{id}/issues/{iid}/resolve`

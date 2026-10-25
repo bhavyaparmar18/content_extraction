@@ -68,6 +68,8 @@ from .refs import (
 )
 from .trace import TraceRow, Traceability
 from .translation import (
+    SCOPE_TEMPLATE,
+    SCOPE_XREFS,
     SOURCE_LANGUAGE,
     TRANSLATION_TERMINAL_STATUSES,
     CoverEnd,
@@ -81,6 +83,7 @@ from .translation import (
     SegmentKind,
     SegmentLocator,
     SegmentOrigin,
+    SegmentSet,
     TranslationJob,
     TranslationSet,
     TranslationStatus,
