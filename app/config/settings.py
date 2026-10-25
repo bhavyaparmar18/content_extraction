@@ -90,6 +90,8 @@ class Settings(BaseSettings):
         "de-DE": (0.8, 2.0), "fr-FR": (0.8, 1.8), "it-IT": (0.8, 1.8), "es-ES": (0.8, 1.8), "pt-BR": (0.8, 1.8),
         "el-GR": (0.8, 2.0), "zh-CN": (0.1, 1.0), "ja-JP": (0.12, 1.2),
     }
+    # East Asian font of a Chinese or Japanese translation when its language template names none
+    translation_east_asia_fonts: dict[str, str] = {"zh-CN": "Microsoft YaHei", "ja-JP": "Yu Gothic"}
 
     # --- Migration v2 jobs ---
     migration_v2_dir: Path = Path("data/migrations")  # data/migrations/{job_id}/{kind}_v{n}.json

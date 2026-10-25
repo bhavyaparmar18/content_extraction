@@ -7,6 +7,7 @@ Both resources are per language and optional on a translation job:
 
 A translation job (Phase T4) is one language of a completed migration; ``POST /translations`` starts one per
 language. Its segments carry their translations once translated, and ``/validation`` serves the QA checks (T5).
+Once rendered (T6), ``/export/preview`` serves the translated document and ``/render-report`` its render.
 """
 
 from pathlib import Path
@@ -21,7 +22,15 @@ from app.api.auth import require_user
 from app.config.settings import Settings, get_settings
 from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.schemas.auth import ApiFieldError
-from app.schemas.v2 import ArtifactKind, QualityReport, SegmentSet, TranslationJob, TranslationSet, TranslationStatus
+from app.schemas.v2 import (
+    ArtifactKind,
+    QualityReport,
+    RenderReport,
+    SegmentSet,
+    TranslationJob,
+    TranslationSet,
+    TranslationStatus,
+)
 from app.schemas.v2.translation import GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.services.migration_v2.artifacts import ArtifactCorrupted
@@ -30,6 +39,7 @@ from app.services.translation import glossary_service, job_service, language_tem
 from app.services.translation.glossary import GlossaryInvalid, parse_glossary_file, to_csv, to_xlsx
 from app.services.translation.languages import LANGUAGES, get_language
 from app.services.translation.orchestrator import TranslationOrchestrator
+from app.services.translation.render import TRANSLATED
 from app.services.translation.stages import CHECKS
 from app.services.translation.translator import merged
 from app.stores.glossary_store import GlossaryStore
@@ -506,3 +516,36 @@ async def get_validation(request: Request, job_id: str = PathParam(..., pattern=
     if report is None:
         raise NotFoundError(f"Job '{job_id}' has not been checked yet", code="NO_VALIDATION")
     return report.to_clean_dict()
+
+
+@router.get("/{job_id}/render-report")
+async def get_render_report(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    """The latest render of the translated document (``render_report[translated]``): its warnings (segments shown
+    in English among them) and the post-render check's problems."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    try:
+        report = orch.artifacts.latest(job, ArtifactKind.RENDER_REPORT, RenderReport, TRANSLATED)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    if report is None:
+        raise NotFoundError(f"Job '{job_id}' has not been rendered yet", code="NO_RENDER")
+    return report.to_clean_dict()
+
+
+@router.get("/{job_id}/export/preview")
+async def preview_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    """The latest translated document (``docx[translated]``) for viewing in the app; the approved export is T7's."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    if orch.is_running(job_id):
+        raise AppError(409, "JOB_RUNNING", f"Job {job_id} is running; preview once it has finished")
+    ref = job.latest_artifact(ArtifactKind.DOCX, TRANSLATED)
+    if ref is None:
+        raise NotFoundError(f"Job '{job_id}' has not been rendered yet", code="NO_RENDER")
+    try:
+        data = orch.artifacts.read_bytes(ref)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    name = f"{job_id}_{job.language.value}_v{ref.version}_preview.docx"
+    return Response(data, media_type=_DOCX, headers={"Content-Disposition": f'inline; filename="{name}"'})

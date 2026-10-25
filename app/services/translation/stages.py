@@ -5,23 +5,28 @@ A stage must be safe to re-run: after a crash or a retry it runs again and write
 
 PREPARING (Phase T4) snapshots the completed migration's English final document into the job and cuts it into
 segments. TRANSLATING translates them (one ``translation[<scope>]`` per scope), CHECKING runs the QA checks
-(``quality_report[translation]``) and sends the failing segments to REPAIRING once (Phase T5). RENDERING comes in
-T6; until then a job waits there.
+(``quality_report[translation]``) and sends the failing segments to REPAIRING once (Phase T5). RENDERING renders the
+translated final document (``docx[translated]``, ``render_report[translated]``) for review (Phase T6).
 """
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from app.schemas.v2 import (
     ArtifactKind,
+    AssembledDocument,
     Glossary,
+    NumberMap,
     QualityReport,
     SectionDraft,
     SegmentOrigin,
     SegmentSet,
+    SlotPlan,
+    SourceDocument,
     TemplateModel,
     TranslationJob,
     TranslationSet,
@@ -29,10 +34,14 @@ from app.schemas.v2 import (
 )
 from app.services.migration_v2.artifacts import ArtifactWriter
 from app.services.migration_v2.export import EXPORTABLE, ExportBlocked, render_final
+from app.services.migration_v2.render import RenderBlocked, RenderError
+from app.services.migration_v2.render.pages import word_page_counter
 
 from . import glossary_service
 from .checks import check_segment, check_translations, copy_only, needs_repair, repair_candidates, worst
+from .front_matter import FrontMatterError
 from .languages import get_language
+from .render import TRANSLATED, render_translation
 from .segments import build_segments
 from .template_text import harvest_hook
 from .translator import Translator, build_sets, group_of, group_segments, merged, repair_all, translate_all
@@ -334,10 +343,68 @@ async def repairing(ctx: TranslationStageContext) -> None:
     })
 
 
+# ── RENDERING (Phase T6) ──────────────────────────────────────────────
+
+
+def _page_counter(ctx: TranslationStageContext):
+    """Word measures the table of contents' page numbers when installed and allowed (``render_toc_pages``)."""
+    return word_page_counter() if _setting(ctx, "render_toc_pages", "off") == "word" else None
+
+
+async def rendering(ctx: TranslationStageContext) -> None:
+    """Render the translated final document from the job's snapshot and the latest translations.
+
+    The document is saved even when its post-render check has problems, so the reviewer sees them; the job goes to
+    review either way (approval waits for a clean render, T7).
+    """
+    job = ctx.job
+    segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
+    current = current_segments(ctx, segment_set)
+    template = ctx.require(ArtifactKind.TEMPLATE_MODEL, TemplateModel)
+    source = ctx.require(ArtifactKind.SOURCE_MODEL, SourceDocument)
+    package = None
+    if job.language_template_id:
+        ref = job.latest_artifact(ArtifactKind.FRONT_MATTER)
+        if ref is None:
+            raise RuntimeError(f"job {job.job_id} has no front_matter artifact")
+        ctx.artifacts.read_bytes(ref)  # the snapshot is what PREPARING saved (its hash)
+        package = ref.path
+
+    job_dir = ctx.artifacts.job_dir(job.job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=job_dir) as tmp:
+        work = Path(tmp) / "translated.docx"
+        try:
+            result = render_translation(
+                job.job_id, job.language, current.segments, template, _drafts(ctx, segment_set), source, work,
+                version=ctx.next_version(ArtifactKind.RENDER_REPORT, TRANSLATED),
+                slot_plan=ctx.latest(ArtifactKind.SLOT_PLAN, SlotPlan), accepted_gaps=segment_set.accepted_gaps,
+                assembled=ctx.latest(ArtifactKind.ASSEMBLED_DRAFT, AssembledDocument),
+                number_map=ctx.latest(ArtifactKind.NUMBER_MAP, NumberMap), front_matter=package,
+                settings=ctx.settings, page_counter=_page_counter(ctx),
+            )
+        except (RenderError, RenderBlocked, FrontMatterError) as exc:
+            raise RuntimeError(f"the translated document cannot be rendered: {exc}") from exc
+        docx = ctx.write_file(ArtifactKind.DOCX, work.read_bytes(), ".docx", scope=TRANSLATED)
+    report = result.report
+    ctx.write(ArtifactKind.RENDER_REPORT, report, scope=TRANSLATED)
+    swap = result.swap
+    ctx.event("render", {
+        "docx_version": docx.version, "sha256": docx.sha256, "applied": result.applied, "kept_english": len(result.kept),
+        "kept_ids": result.kept[:50], "toc_entries": report.toc_entries, "toc_page_numbers": report.toc_page_numbers,
+        "front_matter": ({"blocks_inserted": swap.blocks_inserted, "parts_added": len(swap.parts_added),
+                          "styles_replaced": len(swap.styles_replaced)} if swap else None),
+        "east_asia_font": result.east_asia_font, "warnings": len(report.warnings), "problems": report.problems[:10],
+    })
+    if report.problems:
+        ctx.event("render_problems", {"problems": report.problems[:20]})
+
+
 def default_stages() -> dict[TranslationStatus, Stage]:
     return {
         TranslationStatus.PREPARING: preparing,
         TranslationStatus.TRANSLATING: translating,
         TranslationStatus.CHECKING: checking,
         TranslationStatus.REPAIRING: repairing,
+        TranslationStatus.RENDERING: rendering,
     }

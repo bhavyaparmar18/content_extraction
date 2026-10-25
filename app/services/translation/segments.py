@@ -2,7 +2,8 @@
 
 A segment is one piece of English text and the place its translation goes back:
 - ``claim``: a claim of a section draft (paragraph, bullet, step, caption, heading), ``{{ref:...}}`` tokens kept;
-- ``table_cell``: a cell (or one paragraph of a multi-paragraph cell) of a source table row a claim cites;
+- ``table_cell``: a cell (or one paragraph of a multi-paragraph cell) of a source table row a claim cites (a row a
+  reviewer edited in the migration is one ``claim`` instead, its cells separated by ``|``, as the renderer shows it);
 - ``table_header``: a header cell, once per source table (it applies to every row unit of that table);
 - ``xref``: a resolved cross-reference phrase, its new number kept as ``⟦1⟧``;
 - ``template_text``: a paragraph of the template's own body text (``template_text.harvest_hook``).
@@ -30,6 +31,7 @@ from app.schemas.v2 import (
     SourceDocument,
     TemplateModel,
 )
+from app.services.migration_v2.render.tables import source_row
 
 NUMBER_PLACEHOLDER = "⟦1⟧"
 
@@ -149,6 +151,13 @@ def build_segments(
                         for col, header in enumerate(table.header_cells):
                             if header.strip():
                                 add(SegmentKind.TABLE_HEADER, header, section_id=sid, unit_id=unit.unit_id, col=col)
+                    if claim.text.strip() != unit.text.strip():
+                        edits: list[str] = []
+                        source_row(claim, unit, edits)
+                        if not edits:  # the renderer shows the reviewer's edited row: its text is the segment
+                            add(SegmentKind.CLAIM, claim.text, section_id=sid, slot_id=slot.slot_id,
+                                claim_id=claim.claim_id)
+                            continue
                     if unit.unit_id in seen_units:
                         continue
                     seen_units.add(unit.unit_id)

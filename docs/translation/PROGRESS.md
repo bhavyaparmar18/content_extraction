@@ -181,3 +181,27 @@ Entry format:
   - The frontend's `IssueCategory` union (`frontend/src/features/migrations/types.ts`) needs `terminology` and `language` (T8).
   - **For T6:** a `None` target renders as its English text (the issue stays open for review); apply targets through `translator.merged`; template text's tags may come back reordered (the `TAGS` check guarantees the same set, balanced and not crossing).
 - Next step: T6. `translation/render.py`: render the translated final from translated drafts (claims), a translated `SourceDocument` copy (cells and headers, the table fit decided on the English headers), a translated `ref_text`, and an apply hook for the template text at the harvest point; `w:lang` and the East Asian fonts; the language template's front matter (or the English kept); TOC rebuilt from the translated headings; `verify` against the language template's headers and footers (`expected_header_source`).
+
+## 2026-10-25: Phase T6 (translated render and preview): done
+- Done:
+  - **One render, the English one's** (`translation/render.py`, `render_translation`): the same `render_document` call as PREPARING's (final mode, the job's snapshot of template, slot plan, accepted gaps and number map) on translated inputs: `translated_drafts` (claims), `translated_source` (cells, multi-paragraph cells, headers applied to every row of their table; `unit.text` stays English so unedited rows still come from their cells; a header that was only its rows' text joined is joined again), `translated_assembly` (phrases with the number back where `⟦1⟧` was, still REF fields).
+  - **Template text** (`template_text.apply_hook` / `decode_into`): at the harvest point, every paragraph is found and checked against its English first, then rebuilt: `pPr` and bookmarks kept, `⟦k⟧…⟦/k⟧` in its group's formatting, standalone `⟦k⟧` objects put back (links, fields, tabs, text boxes). Unknown, lost or doubled markers leave the English.
+  - **Fallback:** no translation, only markers, a lost `⟦1⟧`, or a paragraph not at its place → English, with a render warning naming the segment.
+  - **Renderer:** `render_document(..., finish=, header_check=)` and `verify_rendered(..., header_check=)`; without them migration renders are unchanged. `finish` runs before the first save, so Word measures the TOC on the final layout.
+  - **finish:** `apply_front_matter` with the job's `front_matter` snapshot (the check is then `front_matter_problems`); without a language template the English first page, headers and footers stay and are compared byte for byte as before. `set_language` (body without the first page, styles, defaults, `themeFontLang`; `w:eastAsia` for zh/ja; headers untouched) and `set_east_asia_font` (the language template's, else setting `translation_east_asia_fonts`: Microsoft YaHei / Yu Gothic).
+  - **RENDERING stage:** `docx[translated]` (saved even with problems) and `render_report[translated]`, events `render` / `render_problems`; the job goes to REVIEW_PENDING. The "source column … under template column …" warnings are dropped (translated headers against the English template's).
+  - **Edited table rows** (found while planning): a row a reviewer edited in the migration is now one `claim` segment (the renderer shows it from the claim), with the critical `CELLS` check on its `|` separators. Only jobs prepared from now on.
+  - **API:** `GET /{id}/export/preview` (inline `docx[translated]`; 404 `NO_RENDER`, 409 `JOB_RUNNING`) and `GET /{id}/render-report`.
+- Files touched:
+  - New: `app/services/translation/render.py`, `tests/test_translation_render.py`.
+  - Changed: `app/services/translation/{template_text,stages,orchestrator,segments,checks}.py`, `app/services/migration_v2/render/{renderer,verify}.py`, `app/config/settings.py`, `app/api/translations.py`, `tests/test_translation_{jobs,translator}.py` (jobs now reach REVIEW_PENDING), `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 14 new. Full suite in `venv`: 715 passed, 17 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- **Real sample** (a scratch copy of `data/`; live LLM; Word measuring TOC pages), `MIG-20261019-7BF76968`, 373 segments each:
+  - de-DE with the German language template, fr-FR and ja-JP without one: all three REVIEW_PENDING, every segment written (none kept in English), no render problems, 40 TOC entries with Word's page numbers in the target language (`ZWECK`, `OBJECTIF`, `目的`).
+  - German: the first page and the headers are the German template's (`Seite x von y`); French and Japanese keep the English ones. Japanese: `ja-JP` with `w:eastAsia`, East Asian font Yu Gothic.
+  - Warnings left: the three source tables written in their own shape (the English render's same decision), and for German "Normal keeps the document's definition".
+- Open issues / decisions:
+  - A render with problems still goes to review; T7's approval must refuse while the latest `render_report[translated]` has problems.
+  - Inline instructions the renderer rewrites (e.g. "This ⟨SOP/Work Instruction⟩ is applicable:") lose their run formatting already in the English render; the translation keeps what the English shows.
+  - The cover's cached header field results (e.g. "Page 2 of 3") are the template's; Word refreshes them.
+- Next step: T7. Segment `PATCH` → a new `translation[<scope>]` version (origin `human`) → CHECKING and RENDERING again; issue resolve; approve (REVIEW_PENDING only, a clean render, no open gate); `GET /{id}/export/word` once approved, recorded as an event.

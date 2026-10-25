@@ -6,7 +6,7 @@ The happy path:
 
 All state lives in the ``TranslationStore``: ``resume_incomplete`` re-queues every job that was mid-stage, and that
 stage runs again. Each job runs in its own asyncio task behind a semaphore; cancellation is cooperative and takes
-effect between stages. A status without a stage (RENDERING until Phase T6) leaves the job waiting there.
+effect between stages. A status without a stage leaves the job waiting there.
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ class TranslationOrchestrator:
                     continue
 
                 stage = self.stages.get(status)
-                if stage is None:  # not built yet (RENDERING until T6): the job waits here
+                if stage is None:  # a stage left out (tests): the job waits here
                     return
                 ctx = TranslationStageContext(
                     job=job, store=self.store, artifacts=self.artifacts, migrations=self.migrations,

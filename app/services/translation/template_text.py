@@ -3,8 +3,8 @@
 ``harvest_hook`` is a renderer ``body_hook``. It runs once the slots are filled and the instructions removed,
 before the slot controls are unwrapped and the table of contents is rebuilt, and collects every paragraph that was
 not built from the drafts. The cover page (replaced by a language template, or kept in English), the table of
-contents' entries (rebuilt from the translated headings) and paragraphs without a letter are left out. T6 applies
-the translations at the same point of the same render, so the block paths match.
+contents' entries (rebuilt from the translated headings) and paragraphs without a letter are left out.
+``apply_hook`` (T6) writes the translations at the same point of the same render, so the block paths match.
 
 A paragraph's text is encoded with tags so its formatting survives translation:
 - runs are grouped by formatting (``w:lang``, ``w:noProof`` and revision ids ignored); the group with the most
@@ -24,10 +24,10 @@ from docx.oxml.ns import qn
 from lxml import etree
 
 from app.services.migration_v2.render.toc import _field_paragraphs, _toc_start
-from app.services.migration_v2.render.xml import W_P, W_R, W_RPR, ancestor
+from app.services.migration_v2.render.xml import W_P, W_PPR, W_R, W_RPR, add_runs, ancestor, w_el
 
 from .front_matter import FrontMatterError, find_cover
-from .segments import block_path
+from .segments import block_path, find_block
 
 TAG = re.compile(r"⟦(/?)(\d+)⟧")
 _LETTER = re.compile(r"[^\W\d_]")
@@ -236,5 +236,106 @@ def harvest_hook(collected: list) -> Callable[[object, frozenset], None]:
     def hook(doc, generated: frozenset) -> None:
         body = doc.element.body
         collected.extend((block_path(p, body), encoded.tagged) for p, encoded in template_paragraphs(doc, generated))
+
+    return hook
+
+
+# ── Applying a translation (Phase T6) ─────────────────────────────────
+
+_KEPT = {qn("w:bookmarkStart"), qn("w:bookmarkEnd")}
+
+
+def decode_into(p, encoded: Encoded, target: str) -> bool:
+    """Rebuild *p*'s runs from *target*, the translation of ``encoded.tagged``: text under ``⟦k⟧…⟦/k⟧`` takes that
+    group's formatting (the innermost pair when they nest), other text the plain formatting, and each standalone
+    ``⟦k⟧`` puts its object back. False, and *p* unchanged, when a marker is unknown or an object is lost or doubled.
+    """
+    objects: list[int] = []
+    for kind, k in parse_tags(target):
+        if kind == "object":
+            if k not in encoded.objects:
+                return False
+            objects.append(k)
+        elif k not in encoded.groups:
+            return False
+    if sorted(objects) != sorted(encoded.objects):
+        return False
+
+    moved = {el for piece in encoded.objects.values() for el in piece.elements}
+    marks = [el for el in p.iter(*_KEPT) if el not in moved and not any(a in moved for a in el.iterancestors())]
+    for child in list(p):
+        if child.tag != W_PPR:
+            p.remove(child)
+    ppr = p.find(W_PPR)
+    for mark in reversed([m for m in marks if m.tag == qn("w:bookmarkStart")]):
+        ppr.addnext(mark) if ppr is not None else p.insert(0, mark)
+
+    stack: list[int] = []
+
+    def text(chunk: str) -> None:
+        if chunk:
+            add_runs(p, chunk, encoded.groups[stack[-1]] if stack else encoded.base_rpr)
+
+    last = 0
+    for match in TAG.finditer(target):
+        text(target[last:match.start()])
+        k = int(match.group(2))
+        if match.group(1):
+            if k in stack:
+                stack.reverse()
+                stack.remove(k)  # the innermost open pair of that number
+                stack.reverse()
+        elif k in encoded.objects:
+            piece = encoded.objects[k]
+            if piece.whole:
+                for el in piece.elements:
+                    p.append(el)
+            else:
+                r = w_el("r")
+                if piece.rpr is not None:
+                    r.append(copy.deepcopy(piece.rpr))
+                for el in piece.elements:
+                    r.append(el)
+                p.append(r)
+        else:
+            stack.append(k)
+        last = match.end()
+    text(target[last:])
+    for mark in marks:
+        if mark.tag == qn("w:bookmarkEnd"):
+            p.append(mark)
+    return True
+
+
+def apply_hook(segments: list, warnings: list[str], applied: list[str]) -> Callable[[object, frozenset], None]:
+    """A renderer ``body_hook`` that writes each template-text segment's translation into its paragraph.
+
+    Every paragraph is found (by block path, then checked against its English) before any is changed, so rebuilding
+    a paragraph that holds a text box does not move the box's own paragraphs. A paragraph that is not where its
+    segment says, or whose translation's markers do not fit, keeps its English (a warning names the segment).
+    *applied* gets the ids of the segments written.
+    """
+
+    def hook(doc, generated: frozenset) -> None:
+        body = doc.element.body
+        found = []
+        for segment in segments:
+            target = segment.target_text
+            if target is None or not strip_tags(target).strip():
+                warnings.append(f"{segment.segment_id}: no translation; the template text is shown in English")
+                continue
+            p = find_block(body, segment.locator.block_path)
+            encoded = encode_paragraph(p) if p is not None and p.tag == W_P and p not in generated else None
+            if encoded is None or encoded.tagged != segment.source_text:
+                warnings.append(f"{segment.segment_id}: template text not found at {segment.locator.block_path}; "
+                                "kept in English")
+                continue
+            found.append((segment, p, encoded))
+        for segment, p, encoded in found:
+            if segment.target_text == segment.source_text or decode_into(p, encoded, segment.target_text):
+                applied.append(segment.segment_id)
+            else:
+                warnings.append(f"{segment.segment_id}: the translation's markers do not fit the paragraph's "
+                                "formatting; kept in English")
 
     return hook

@@ -116,6 +116,8 @@ SLOT_TAG_PREFIX = "CC_"
 
 # (document, elements built from the drafts and source rows) → None; see ``render_document``.
 BodyHook = Callable[[object, frozenset], None]
+FinishHook = Callable[[object], None]                 # (document) → None, just before it is saved
+HeaderCheck = Callable[[object], list[str]]           # (written document) → problems with its headers and footers
 
 
 class RenderError(RuntimeError):
@@ -187,6 +189,8 @@ def render_document(
     assembled: Optional[AssembledDocument] = None,
     number_map: Optional[NumberMap] = None,
     body_hook: Optional[BodyHook] = None,
+    finish: Optional[FinishHook] = None,
+    header_check: Optional[HeaderCheck] = None,
 ) -> RenderReport:
     """Render *drafts* into a copy of the template's normalized file at *out_path*, check it, and report.
 
@@ -195,6 +199,9 @@ def render_document(
     *assembled* and *number_map* (Phase 12) give the resolved references and the bookmarks they point to.
     *body_hook* (translation) sees the body once the slots are filled and the instructions removed, before the slot
     controls are unwrapped and the table of contents is rebuilt, with the elements built from the drafts.
+    *finish* (translation) changes the finished document before it is first saved (the language template's first
+    page, headers and footers, the language); *header_check* then replaces the post-render check's comparison of the
+    headers and footers with the template's.
     """
     accepted = set(accepted_gaps)
     if mode == RenderMode.FINAL:
@@ -214,6 +221,8 @@ def render_document(
         renderer.warnings.append("the template's headings are not numbered by Word: cross-references show the new "
                                  "chapter numbers as plain text, not as REF fields")
     renderer.run(drafts)
+    if finish is not None:
+        finish(renderer.doc)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     renderer.doc.save(str(out_path))
@@ -236,7 +245,7 @@ def render_document(
         toc_entries=len(renderer.toc or []), toc_page_numbers=toc_pages,
     )
     report.problems = verify_rendered(out_path, template_file, template, drafts, source, report, ref_text,
-                                      number_map if numbered else None)
+                                      number_map if numbered else None, header_check)
     return report
 
 

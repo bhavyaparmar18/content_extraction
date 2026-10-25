@@ -35,7 +35,9 @@ The models are in `app/schemas/v2/translation.py` and are exported from `app.sch
   - `translation[<scope>]`: one `TranslationSet` per scope;
   - `glossary`: the job's snapshot of its glossary;
   - `front_matter`: the job's snapshot of its language template's first page, headers and footers;
-  - `docx`, `render_report` and `quality_report`, as in a migration job.
+  - `docx`, `render_report` and `quality_report`, as in a migration job: scope `english` for the English final that
+    PREPARING rendered, scope `translated` for the translated document RENDERING renders (T6), and
+    `quality_report[translation]` for the QA checks.
 - **Placeholders** that the translation must keep unchanged:
   - `{{ref:<id>}}` reference tokens;
   - `⟦n⟧` number placeholders in cross-reference phrases;
@@ -52,7 +54,7 @@ Built in `app/services/translation/segments.py` and `template_text.py` from the 
 
 - **What is a segment:**
   - `claim`: every claim of the final document except gap markers, table rows (their cells are segments) and figures. `{{ref:…}}` tokens stay in the text.
-  - `table_cell`: each non-empty cell of a source table row that a rendered claim cites (`row` is the row index, `col` the column); a cell with several paragraphs gives one segment per paragraph (`paragraph`).
+  - `table_cell`: each non-empty cell of a source table row that a rendered claim cites (`row` is the row index, `col` the column); a cell with several paragraphs gives one segment per paragraph (`paragraph`). A row a reviewer **edited** in the migration (the claim's text is not the unit's, with as many `|`-separated parts as the row has cells) is shown by the renderer from the claim, so it is one `claim` segment with its `|` separators instead (T6).
   - `table_header`: the header cells of each source table **once**, located on the first cited row unit of that table; the translation applies to every row unit of the table.
   - `xref`: each resolved reference phrase (`AssembledDocument.refs[ref_index]`); the new number shown in it is `⟦1⟧`.
   - `template_text`: each body paragraph that the renderer did **not** build from the drafts or the source rows: section headings, retained instruction labels, callout labels, template table headers, conditional text that stays, the table of contents' title. Left out: the cover page, the table of contents' entries (rebuilt from the translated headings) and paragraphs without a letter.
@@ -85,6 +87,7 @@ Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATI
   | `EMPTY` | critical | structure | no translation |
   | `REF_TOKENS` | critical | cross_reference | the `{{ref:}}` tokens differ from the English (lost, added or changed) |
   | `TAGS` | critical | formatting | the `⟦k⟧` markers differ, or pairs are unbalanced or cross (their order may change) |
+  | `CELLS` | critical | structure | an English text with `\|` cell separators (an edited table row) has a different number of them (T6) |
   | `NUMBERS` | critical, gate `numerical_change` | preservation | a number of the English is missing |
   | `REFERENCES` | critical, gate `numerical_change` | preservation | a document ID, e-mail or URL of the English is missing |
   | `GLOSSARY-<n>` | high | terminology | a glossary term the English uses is not translated with its target term (`n`: the entry's place) |
@@ -98,6 +101,29 @@ Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATI
   Numbers are compared language-neutrally: digit runs, a separator before exactly three digits is a thousands separator (`1,000` = `1.000` = `1 000`), any other separator splits (`1.5` and `1,5` both give 1 and 5); digits inside a name (`E2E`) are not numbers; full-width digits count. `COPIED` segments are not checked.
 - **Repair:** a segment with an open issue of medium or worse, translated by the LLM or not translated at all, goes to REPAIRING **once**: one retranslation with its previous translation and the problems. It becomes `origin: repair` (so it is never repaired again), keeping the new text unless that checks worse than the previous one. A segment that still fails stays open for the reviewer. Human edits (`origin: human`, T7) are checked but never repaired.
 - **Integrity:** every segment of the `SegmentSet` is in exactly one `TranslationSet`, with its English text and locator (`translator.merged`); anything else fails the stage.
+
+## Translated render (Phase T6)
+
+Built in `app/services/translation/render.py`, the RENDERING stage and `template_text.apply_hook` / `decode_into`.
+
+- **One render, the English one's:** the same `render_document` call as PREPARING's (final mode, the job's snapshot of template, slot plan, accepted gaps and number map), on translated inputs:
+
+  | Segments | Translated input |
+  |---|---|
+  | `claim` | a copy of the drafts with each claim's translation (`{{ref:}}` tokens kept) |
+  | `table_cell`, `table_header` | a copy of the source model: cells (a paragraph of a multi-paragraph cell, then `text` re-joined) and headers (applied to every row unit of the table); `unit.text` stays English, so an unedited row is still taken from its cells. A header that was only its rows' text joined is joined again from the translated cells (the renderer drops such a header row). |
+  | `xref` | a copy of the assembled document: the phrase translated, the new number in place of `⟦1⟧` (`number_at` moved), still a REF field |
+  | `template_text` | `apply_hook` at the harvest point (before the TOC is rebuilt, so it lists the translated headings) |
+
+- **Template text:** every paragraph is first found by its block path and checked against its English (`encode_paragraph(p).tagged == source_text`), then rebuilt (`decode_into`): `pPr` and bookmarks kept, text under `⟦k⟧…⟦/k⟧` in that group's formatting, other text plain, each standalone `⟦k⟧` put back as the object it was. A marker that is unknown, or an object lost or doubled, leaves the paragraph in English.
+- **Fallback:** a segment with no translation (or only markers), a cross-reference whose `⟦1⟧` is lost or doubled, or a template paragraph that is not where its segment says, is shown in **English**, with a render warning naming the segment; its QA issue stays open for the reviewer.
+- **Before the document is saved** (`render_document(..., finish=)`):
+  - with a language template: `apply_front_matter` with the job's `front_matter` snapshot; the post-render check then compares the first page, headers and footers with it (`front_matter_problems`, passed as `header_check`) instead of the English template's headers and footers;
+  - without one: the English first page, headers and footers stay, compared byte for byte with the English template as in a migration;
+  - `set_language`: every `w:lang` of the body (the first page left out), the styles and `themeFontLang` gets the language's Word code, and the document defaults get one; Chinese and Japanese also get `w:eastAsia`. Header and footer parts are never touched;
+  - Chinese and Japanese: the East Asian font is the language template's (its defaults or Normal style), else `translation_east_asia_fonts` (`zh-CN`: Microsoft YaHei, `ja-JP`: Yu Gothic). It is set in the defaults and wherever a style or a body run names an East Asian font (`eastAsiaTheme` removed).
+- **Artifacts:** `docx[translated]` (saved even when the post-render check has problems, so the reviewer sees them) and `render_report[translated]`. The render warnings leave out the "source column … is under template column …" ones (translated source headers against the English template's). Events: `render` (segments written per kind, those kept in English, TOC, front matter, East Asian font, problems) and `render_problems`.
+- **Status:** the job goes to REVIEW_PENDING; approval waits for a render without problems (T7).
 
 ## Changing a contract
 

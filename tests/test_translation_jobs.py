@@ -257,7 +257,7 @@ def test_api_serves_the_translations_and_their_checks(api):
     client, base = api.client, "/api/v1/translations"
     created = client.post(base, json={"migration_job_id": api.migration.job_id, "languages": [{"language": "de-DE"}]})
     job = created.json()[0]
-    assert _wait_status(client, job["job_id"], "RENDERING")["status"] == "RENDERING"
+    assert _wait_status(client, job["job_id"], "REVIEW_PENDING")["status"] == "REVIEW_PENDING"
 
     segments = client.get(f"{base}/{job['job_id']}/segments", params={"section": "TGT-3"}).json()["segments"]
     assert segments and all(s["target_text"] in (f"DE {s['source_text']}", s["source_text"]) for s in segments)

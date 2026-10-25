@@ -3,7 +3,8 @@
 Per segment (issue id ``TQ-<segment>-<code>``, so a reviewer's resolution carries over to the next round):
 
 - CRITICAL: ``EMPTY`` (no translation), ``REF_TOKENS`` (a ``{{ref:...}}`` token lost, added or changed), ``TAGS``
-  (the ``⟦k⟧`` markers differ from the source's, or pairs are unbalanced or cross; their order may change);
+  (the ``⟦k⟧`` markers differ from the source's, or pairs are unbalanced or cross; their order may change),
+  ``CELLS`` (an English text with ``|`` cell separators, e.g. an edited table row, has a different number of them);
 - CRITICAL with the ``NUMERICAL_CHANGE`` gate: ``NUMBERS`` (a number of the source is missing) and ``REFERENCES``
   (a document ID, e-mail address or URL of the source is missing);
 - HIGH, only with a glossary: ``GLOSSARY-<n>`` (a term the source uses is not translated with its target term) and
@@ -183,6 +184,9 @@ def check_segment(segment: Segment, language: LanguageCode | str, glossary: Opti
     tags = tag_problems(source, target)
     if tags:
         add("TAGS", Severity.CRITICAL, IssueCategory.FORMATTING, "; ".join(tags))
+    if "|" in source and source.count("|") != target.count("|"):
+        add("CELLS", Severity.CRITICAL, IssueCategory.STRUCTURE,
+            f"{source.count('|')} table cell separator(s) '|' in the English, {target.count('|')} in the translation")
 
     lost_refs = sorted(references(source) - references(target))
     if lost_refs:

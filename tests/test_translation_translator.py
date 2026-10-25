@@ -199,11 +199,11 @@ def _events(env, job_id) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_a_job_is_translated_checked_and_waits_at_rendering(tpl, tmp_path):  # noqa: F811
+async def test_a_job_is_translated_checked_and_rendered(tpl, tmp_path):  # noqa: F811
     chain = FakeChain(translating())
     env = _env(tmp_path, tpl, FakeFactory(TranslatorOutput=chain))
     job = await env.orch.wait(env.orch.create(env.migration.job_id, "fr-FR").job_id)
-    assert job.status == TranslationStatus.RENDERING, job.error
+    assert job.status == TranslationStatus.REVIEW_PENDING, job.error
 
     segment_set = env.orch.artifacts.latest(job, ArtifactKind.SEGMENTS, SegmentSet)
     assert {a.scope for a in job.artifacts if a.kind == ArtifactKind.TRANSLATION} == set(segment_set.scopes)
@@ -233,11 +233,11 @@ async def test_a_job_is_translated_checked_and_waits_at_rendering(tpl, tmp_path)
     translator = next(e["detail"] for e in events if e["event"] == "translator")
     assert translator["missing"] == 0 and translator["copied"] == len({s.source_text for s in copied})
 
-    # A job waiting at RENDERING can be cancelled and checked again.
+    # A job in review can be cancelled and checked again.
     env.orch.cancel(job.job_id, None)
     env.orch.retry(job.job_id, TranslationStatus.CHECKING, "reviewer")
     job = await env.orch.wait(job.job_id)
-    assert job.status == TranslationStatus.RENDERING
+    assert job.status == TranslationStatus.REVIEW_PENDING
     assert env.orch.artifacts.latest(job, ArtifactKind.QUALITY_REPORT, QualityReport, "translation").version == 2
 
 
@@ -252,7 +252,7 @@ async def test_a_lost_reference_token_is_repaired_once(tpl, tmp_path):  # noqa: 
 
     env = _env(tmp_path, tpl, FakeFactory(TranslatorOutput=FakeChain(translating(transform))))
     job = await env.orch.wait(env.orch.create(env.migration.job_id, "fr-FR").job_id)
-    assert job.status == TranslationStatus.RENDERING, job.error
+    assert job.status == TranslationStatus.REVIEW_PENDING, job.error
     fixed = _with_token(env, job)
     assert fixed and all(s.origin == SegmentOrigin.REPAIR and s.target_text == f"FR {s.source_text}" for s in fixed)
     assert all(s.origin != SegmentOrigin.REPAIR for s in _current(env, job).segments if s not in fixed)
@@ -276,7 +276,7 @@ async def test_a_segment_that_fails_again_is_left_open_without_a_third_round(tpl
     drop = lambda key, text, repair: f"FR {REF_TOKEN_PATTERN.sub('', text)}"  # noqa: E731
     env = _env(tmp_path, tpl, FakeFactory(TranslatorOutput=FakeChain(translating(drop))))
     job = await env.orch.wait(env.orch.create(env.migration.job_id, "fr-FR").job_id)
-    assert job.status == TranslationStatus.RENDERING
+    assert job.status == TranslationStatus.REVIEW_PENDING
     assert all(s.origin == SegmentOrigin.REPAIR for s in _with_token(env, job))
     names = [e["event"] for e in _events(env, job.job_id)]
     assert names.count("checks") == 2 and names.count("repair") == 1
@@ -293,7 +293,7 @@ async def test_a_worse_repair_keeps_the_previous_translation(tpl, tmp_path):  # 
 
     env = _env(tmp_path, tpl, FakeFactory(TranslatorOutput=FakeChain(translating(transform))))
     job = await env.orch.wait(env.orch.create(env.migration.job_id, "fr-FR").job_id)
-    assert job.status == TranslationStatus.RENDERING
+    assert job.status == TranslationStatus.REVIEW_PENDING
     kept = _with_token(env, job)
     assert kept and all(s.origin == SegmentOrigin.REPAIR and s.target_text == s.source_text for s in kept)
     repair = next(e["detail"] for e in _events(env, job.job_id) if e["event"] == "repair")

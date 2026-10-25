@@ -75,7 +75,7 @@ Repeated source strings are translated once per job. Template text is collected 
   - copies any style the cover or headers use that is missing (by `styleId`);
   - adds the language header and footer parts and rewires each `sectPr`'s header and footer references by type (default, first, even);
   - drops the English header and footer parts.
-- **Verify:** `render/verify.py:144-151` compares headers and footers byte-for-byte with the template. A new `expected_header_source` parameter makes it compare a translated render against the **language template's** parts instead.
+- **Verify:** `render/verify.py:144-151` compares headers and footers byte-for-byte with the template. As built in T6, a `header_check` callable (`front_matter_problems` with the job's package) replaces that comparison for a translated render with a language template; `render_document(..., finish=)` swaps the front matter and sets the language before the document is saved.
 
 ### Language identity (built-in, `translation/languages.py`)
 
@@ -120,7 +120,7 @@ Repeated source strings are translated once per job. Template text is collected 
 - **Blocking:**
   - empty translation;
   - a `{{ref:}}` token, number placeholder or run tag lost or changed;
-  - table cell count changed (this cannot happen by construction, but it is asserted).
+  - table cell count changed (as built in T6: `CELLS`, the `|` separators of an edited table row, which is one `claim` segment).
 - **Gate (`NUMERICAL_CHANGE`):** language-neutral protected values differ. As built in T5: document IDs, emails and URLs with `quality/facts.py:extract_values` (kind `REFERENCE`); numbers as digit runs, not `extract_values`' other kinds, whose normalized forms carry English words ("2 day") a translation cannot match. A separator before exactly three digits is a thousands separator and any other separator splits a number, so `1.5`/`1,5`, `1,000`/`1.000`/`1 000` and dates written either way match. English-only kinds (number words, month names, modal verbs) are excluded; a number the translation adds is LOW.
 - **High:** a glossary target is missing, or a `do_not_translate` term was altered.
 - **Warning:**
@@ -158,7 +158,8 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `GET /{id}/validation` (built in T5: the latest `quality_report[translation]`; 404 `NO_VALIDATION` before CHECKING)
   - `POST /{id}/issues/{iid}/resolve`
   - `POST /{id}/approve`
-  - `GET /{id}/export/preview`
+  - `GET /{id}/export/preview` (built in T6: the latest `docx[translated]`, inline; 404 `NO_RENDER` before RENDERING, 409 `JOB_RUNNING`)
+  - `GET /{id}/render-report` (built in T6: the latest `render_report[translated]`; 404 `NO_RENDER`)
   - `GET /{id}/export/word` (only once approved; recorded as an event)
 - **Retire** the `review.py` translation stub and the dead `/translations` vite proxy target.
 
