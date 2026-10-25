@@ -1,0 +1,61 @@
+{
+  "job_id": "TRN-20261025-1A2B3C4D",
+  "version": 1,
+  "issues": [
+    {
+      "issue_id": "TQ-SEG-0001-REF_TOKENS",
+      "severity": "critical",
+      "category": "cross_reference",
+      "source": "deterministic",
+      "gate": null,
+      "target_section_id": "TGT-3",
+      "slot_id": "TGT-3-S1",
+      "claim_ids": [
+        "CLM-0012"
+      ],
+      "unit_ids": [],
+      "segment_ids": [
+        "SEG-0001"
+      ],
+      "message": "SEG-0001: reference tokens changed: lost {{ref:SRC-7.1}}",
+      "resolved": false,
+      "resolution_note": null
+    },
+    {
+      "issue_id": "TQ-SEG-0001-GLOSSARY-1",
+      "severity": "high",
+      "category": "terminology",
+      "source": "deterministic",
+      "gate": null,
+      "target_section_id": "TGT-3",
+      "slot_id": "TGT-3-S1",
+      "claim_ids": [
+        "CLM-0012"
+      ],
+      "unit_ids": [],
+      "segment_ids": [
+        "SEG-0001"
+      ],
+      "message": "SEG-0001: glossary: \"batch record\" must be translated as \"Chargenprotokoll\"",
+      "resolved": false,
+      "resolution_note": null
+    }
+  ],
+  "unit_coverage": 1.0,
+  "soft_scores": {
+    "translated": 0.6667,
+    "copied": 0.3333,
+    "repaired": 0.0
+  },
+  "high_risk_units": {},
+  "gate_counts": {
+    "unsupported_claim": 0,
+    "numerical_change": 0,
+    "missing_section": 0,
+    "missing_slot": 0,
+    "broken_cross_reference": 0,
+    "unaccounted_source": 0,
+    "high_risk_unresolved": 0,
+    "sequence_violation": 0
+  }
+}

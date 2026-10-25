@@ -16,6 +16,7 @@ from app.schemas.v2 import (
     Glossary,
     GlossaryEntry,
     LanguageCode,
+    QualityReport,
     Segment,
     SegmentKind,
     SegmentSet,
@@ -33,6 +34,7 @@ EXAMPLE_MODELS = {
     "segment_set.json": SegmentSet,
     "translation_job.json": TranslationJob,
     "front_matter_report.json": FrontMatterReport,
+    "translation_quality_report.json": QualityReport,
 }
 
 

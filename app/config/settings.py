@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     language_template_dir: Path = Path("data/language_templates")  # extracted front matter and previews
     language_template_upload_dir: Path = Path("data/language_templates/uploads")
     language_template_allowed_extensions: list[str] = [".docx"]
+    translator_block_tokens: int = 1500    # source tokens per translation call
+    translator_memory_tokens: int = 600    # cap on the "already translated" pairs (headings, labels) sent per call
+    translation_length_min_chars: int = 20  # the length check skips shorter source texts
+    # translated / source characters outside these bounds is a LOW issue (loose on purpose)
+    translation_length_bounds: dict[str, tuple[float, float]] = {
+        "de-DE": (0.8, 2.0), "fr-FR": (0.8, 1.8), "it-IT": (0.8, 1.8), "es-ES": (0.8, 1.8), "pt-BR": (0.8, 1.8),
+        "el-GR": (0.8, 2.0), "zh-CN": (0.1, 1.0), "ja-JP": (0.12, 1.2),
+    }
 
     # --- Migration v2 jobs ---
     migration_v2_dir: Path = Path("data/migrations")  # data/migrations/{job_id}/{kind}_v{n}.json

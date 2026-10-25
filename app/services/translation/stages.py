@@ -4,7 +4,9 @@ A stage receives a ``TranslationStageContext`` and may return a status to go to 
 A stage must be safe to re-run: after a crash or a retry it runs again and writes the next artifact versions.
 
 PREPARING (Phase T4) snapshots the completed migration's English final document into the job and cuts it into
-segments. TRANSLATING, CHECKING, REPAIRING (T5) and RENDERING (T6) come later; until then a job waits at TRANSLATING.
+segments. TRANSLATING translates them (one ``translation[<scope>]`` per scope), CHECKING runs the QA checks
+(``quality_report[translation]``) and sends the failing segments to REPAIRING once (Phase T5). RENDERING comes in
+T6; until then a job waits there.
 """
 
 from __future__ import annotations
@@ -13,17 +15,31 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
-from app.schemas.v2 import ArtifactKind, SegmentSet, TranslationJob, TranslationStatus
+from app.schemas.v2 import (
+    ArtifactKind,
+    Glossary,
+    QualityReport,
+    SectionDraft,
+    SegmentOrigin,
+    SegmentSet,
+    TemplateModel,
+    TranslationJob,
+    TranslationSet,
+    TranslationStatus,
+)
 from app.services.migration_v2.artifacts import ArtifactWriter
 from app.services.migration_v2.export import EXPORTABLE, ExportBlocked, render_final
 
 from . import glossary_service
+from .checks import check_segment, check_translations, copy_only, needs_repair, repair_candidates, worst
 from .languages import get_language
 from .segments import build_segments
 from .template_text import harvest_hook
+from .translator import Translator, build_sets, group_of, group_segments, merged, repair_all, translate_all
 
 SYSTEM_ACTOR = "system"
 ENGLISH = "english"  # scope of the English final document's snapshot artifacts
+CHECKS = "translation"  # scope of the QA checks' quality_report
 
 
 @dataclass
@@ -166,5 +182,162 @@ async def preparing(ctx: TranslationStageContext) -> None:
     })
 
 
+# ── TRANSLATING, CHECKING, REPAIRING (Phase T5) ───────────────────────
+
+
+def _setting(ctx: TranslationStageContext, name: str, default):
+    return getattr(ctx.settings, name, default) if ctx.settings is not None else default
+
+
+def _job_glossary(ctx: TranslationStageContext) -> Optional[Glossary]:
+    """The job's snapshot of its glossary (None for a job without one: free translation)."""
+    return ctx.require(ArtifactKind.GLOSSARY, Glossary) if ctx.job.glossary_id else None
+
+
+def _drafts(ctx: TranslationStageContext, segment_set: SegmentSet) -> list[SectionDraft]:
+    drafts = [ctx.latest(ArtifactKind.SECTION_DRAFT, SectionDraft, s) for s in segment_set.draft_versions]
+    return [d for d in drafts if d is not None]
+
+
+def _translator(ctx: TranslationStageContext, groups, glossary: Optional[Glossary]) -> Translator:
+    template = ctx.latest(ArtifactKind.TEMPLATE_MODEL, TemplateModel)
+    titles = {s.section_id: s.heading for s in template.sections} if template else {}
+    return Translator(ctx.job.language, groups, glossary, titles, _setting(ctx, "translator_memory_tokens", 600))
+
+
+def _model(ctx: TranslationStageContext) -> Optional[str]:
+    factory = ctx.chain_factory
+    return factory.planner_label() if factory is not None and hasattr(factory, "planner_label") else None
+
+
+def _need_llm(ctx: TranslationStageContext) -> None:
+    if ctx.chain_factory is None:
+        raise RuntimeError("no LLM is configured; a translation needs one")
+
+
+def current_segments(ctx: TranslationStageContext, segment_set: SegmentSet) -> SegmentSet:
+    """The segments with their latest translations."""
+    sets = [ctx.latest(ArtifactKind.TRANSLATION, TranslationSet, scope) for scope in segment_set.scopes]
+    return merged(segment_set, [s for s in sets if s is not None])
+
+
+async def translating(ctx: TranslationStageContext) -> None:
+    """Translate every distinct text once (copy those with nothing to translate) and write every scope's set."""
+    _need_llm(ctx)
+    segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
+    glossary = _job_glossary(ctx)
+    groups = group_segments(segment_set.segments, _drafts(ctx, segment_set))
+    copied = [g for g in groups if copy_only(g.source_text, glossary)]
+    todo = [g for g in groups if g not in copied]
+    translator = _translator(ctx, groups, glossary)
+    run = await translate_all(translator, todo, ctx.chain_factory, ctx.rate_limiter,
+                              _setting(ctx, "translator_block_tokens", 1500), _setting(ctx, "llm_max_concurrent", 3))
+    if todo and run.all_failed:
+        raise RuntimeError(f"every translation call failed ({run.failed_calls}); see the llm_call events")
+
+    targets: dict[str, tuple[Optional[str], Optional[SegmentOrigin]]] = {}
+    for group in copied:
+        targets.update({sid: (group.source_text, SegmentOrigin.COPIED) for sid in group.segment_ids})
+    for group in todo:
+        text = run.targets.get(group.key)
+        targets.update({sid: (text, SegmentOrigin.LLM if text is not None else None) for sid in group.segment_ids})
+    versions = {scope: ctx.next_version(ArtifactKind.TRANSLATION, scope) for scope in segment_set.scopes}
+    for translation_set in build_sets(ctx.job, segment_set.segments, targets, versions, _model(ctx)):
+        ctx.write(ArtifactKind.TRANSLATION, translation_set, scope=translation_set.scope)
+    ctx.event("translator", {
+        "segments": len(segment_set.segments), "groups": len(groups), "copied": len(copied),
+        "translated": len(run.targets), "missing": len(todo) - len(run.targets), "blocks": run.blocks,
+        "calls": run.calls, "failed_calls": run.failed_calls, "left_out": run.left_out, "memory_pairs": run.memory_pairs,
+        "glossary_terms_used": len(run.glossary_terms), "usage": run.usage,
+    })
+
+
+async def checking(ctx: TranslationStageContext) -> Optional[TranslationStatus]:
+    """The QA checks on every segment; segments with a repairable issue go to REPAIRING once."""
+    segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
+    current = current_segments(ctx, segment_set)
+    previous = ctx.latest(ArtifactKind.QUALITY_REPORT, QualityReport, CHECKS)
+    report = check_translations(ctx.job.job_id, ctx.next_version(ArtifactKind.QUALITY_REPORT, CHECKS),
+                                current.segments, ctx.job.language, _job_glossary(ctx), ctx.settings, previous)
+    ctx.write(ArtifactKind.QUALITY_REPORT, report, scope=CHECKS)
+    repair = repair_candidates(current.segments, report)
+    open_issues = [i for i in report.issues if not i.resolved]
+    severities: dict[str, int] = {}
+    for issue in open_issues:
+        severities[issue.severity.value] = severities.get(issue.severity.value, 0) + 1
+    ctx.event("checks", {
+        "round": report.version, "issues": len(report.issues), "open": len(open_issues), "by_severity": severities,
+        "gate_issues": len(report.open_gate_issues), "coverage": report.unit_coverage,
+        "repair": len(repair), "repair_ids": repair[:50],
+    })
+    return TranslationStatus.REPAIRING if repair else None
+
+
+async def repairing(ctx: TranslationStageContext) -> None:
+    """Retranslate the segments the last check sent to repair, once, with their problems as feedback.
+
+    Each segment it touches becomes ``origin=repair`` (so it is never repaired again); its text is the new answer
+    unless that one checks worse than the previous translation, which is then kept.
+    """
+    _need_llm(ctx)
+    segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
+    report = ctx.require(ArtifactKind.QUALITY_REPORT, QualityReport, CHECKS)
+    current = current_segments(ctx, segment_set)
+    wanted = set(repair_candidates(current.segments, report))
+    if not wanted:
+        return
+    glossary = _job_glossary(ctx)
+    segments = {s.segment_id: s for s in current.segments}
+    groups = group_segments(current.segments, _drafts(ctx, segment_set))
+    by_segment = group_of(groups)
+    repair_groups = [g for g in groups if wanted & set(g.segment_ids)]
+    problems: dict[str, list[str]] = {}
+    for issue in report.issues:
+        for sid in issue.segment_ids:
+            if sid in wanted and needs_repair(issue):
+                found = problems.setdefault(by_segment[sid].key, [])
+                message = issue.message.split(": ", 1)[-1]  # without the "SEG-…: " prefix
+                if message not in found:
+                    found.append(message)
+    first = {g.key: next(s for s in g.segment_ids if s in wanted) for g in repair_groups}
+    previous = {key: segments[sid].target_text for key, sid in first.items()}
+
+    translator = _translator(ctx, groups, glossary)
+    translator.remember((g.source_text, segments[g.key].target_text) for g in groups
+                        if g.wave == 1 and segments[g.key].origin not in (None, SegmentOrigin.COPIED)
+                        and segments[g.key].target_text is not None)
+    run = await repair_all(translator, repair_groups, previous, problems, ctx.chain_factory, ctx.rate_limiter,
+                           _setting(ctx, "translator_block_tokens", 1500), _setting(ctx, "llm_max_concurrent", 3))
+
+    targets: dict[str, tuple[Optional[str], Optional[SegmentOrigin]]] = {}
+    improved = kept = 0
+    for group in repair_groups:
+        text, answer = previous[group.key], run.targets.get(group.key)
+        if answer is not None:
+            sample = segments[first[group.key]]
+            before = check_segment(sample, ctx.job.language, glossary, ctx.settings)
+            after = check_segment(sample.model_copy(update={"target_text": answer, "origin": SegmentOrigin.REPAIR}),
+                                  ctx.job.language, glossary, ctx.settings)
+            if worst(after) <= worst(before):
+                text, improved = answer, improved + 1
+            else:
+                kept += 1
+        targets.update({sid: (text, SegmentOrigin.REPAIR) for sid in group.segment_ids if sid in wanted})
+    scopes = list(dict.fromkeys(segments[sid].scope for sid in targets))
+    versions = {scope: ctx.next_version(ArtifactKind.TRANSLATION, scope) for scope in scopes}
+    for translation_set in build_sets(ctx.job, current.segments, targets, versions, _model(ctx)):
+        ctx.write(ArtifactKind.TRANSLATION, translation_set, scope=translation_set.scope)
+    ctx.event("repair", {
+        "segments": len(targets), "groups": len(repair_groups), "answered": len(run.targets), "improved": improved,
+        "kept_previous": kept, "calls": run.calls, "failed_calls": run.failed_calls, "scopes": scopes,
+        "usage": run.usage,
+    })
+
+
 def default_stages() -> dict[TranslationStatus, Stage]:
-    return {TranslationStatus.PREPARING: preparing}
+    return {
+        TranslationStatus.PREPARING: preparing,
+        TranslationStatus.TRANSLATING: translating,
+        TranslationStatus.CHECKING: checking,
+        TranslationStatus.REPAIRING: repairing,
+    }

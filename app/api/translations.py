@@ -6,7 +6,7 @@ Both resources are per language and optional on a translation job:
   English front matter is kept.
 
 A translation job (Phase T4) is one language of a completed migration; ``POST /translations`` starts one per
-language.
+language. Its segments carry their translations once translated, and ``/validation`` serves the QA checks (T5).
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ from app.api.auth import require_user
 from app.config.settings import Settings, get_settings
 from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.schemas.auth import ApiFieldError
-from app.schemas.v2 import ArtifactKind, SegmentSet, TranslationJob, TranslationStatus
+from app.schemas.v2 import ArtifactKind, QualityReport, SegmentSet, TranslationJob, TranslationSet, TranslationStatus
 from app.schemas.v2.translation import GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.services.migration_v2.artifacts import ArtifactCorrupted
@@ -30,6 +30,8 @@ from app.services.translation import glossary_service, job_service, language_tem
 from app.services.translation.glossary import GlossaryInvalid, parse_glossary_file, to_csv, to_xlsx
 from app.services.translation.languages import LANGUAGES, get_language
 from app.services.translation.orchestrator import TranslationOrchestrator
+from app.services.translation.stages import CHECKS
+from app.services.translation.translator import merged
 from app.stores.glossary_store import GlossaryStore
 from app.stores.language_template_store import LanguageTemplateStore
 
@@ -471,11 +473,15 @@ async def get_translation_audit(request: Request, job_id: str = PathParam(..., p
 @router.get("/{job_id}/segments")
 async def get_segments(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
                        section: Optional[str] = None):
-    """The English document's segments; ``section`` is a target section id, ``xrefs`` or ``template``."""
+    """The document's segments with their latest translations (once translated); ``section`` is a target section
+    id, ``xrefs`` or ``template``."""
     orch = _orchestrator(request)
     job = _job(orch, job_id)
     try:
         segments = orch.artifacts.latest(job, ArtifactKind.SEGMENTS, SegmentSet)
+        if segments is not None:
+            sets = [orch.artifacts.latest(job, ArtifactKind.TRANSLATION, TranslationSet, s) for s in segments.scopes]
+            segments = merged(segments, [s for s in sets if s is not None])
     except ArtifactCorrupted as exc:
         raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
     if segments is None:
@@ -486,3 +492,17 @@ async def get_segments(request: Request, job_id: str = PathParam(..., pattern=_J
     data["counts"] = segments.counts
     data["scopes"] = segments.scopes
     return data
+
+
+@router.get("/{job_id}/validation")
+async def get_validation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    """The latest QA checks of the translation (``quality_report[translation]``)."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    try:
+        report = orch.artifacts.latest(job, ArtifactKind.QUALITY_REPORT, QualityReport, CHECKS)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    if report is None:
+        raise NotFoundError(f"Job '{job_id}' has not been checked yet", code="NO_VALIDATION")
+    return report.to_clean_dict()

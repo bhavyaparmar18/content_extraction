@@ -6,7 +6,7 @@ The happy path:
 
 All state lives in the ``TranslationStore``: ``resume_incomplete`` re-queues every job that was mid-stage, and that
 stage runs again. Each job runs in its own asyncio task behind a semaphore; cancellation is cooperative and takes
-effect between stages. A status without a stage (TRANSLATING until Phase T5) leaves the job waiting there.
+effect between stages. A status without a stage (RENDERING until Phase T6) leaves the job waiting there.
 """
 
 from __future__ import annotations
@@ -44,9 +44,12 @@ WORK_STAGES: tuple[TranslationStatus, ...] = (
 WAITING_FOR_HUMAN = frozenset({TranslationStatus.REVIEW_PENDING})
 RUNNABLE = (TranslationStatus.PENDING, *WORK_STAGES)
 
-# Artifacts a stage needs; a retry from that stage is refused without them.
+# Artifacts a stage needs (of any scope); a retry from that stage is refused without them.
 STAGE_REQUIRES: dict[TranslationStatus, tuple[ArtifactKind, ...]] = {
-    status: (ArtifactKind.SEGMENTS,) for status in WORK_STAGES if status != TranslationStatus.PREPARING
+    TranslationStatus.TRANSLATING: (ArtifactKind.SEGMENTS,),
+    TranslationStatus.CHECKING: (ArtifactKind.SEGMENTS, ArtifactKind.TRANSLATION),
+    TranslationStatus.REPAIRING: (ArtifactKind.SEGMENTS, ArtifactKind.TRANSLATION, ArtifactKind.QUALITY_REPORT),
+    TranslationStatus.RENDERING: (ArtifactKind.SEGMENTS, ArtifactKind.TRANSLATION),
 }
 RETRYABLE_FROM = frozenset(
     {TranslationStatus.FAILED_TECHNICAL, TranslationStatus.CANCELLED, TranslationStatus.REVIEW_PENDING}
@@ -189,7 +192,8 @@ class TranslationOrchestrator:
         if from_stage not in WORK_STAGES:
             raise JobStateError("INVALID_STAGE",
                                 f"{from_stage.value} is not a stage; use one of {[s.value for s in WORK_STAGES]}")
-        missing = [k.value for k in STAGE_REQUIRES.get(from_stage, ()) if job.latest_artifact(k) is None]
+        have = {a.kind for a in job.artifacts}
+        missing = [k.value for k in STAGE_REQUIRES.get(from_stage, ()) if k not in have]
         if missing:
             raise JobStateError("MISSING_ARTIFACTS", f"Cannot start at {from_stage.value}: no {', '.join(missing)} yet")
         self.store.update_job(job_id, error=None, failed_stage=None, cancel_requested=0)
@@ -218,7 +222,7 @@ class TranslationOrchestrator:
                     continue
 
                 stage = self.stages.get(status)
-                if stage is None:  # not built yet (TRANSLATING until T5): the job waits here
+                if stage is None:  # not built yet (RENDERING until T6): the job waits here
                     return
                 ctx = TranslationStageContext(
                     job=job, store=self.store, artifacts=self.artifacts, migrations=self.migrations,

@@ -105,7 +105,7 @@ Repeated source strings are translated once per job. Template text is collected 
 - **Stages:**
   1. `PENDING`
   2. `PREPARING`: the migration must be COMPLETED or COMPLETED_WITH_WARNINGS. Snapshot the English drafts, source, number map, assembly and accepted gaps; snapshot the glossary and front matter; produce the `segments` artifact.
-  3. `TRANSLATING`: blocks packed with `planning/budget.py:pack`, run concurrently behind `llm_max_concurrent`, with a bounded memory of the previous segments.
+  3. `TRANSLATING`: blocks packed with `planning/budget.py:pack`, run concurrently behind `llm_max_concurrent`, with a bounded memory of the previous segments (as built in T5: two waves; the short translations of the template text, table headers and cross-reference phrases are the memory of the section texts). Without an LLM the job fails technically: there is nothing to fall back on.
   4. `CHECKING` ⇄ `REPAIRING`: one retranslation with the issue as feedback. A segment that still fails is left for the reviewer.
   5. `RENDERING`: final mode, then the language front matter (skipped when the job has no language template), then verify.
   6. `REVIEW_PENDING`
@@ -121,14 +121,14 @@ Repeated source strings are translated once per job. Template text is collected 
   - empty translation;
   - a `{{ref:}}` token, number placeholder or run tag lost or changed;
   - table cell count changed (this cannot happen by construction, but it is asserted).
-- **Gate (`NUMERICAL_CHANGE`):** language-neutral protected values differ. These are found with `quality/facts.py:extract_values` restricted to neutral kinds: document IDs, emails, URLs, digits with units or %, ISO and numeric dates, times. English-only kinds (number words, month names, modal verbs) are excluded.
+- **Gate (`NUMERICAL_CHANGE`):** language-neutral protected values differ. As built in T5: document IDs, emails and URLs with `quality/facts.py:extract_values` (kind `REFERENCE`); numbers as digit runs, not `extract_values`' other kinds, whose normalized forms carry English words ("2 day") a translation cannot match. A separator before exactly three digits is a thousands separator and any other separator splits a number, so `1.5`/`1,5`, `1,000`/`1.000`/`1 000` and dates written either way match. English-only kinds (number words, month names, modal verbs) are excluded; a number the translation adds is LOW.
 - **High:** a glossary target is missing, or a `do_not_translate` term was altered.
 - **Warning:**
   - text identical to the source (when it has letters and is not on the glossary's do-not-translate list);
   - for Chinese, Japanese and Greek, mostly Latin script;
   - length ratio outside the per-language bounds (in settings).
 
-Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the frontend issue components can be reused.
+Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the frontend issue components can be reused. As built in T5, issues carry `segment_ids`, and the codes, severities and the repair rule are in `CONTRACTS.md`: the warnings are MEDIUM (repaired once) or LOW (shown only).
 
 ### API (`app/api/translations.py`, prefix `/api/v1/translations`)
 
@@ -153,9 +153,9 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `POST /translations {migration_job_id, languages:[{language, glossary_id?, glossary_version?, language_template_id?, language_template_version?}]}`: one job per language; both resources are optional. Without a version, the newest approved glossary or ready language template of that id is used. Every language is checked before any job is created: 404 `MIGRATION_NOT_FOUND`, `GLOSSARY_NOT_FOUND`, `LANGUAGE_TEMPLATE_NOT_FOUND`; 409 `MIGRATION_NOT_COMPLETED`, `GLOSSARY_NOT_APPROVED`, `LANGUAGE_TEMPLATE_NOT_READY`; 422 `NO_LANGUAGES`, `UNSUPPORTED_LANGUAGE`, `DUPLICATE_LANGUAGE`, `…_LANGUAGE_MISMATCH`, `…_ID_REQUIRED`.
   - `GET` list (`?migration_job_id=&language=&status=`)
   - `GET /{id}`, `POST /{id}/cancel`, `POST /{id}/retry?from_stage=`, `GET /{id}/audit`
-  - `GET /{id}/segments?section=` (the `SegmentSet`; `section` is a target section id, `xrefs` or `template`)
+  - `GET /{id}/segments?section=` (the `SegmentSet`, with the latest translations once translated (T5); `section` is a target section id, `xrefs` or `template`)
   - `PATCH /{id}/segments/{segment_id}`
-  - `GET /{id}/validation`
+  - `GET /{id}/validation` (built in T5: the latest `quality_report[translation]`; 404 `NO_VALIDATION` before CHECKING)
   - `POST /{id}/issues/{iid}/resolve`
   - `POST /{id}/approve`
   - `GET /{id}/export/preview`

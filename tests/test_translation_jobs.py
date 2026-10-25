@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import re
 import time
 from types import SimpleNamespace
 
@@ -22,16 +23,20 @@ from app.services.migration_v2.artifacts import ArtifactWriter
 from app.services.migration_v2.orchestrator import JobStateError
 from app.services.translation import glossary_service
 from app.services.translation.orchestrator import TranslationOrchestrator
+from app.services.translation.translator import TranslatedSegment, TranslatorOutput
 from app.stores.glossary_store import GlossaryStore
 from app.stores.language_template_store import LanguageTemplateStore
 from app.stores.translation_store import TranslationStore
 from tests.db_helpers import seed_users
 from tests.test_v2_api_ui import _accept_gap
 from tests.test_v2_assembly import _export_env
+from tests.test_v2_drafter import FakeChain, FakeFactory
 from tests.test_v2_renderer import tpl  # noqa: F401  (fixture)
 
 
-def _env(tmp_path, tpl):  # noqa: F811
+def _env(tmp_path, tpl, factory=None):  # noqa: F811
+    """A completed fixture migration and a translation orchestrator. Without a chain *factory* only PREPARING
+    runs (jobs wait at TRANSLATING, as in T4); with one, TRANSLATING, CHECKING and REPAIRING run too."""
     e = _export_env(tmp_path, tpl)
     migration = _accept_gap(e)  # COMPLETED_WITH_WARNINGS, the gap accepted as N/A
     settings = Settings(project_root=tmp_path)
@@ -41,7 +46,10 @@ def _env(tmp_path, tpl):  # noqa: F811
     glossaries = GlossaryStore(e.store.db_path, settings)
     templates = LanguageTemplateStore(e.store.db_path, settings)
     orch = TranslationOrchestrator(store, ArtifactWriter(tmp_path / "translations", store), e.store, e.writer,
-                                   glossaries, templates, settings)
+                                   glossaries, templates, settings, chain_factory=factory)
+    if factory is None:
+        for status in (TranslationStatus.TRANSLATING, TranslationStatus.CHECKING, TranslationStatus.REPAIRING):
+            orch.stages.pop(status)
     return SimpleNamespace(e=e, migration=migration, settings=settings, store=store, glossaries=glossaries,
                            templates=templates, orch=orch)
 
@@ -57,6 +65,26 @@ def _template(env, tmp_path, language="de-DE", template_id="t-de", status="ready
     path = tmp_path / f"{template_id}_front_matter.docx"
     Document().save(str(path))
     return env.templates.create_record(template_id, "Template", language, front_matter_path=str(path), status=status)
+
+
+# ── A fake translator (also used by test_translation_translator) ──────
+
+_LINE = re.compile(r'^\[(SEG-\d+)\] \(([^)]*)\)(?: \(in: ".*"\))? (.*)$')
+
+
+def asked(prompt: str) -> list[tuple[str, str]]:
+    """(segment id, English text) of each segment a prompt asks for."""
+    body = prompt.split("SEGMENTS\n", 1)[1].split("\n\nREPAIR:", 1)[0]
+    return [(m.group(1), m.group(3)) for line in body.splitlines() if (m := _LINE.match(line))]
+
+
+def translating(transform=lambda key, text, repair: f"FR {text}"):
+    """A translator fake: every asked segment, passed through ``transform(key, text, is_repair)``."""
+    def respond(prompt: str, n: int) -> TranslatorOutput:
+        repair = "REPAIR:" in prompt
+        return TranslatorOutput(translations=[TranslatedSegment(segment_id=k, translation=transform(k, t, repair))
+                                              for k, t in asked(prompt)])
+    return respond
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────
@@ -139,7 +167,7 @@ async def test_cancel_resume_and_retry(tpl, tmp_path):  # noqa: F811
     pending = env.orch.create(env.migration.job_id, "it-IT", submit=False)
     assert env.orch.resume_incomplete() == [pending.job_id]  # PENDING resumes; CANCELLED does not
     assert (await env.orch.wait(pending.job_id)).status == TranslationStatus.TRANSLATING
-    assert env.orch.resume_incomplete() == []  # TRANSLATING has no stage yet: nothing to resume
+    assert env.orch.resume_incomplete() == []  # TRANSLATING has no stage here: nothing to resume
 
     env.orch.retry(cancelled.job_id, None, None)
     assert (await env.orch.wait(cancelled.job_id)).status == TranslationStatus.TRANSLATING
@@ -149,8 +177,8 @@ async def test_cancel_resume_and_retry(tpl, tmp_path):  # noqa: F811
 
 
 @pytest.fixture
-def api(tpl, tmp_path):  # noqa: F811
-    env = _env(tmp_path, tpl)
+def api(tpl, tmp_path, request):  # noqa: F811
+    env = _env(tmp_path, tpl, getattr(request, "param", None))
     seed_users(env.e.store.db_path, "reviewer-1")
     app = FastAPI()
     register_exception_handlers(app)
@@ -201,6 +229,9 @@ def test_api_starts_one_job_per_language_and_serves_its_segments(api, tmp_path):
     assert template and {s["kind"] for s in template} == {"template_text"}
     section = client.get(f"{base}/{de['job_id']}/segments", params={"section": "TGT-3"}).json()["segments"]
     assert {s["kind"] for s in section} == {"table_header", "table_cell"}
+    assert all("target_text" not in s for s in every["segments"])  # not translated yet
+    unchecked = client.get(f"{base}/{de['job_id']}/validation")
+    assert unchecked.status_code == 404 and unchecked.json()["error"]["code"] == "NO_VALIDATION"
     audit = [e["event"] for e in client.get(f"{base}/{de['job_id']}/audit").json()]
     assert audit[0] == "created" and "segments" in audit and "glossary" in audit
 
@@ -215,6 +246,24 @@ def test_api_starts_one_job_per_language_and_serves_its_segments(api, tmp_path):
     assert retried.status_code == 409 and retried.json()["error"]["code"] == "NOT_RETRYABLE"
     cancelled = client.post(f"{base}/{fr['job_id']}/cancel")
     assert cancelled.status_code == 200 and cancelled.json()["status"] == "CANCELLED"
+
+
+def _fake_translator():
+    return FakeFactory(TranslatorOutput=FakeChain(translating(lambda key, text, repair: f"DE {text}")))
+
+
+@pytest.mark.parametrize("api", [_fake_translator()], indirect=True)
+def test_api_serves_the_translations_and_their_checks(api):
+    client, base = api.client, "/api/v1/translations"
+    created = client.post(base, json={"migration_job_id": api.migration.job_id, "languages": [{"language": "de-DE"}]})
+    job = created.json()[0]
+    assert _wait_status(client, job["job_id"], "RENDERING")["status"] == "RENDERING"
+
+    segments = client.get(f"{base}/{job['job_id']}/segments", params={"section": "TGT-3"}).json()["segments"]
+    assert segments and all(s["target_text"] in (f"DE {s['source_text']}", s["source_text"]) for s in segments)
+    assert {s["origin"] for s in segments} <= {"llm", "copied"}
+    report = client.get(f"{base}/{job['job_id']}/validation")
+    assert report.status_code == 200 and report.json()["version"] == 1 and report.json()["unit_coverage"] == 1.0
 
 
 def test_api_refuses_a_request_it_cannot_start(api, tmp_path):

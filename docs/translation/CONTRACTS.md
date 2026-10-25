@@ -12,6 +12,7 @@ The models are in `app/schemas/v2/translation.py` and are exported from `app.sch
 | `TranslationJob`, `TranslationStatus` | One language of one completed migration. | `translation_job.json` |
 | `FrontMatterReport`, `FrontMatterPart`, `CoverEnd` | What was taken from a language template: how its first page ends, the headers and footers of the first page's section and of the first body section, styles, images, and the problems that block marking it ready. | `front_matter_report.json` |
 | `FrontMatterSwap` | What `apply_front_matter` changed in a document (blocks, sections, parts, styles, warnings). | — |
+| `QualityReport`, `ValidationIssue` (from `app/schemas/v2/quality.py`) | The QA checks of a translation: the `quality_report[translation]` artifact. Issues name their segments in `segment_ids`; categories `terminology` and `language` are for translations. | `translation_quality_report.json` |
 
 ## Rules enforced by the models
 
@@ -58,7 +59,7 @@ Built in `app/services/translation/segments.py` and `template_text.py` from the 
 - **Ids** (`SEG-0001`, …) follow the document: each template section in display order, each claim followed by its table's header (the first time), its cells and its references; then the template text in body order.
 - **Block paths** locate a template-text paragraph from the body: each step is a tag and its index among the siblings with the same tag, the WordprocessingML prefix left out (`body/sdt[3]/sdtContent[0]/tbl[0]/tr[1]/tc[0]/p[0]`, `body/p[2]/r[0]/pict[0]/v:shape[0]/v:textbox[0]/txbxContent[0]/p[0]`). They are taken by the renderer's `body_hook` once the slots are filled and the instructions removed, before the slot controls are unwrapped; T6 applies the translations at the same point of the same render.
 - **Formatting tags** in template text: runs are grouped by formatting (`w:lang`, `w:noProof` and revision ids ignored). The formatting with the most characters is plain; each other one is `⟦k⟧…⟦/k⟧` (the same `k` each time it recurs); spaces never open a tag. A tab, break, field, drawing, hyperlink or inline control is a standalone `⟦k⟧`. A paragraph in one formatting has no tags.
-- **Untranslated:** PREPARING leaves every `target_text` empty, even for text without letters; T5 copies those (`origin: copied`) and translates each distinct string once.
+- **Untranslated:** PREPARING leaves every `target_text` empty, even for text without letters; TRANSLATING copies those (`origin: copied`) and translates each distinct string once.
 
 ### What PREPARING snapshots into the job
 
@@ -69,6 +70,34 @@ Built in `app/services/translation/segments.py` and `template_text.py` from the 
 | `glossary` | — | the job's glossary version (only when it names one) |
 | `front_matter` | — | the language template's front-matter package `.docx` (only when it names one) |
 | `segments` | — | the `SegmentSet` |
+
+## Translation, checks and repair (Phase T5)
+
+Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATING, CHECKING and REPAIRING stages; prompt `translator/1` (`app/services/llm/prompts/v2/translator.py`).
+
+- **TRANSLATING** writes `translation[<scope>]` for every scope. Each distinct English text (markers included) is translated once and the answer goes to every segment that shows it. A text with nothing to translate (no letters once markers, `{{ref:}}` tokens, document IDs, e-mails, URLs and do-not-translate terms are removed) is copied (`origin: copied`).
+- **Two waves:** the template text, table headers and cross-reference phrases first; their short translations (six words or fewer, no markers) are then the "already translated in this document" entries of the section texts, sent only to the calls whose texts use them (capped at `translator_memory_tokens`), so headings, labels and the body agree.
+- **Calls:** groups are packed per scope (`planning/budget.pack`, `translator_block_tokens`) and run concurrently (`llm_max_concurrent`). The segments an answer leaves out are asked again once; a failed call is tried once more as two halves. Markers an answer adds that its English does not have are dropped. Without an LLM, or when every call fails, the job fails technically.
+- **CHECKING** writes `quality_report[translation]` (a `QualityReport`; issue id `TQ-<segment>-<code>`, stable, so a reviewer's resolution carries over to the next round):
+
+  | Code | Severity / gate | Category | Rule |
+  |---|---|---|---|
+  | `EMPTY` | critical | structure | no translation |
+  | `REF_TOKENS` | critical | cross_reference | the `{{ref:}}` tokens differ from the English (lost, added or changed) |
+  | `TAGS` | critical | formatting | the `⟦k⟧` markers differ, or pairs are unbalanced or cross (their order may change) |
+  | `NUMBERS` | critical, gate `numerical_change` | preservation | a number of the English is missing |
+  | `REFERENCES` | critical, gate `numerical_change` | preservation | a document ID, e-mail or URL of the English is missing |
+  | `GLOSSARY-<n>` | high | terminology | a glossary term the English uses is not translated with its target term (`n`: the entry's place) |
+  | `DNT-<n>` | high | terminology | a do-not-translate term was altered |
+  | `UNTRANSLATED` | medium (low for one word or only capitalized words, e.g. a name) | language | identical to the English |
+  | `SCRIPT` | medium | language | Chinese, Japanese, Greek: mostly Latin letters, the English's own names and acronyms left out |
+  | `LINE_BREAKS` | medium | formatting | a different number of line breaks |
+  | `LENGTH` | low | language | character ratio outside `translation_length_bounds` (English of `translation_length_min_chars` or more) |
+  | `NUMBERS_ADDED` | low | preservation | a number the English does not show (e.g. "two" written "2") |
+
+  Numbers are compared language-neutrally: digit runs, a separator before exactly three digits is a thousands separator (`1,000` = `1.000` = `1 000`), any other separator splits (`1.5` and `1,5` both give 1 and 5); digits inside a name (`E2E`) are not numbers; full-width digits count. `COPIED` segments are not checked.
+- **Repair:** a segment with an open issue of medium or worse, translated by the LLM or not translated at all, goes to REPAIRING **once**: one retranslation with its previous translation and the problems. It becomes `origin: repair` (so it is never repaired again), keeping the new text unless that checks worse than the previous one. A segment that still fails stays open for the reviewer. Human edits (`origin: human`, T7) are checked but never repaired.
+- **Integrity:** every segment of the `SegmentSet` is in exactly one `TranslationSet`, with its English text and locator (`translator.merged`); anything else fails the stage.
 
 ## Changing a contract
 
