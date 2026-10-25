@@ -259,3 +259,30 @@ Entry format:
   - `StartTranslationDialog` on a completed migration, and the migration page's list of translation jobs;
   - the workspace `/translations/:id`: per-section English/target review. An edit asks "this segment / all N with this English", find-and-replace previews its matches and the longer-word forms, then the issue panel, "Update document" (`POST /render`), and approve once `review.can_approve`;
   - final preview and download; remove the mocks.
+
+## 2026-10-26: Planning T8 (frontend): done
+- Done: wrote `T8_PLAN.md`, the detailed plan of T8, in three sessions: T8a (foundation and language resources), T8b (start dialog, job lists, workspace shell, mocks retired), T8c (segment review, then end to end).
+- Decisions (user, 2026-10-26):
+  - **Review layout:** a segment grid (sections | English and target rows | issues, glossary, find and replace). The rendered document is on the Final step, not beside the grid.
+  - **Markers** (`⟦k⟧`, `⟦1⟧`, `{{ref:}}`, `|`) are locked chips in a TipTap editor.
+  - **Navigation:** sidebar "Translation" → `/translations` (every job); "Glossary" → `/translations/resources` (glossaries and language templates).
+  - **SOP entry:** the review page's Translation tab lists the SOP's translation jobs, with "Translate…" on each completed migration.
+  - **Permissions:** any signed-in user approves, as today.
+  - **End-to-end check:** on a scratch copy of `data/` with its own backend (port 8001), never the real `data/app.db`.
+- Found while planning: the Vite `'/translations'` proxy entry would send reloads of the new `/translations` page to the backend, so T8a deletes it. There is no route yet for a job's glossary snapshot, its document terms or its English `docx`, and the job list rows lack `running`; T8a adds these small read-only routes.
+- Next step: T8a, step 1 (the backend additions and their tests).
+
+## 2026-10-26: Phase T8a (frontend foundation, language resources): done
+- Done:
+  - **Backend (read-only):** `GET /translations` rows carry `running`; `GET /{id}/glossary` (the job's snapshot; `?scope=terms` for the document terms; 404 `NO_GLOSSARY`); `GET /{id}/english` (the `docx[english]` snapshot, inline; 404 `NO_RENDER`).
+  - **Vite:** the dead `/translations` proxy entry is gone (it would have sent reloads of the new page to the backend); `API_TARGET` overrides the proxy target.
+  - **`frontend/src/features/translations/`:** `types.ts` (contracts mirrored by hand), `api.ts`, `hooks.ts` (polling and artifact-stamped queries, as for migrations), `status.ts` (labels, steps Preparing / Translating / Review / Final, permissions, version grouping), `glossaryEdit.ts` (editor rows, checks mirroring `GlossaryEntry` / `Glossary`), `jobs.ts`, `components/` (pills, modal, error panel, upload dialogs, resource lists). The migrations `IssueCategory` gained `terminology` / `language`, `ValidationIssue` gained `segment_ids`; `lib/api.ts` gained `apiErrorCode`.
+  - **Pages:** `/translations/resources` (coverage strip per language, glossaries and language templates tabs, versions folded under the newest), `/translations/resources/glossaries/:id` (editable term table, style notes, save in place while in review or as the next version once approved, approve, export, unsaved-changes guard), `/translations/resources/templates/:id` (preview `.docx`, extraction report, mark ready), and `/translations` (every job, pulled forward from T8b so the sidebar link has a page). Sidebar "Glossary" and "Translation" now go to them.
+- Files touched:
+  - New: `frontend/src/features/translations/*`, `frontend/src/pages/{TranslationsList,LanguageResources,GlossaryEditorPage,LanguageTemplatePage}.tsx`, `docs/translation/T8_PLAN.md`.
+  - Changed: `app/api/translations.py`, `tests/test_translation_jobs.py`, `frontend/{vite.config.ts,src/App.tsx,src/components/layout/Sidebar.tsx,src/lib/api.ts,src/features/migrations/types.ts}`, `docs/translation/{IMPLEMENTATION_PLAN,PROGRESS}.md`.
+- Tests: 1 new pytest; 9 new vitest (status, steps, permissions, version grouping, glossary rows, job joins). Full suite in `venv`: 734 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection`). `tsc -b` clean, vitest 25 passed, oxlint clean on the new files.
+- **Checked in a browser** (a scratch copy of `data/` behind uvicorn :8001, Vite :5174 with `API_TARGET`, headless Chrome through Playwright from a scratch venv): the resources page with the two ready templates (de, es); the German template's preview and report; a CSV with a missing target refused with its row; a valid CSV uploaded → editor → edit saved in place → approved → edited again, saved as v2 with v1 still approved; the list folds v1 under v2.
+- Open issues / decisions:
+  - `BrowserRouter` has no navigation blocker, so the glossary editor guards only reloads (`beforeunload`) and its own back/version controls; a sidebar click leaves without asking.
+- Next step: T8b. `StartTranslationDialog`, the migration page's "Translate…" and translations panel, the SOP Translation tab (and retiring the mock and the `review.py` stub), then the workspace shell (header, stepper, progress, activity, Final step, review bar).

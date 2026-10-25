@@ -36,7 +36,7 @@ from app.schemas.v2 import (
     TranslationSet,
     TranslationStatus,
 )
-from app.schemas.v2.translation import GlossaryEntry
+from app.schemas.v2.translation import Glossary, GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.services.migration_v2.artifacts import ArtifactCorrupted
 from app.services.migration_v2.orchestrator import JobStateError
@@ -45,7 +45,7 @@ from app.services.translation.glossary import GlossaryInvalid, parse_glossary_fi
 from app.services.translation.languages import LANGUAGES, get_language
 from app.services.translation.orchestrator import TranslationOrchestrator
 from app.services.translation.render import TRANSLATED
-from app.services.translation.stages import CHECKS
+from app.services.translation.stages import CHECKS, ENGLISH
 from app.services.translation.translator import merged
 from app.stores.glossary_store import GlossaryStore
 from app.stores.language_template_store import LanguageTemplateStore
@@ -451,8 +451,11 @@ async def list_translations(
     offset: int = 0,
 ):
     orch = _orchestrator(request)
-    return orch.store.list_jobs(status=status, migration_job_id=migration_job_id,
+    rows = orch.store.list_jobs(status=status, migration_job_id=migration_job_id,
                                 language=_language(language) if language else None, limit=limit, offset=offset)
+    for row in rows:
+        row["running"] = orch.is_running(row["job_id"])
+    return rows
 
 
 @router.get("/{job_id}")
@@ -560,6 +563,40 @@ async def preview_translation(request: Request, job_id: str = PathParam(..., pat
         raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
     name = f"{job_id}_{job.language.value}_v{ref.version}_preview.docx"
     return Response(data, media_type=_DOCX, headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+
+@router.get("/{job_id}/english")
+async def english_document(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
+    """The English final document PREPARING snapshotted (``docx[english]``), for comparing with the translation.
+    404 ``NO_RENDER`` when the English render had problems and saved no document."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    ref = job.latest_artifact(ArtifactKind.DOCX, ENGLISH)
+    if ref is None:
+        raise NotFoundError(f"Job '{job_id}' has no English document", code="NO_RENDER")
+    try:
+        data = orch.artifacts.read_bytes(ref)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    name = f"{job_id}_en_v{ref.version}.docx"
+    return Response(data, media_type=_DOCX, headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+
+@router.get("/{job_id}/glossary")
+async def job_glossary(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                       scope: Optional[Literal["terms"]] = None):
+    """The job's snapshot of its glossary, or with ``scope=terms`` the document terms as agreed (``glossary[terms]``).
+    404 ``NO_GLOSSARY`` when the job has none (free translation, or not translated yet)."""
+    orch = _orchestrator(request)
+    job = _job(orch, job_id)
+    try:
+        glossary = orch.artifacts.latest(job, ArtifactKind.GLOSSARY, Glossary, scope)
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+    if glossary is None:
+        what = "document terms" if scope else "glossary"
+        raise NotFoundError(f"Job '{job_id}' has no {what}", code="NO_GLOSSARY")
+    return glossary.to_clean_dict()
 
 
 # ── Review (Phase T7) ─────────────────────────────────────────────────

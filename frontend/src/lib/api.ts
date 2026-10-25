@@ -135,6 +135,11 @@ export function apiErrorDetails(err: unknown): string[] {
   return Array.isArray(fields) ? fields.map((f: { message: string }) => f.message) : [];
 }
 
+/** The ``error.code`` of an API error (e.g. ``RECORD_IN_USE``), or undefined. */
+export function apiErrorCode(err: unknown): string | undefined {
+  return err instanceof ApiError ? err.data?.error?.code : undefined;
+}
+
 export const api = {
   // --- SOP Repository ---
   async getSops(params?: { status?: string; document_uid?: string; limit?: number; offset?: number }): Promise<SopRecord[]> {

@@ -266,6 +266,36 @@ def test_api_serves_the_translations_and_their_checks(api):
     assert report.status_code == 200 and report.json()["version"] == 1 and report.json()["unit_coverage"] == 1.0
 
 
+@pytest.mark.parametrize("api", [_fake_translator()], indirect=True)
+def test_api_serves_the_job_glossary_terms_and_english_document(api):
+    """T8: what the review workspace reads besides the segments (and `running` on the list rows)."""
+    client, base = api.client, "/api/v1/translations"
+    _glossary(api)
+    created = client.post(base, json={"migration_job_id": api.migration.job_id, "languages": [
+        {"language": "de-DE", "glossary_id": "g-de"}]}).json()[0]
+    free = client.post(base, json={"migration_job_id": api.migration.job_id, "languages": [
+        {"language": "de-DE"}]}).json()[0]
+    for job in (created, free):
+        assert _wait_status(client, job["job_id"], "REVIEW_PENDING")["status"] == "REVIEW_PENDING"
+    rows = client.get(base).json()
+    assert {r["job_id"]: r["running"] for r in rows} == {created["job_id"]: False, free["job_id"]: False}
+
+    glossary = client.get(f"{base}/{created['job_id']}/glossary")
+    assert glossary.status_code == 200
+    assert (glossary.json()["glossary_id"], glossary.json()["entries"][0]["target_term"]) == ("g-de", "Abweichung")
+    none = client.get(f"{base}/{free['job_id']}/glossary")
+    assert none.status_code == 404 and none.json()["error"]["code"] == "NO_GLOSSARY"
+    terms = client.get(f"{base}/{created['job_id']}/glossary", params={"scope": "terms"})
+    assert terms.status_code in (200, 404)  # the fixture SOP may have no recurring terms
+    if terms.status_code == 200:
+        assert terms.json()["glossary_id"].endswith("-terms")
+    assert client.get(f"{base}/{created['job_id']}/glossary", params={"scope": "nope"}).status_code == 422
+
+    english = client.get(f"{base}/{created['job_id']}/english")
+    assert english.status_code == 200 and "inline" in english.headers["content-disposition"]
+    assert Document(io.BytesIO(english.content)).paragraphs
+
+
 def test_api_refuses_a_request_it_cannot_start(api, tmp_path):
     client, base = api.client, "/api/v1/translations"
     mig = api.migration.job_id

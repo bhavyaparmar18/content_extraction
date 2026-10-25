@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'url';
 
+// The backend the dev server proxies to; API_TARGET points it at another one (e.g. a scratch copy on :8001).
+const API = process.env.API_TARGET ?? 'http://localhost:8000';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -13,27 +16,27 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': API,
       '/sops': {
-        target: 'http://localhost:8000',
+        target: API,
         bypass: (req) => {
           if (req.headers.accept?.includes('text/html')) {
             return '/index.html';
           }
         },
       },
-      '/documents': 'http://localhost:8000',
+      '/documents': API,
       '/templates': {
-        target: 'http://localhost:8000',
+        target: API,
         bypass: (req) => {
           if (req.headers.accept?.includes('text/html')) {
             return '/index.html';
           }
         },
       },
-      '/jobs': 'http://localhost:8000',
+      '/jobs': API,
       '/review': {
-        target: 'http://localhost:8000',
+        target: API,
         bypass: (req) => {
           if (req.headers.accept?.includes('text/html')) {
             return '/index.html';
@@ -42,19 +45,18 @@ export default defineConfig({
       },
       // `/migrations` is also an app page (the v2 jobs live under /api/v1/migrations)
       '/migrations': {
-        target: 'http://localhost:8000',
+        target: API,
         bypass: (req) => {
           if (req.headers.accept?.includes('text/html')) {
             return '/index.html';
           }
         },
       },
-      '/translations': 'http://localhost:8000',
-      '/issues': 'http://localhost:8000',
-      '/suggestions': 'http://localhost:8000',
-      '/reprocessing-requests': 'http://localhost:8000',
-      '/workflows': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/issues': API,
+      '/suggestions': API,
+      '/reprocessing-requests': API,
+      '/workflows': API,
+      '/health': API,
     },
   },
 });

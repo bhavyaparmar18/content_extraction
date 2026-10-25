@@ -201,7 +201,7 @@ Phases follow the `docs/migration_v2/IMPLEMENTATION_PLAN.md` conventions: one se
 | T5 ★ | Translator, QA, repair | `prompts/v2/translator.py`, `translation/translator.py`, `translation/checks.py`, `audit._PROMPTS` | Offline tests with `FakeChain` pass; a live `@pytest.mark.llm` run on one sample for fr and ja |
 | T6 ★ | Translated render and export | `translation/render.py` (translated drafts, source copy, ref_text, template-text hook, `w:lang`/fonts, front matter, TOC), `verify.py` param, export | The rendered `.docx` has a translated body, a correct TOC, and `verify` clean, both with a language template (its cover/header/footer) and without one (English cover/header/footer kept) |
 | T7 | Review API | segment PATCH → new version → re-check and re-render, issue resolve, approve gate, export | Edit → approve → export end-to-end through the API |
-| T8 ★ | Frontend | resources page, start dialog, workspace, review, final; remove mocks | A reviewer goes from a completed migration to a downloaded translated `.docx` in the UI |
+| T8 ★ | Frontend (detailed plan: `T8_PLAN.md`, sessions T8a/b/c) | resources page, start dialog, workspace, review, final; remove mocks | A reviewer goes from a completed migration to a downloaded translated `.docx` in the UI |
 | T9 | Evaluation | `scripts/inspect_translation.py` (HTML report like `inspect_sop.py`) | All 8 languages run on the samples; reports reviewed |
 
 Before T1's schema file is saved: the user's `uvicorn --reload` applies new migrations to the real `data/app.db` on every save. Check whether it is running, and stage the change or ask the user to stop the server.
