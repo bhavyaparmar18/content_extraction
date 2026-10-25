@@ -4,6 +4,13 @@ Phase T8 of `IMPLEMENTATION_PLAN.md`. **Done when** a reviewer goes from a compl
 
 T8 is a ★ phase, split into three sessions (T8a, T8b, T8c). Each ends green (`pytest`, `npm run build`, `npm run lint`, `npm test`) with a `PROGRESS.md` entry and a commit.
 
+**As built (2026-10-26), where it differs from this plan:**
+- The `/translations` jobs list came in T8a, so the sidebar link had a page from the start.
+- The right-hand tab is called "Terms" (the job's glossary and its document terms).
+- The editor is loaded on the first edit (TipTap is about 390 kB); `@tiptap/pm` is declared in `package.json` (it was only a transitive dependency).
+- The review shell sits in its own flex column. Inside a plain block it grows to its content, and focus or scrolling then shifts the whole page.
+- End to end, de-DE and fr-FR were run; es-ES was not started (the start dialog from the SOP tab was checked without starting it), and the "neither" case (ja-JP) was not run.
+
 ## Decisions (user, 2026-10-26)
 
 - **Review layout: a segment grid.** Sections on the left. In the middle, one row per segment, with the English on the left and the target on the right; a click edits the row. Issues, glossary, and find and replace are on the right. No document view beside the grid: the rendered document has its own step (Final).

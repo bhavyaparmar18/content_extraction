@@ -302,3 +302,29 @@ Entry format:
   - Deleted: `frontend/src/components/review/{TranslationReviewMode,GlossaryPanel,TranslationQaPanel}.tsx`.
 - Tests: 2 new vitest (defaults, request choices); 27 pass. `tsc -b` clean. `test_translation_jobs` and `test_translation_review`: 19 passed.
 - Next step: T8c. The segment grid (sections, rows, filters), the TipTap editor with locked marker chips (`markers.ts` is written), apply-to-same-English, find and replace, the issue, glossary and terms panels; then fix the German gate issue, approve and download, and open the download in Word.
+
+## 2026-10-26: Phase T8c (segment review, end to end): done
+- Done:
+  - **Review step** (`SegmentReview`): `ReviewShell` with the sections on the left (`TranslationSectionNav`: template order, then "Headings and labels" and "Cross-references"; counts, worst open issue, edits), the section's segments in the middle (`SegmentGrid`: English and target side by side; filters with issues / edited / shown in English / copied; a text filter), and Issues, Terms and Find & replace on the right. `?section=`, `?segment=` and `?issue=` select, so the blockers, issues, matches and the Final step's "shown in English" links land on their segment.
+  - **Editor** (`SegmentEditor`, loaded on the first edit): TipTap with one paragraph, hard breaks, and a `marker` atom node for `⟦k⟧`, `⟦/k⟧`, `⟦k⟧` objects, `⟦1⟧` (shown as "No." in references), `{{ref:}}` and `|` (only when the English has cell separators). A ProseMirror `filterTransaction` refuses any change to the multiset of markers. Pasted or typed marker characters are cleaned. `markers.structuralProblems` mirrors EMPTY / REF_TOKENS / TAGS / CELLS before saving, and the server's `SEGMENT_INVALID` details are shown when it refuses. When other non-human segments show the same English, Save asks "All N with this English / This segment only". Ctrl+Enter saves, Esc cancels.
+  - **Panels** (`ReviewPanels`): `TranslationIssuePanel` (blocking = gate or critical / open / resolved, this section only, resolve with a note); `JobGlossaryPanel` (the job's glossary snapshot and document terms, the selected segment's terms first, "find this translation" on a term to agree another one); `FindReplacePanel` (preview with context and the English, the server's warnings, "search again without whole words", replace the chosen ones or all, a stale preview re-run on 409 `PREVIEW_OUT_OF_DATE`).
+  - Pure helpers: `markers.ts`, `editorDoc.ts`, `chips.ts`, `segments.ts` (scopes, section order, locator labels, issues per segment, same-English segments, "shown in English" from the render warnings, filters).
+- **End to end in the browser** (scratch data, live LLM; jobs from T8b): on de-DE `TRN-20261025-97615B90`:
+  - the approval blocker led to SEG-0218 (`REFERENCES` gate: the English writes `028-BIS-00484 -RD01` with a space, the translation joined it). Edited to keep the ID; the gate closed.
+  - the chip lock held: Ctrl+A and Backspace on a segment with `{{ref:}}` was refused; Backspace from the end removed only text.
+  - "Roles and responsibilities are defined in 028-BIP-00516-RD01" edited once, applied to all 4.
+  - Find "Eigentümersystem": 9 matches, with the document-term and 16-longer-words warnings; one occurrence replaced, which opened `TERM-1` on that segment (as designed); resolved with a note.
+  - Update document → render v2 current → approved with a note → Final shows "Approved by You" → downloaded.
+  - **Word** opens the download: 21 pages, the German first-page header "Seite 1 von 21", a German TOC (ZWECK, ANWENDBARKEIT, …), the gate fix, the 4 same-English edits and the replacement in it, body text in German (1031).
+  - fr-FR `TRN-20261025-FE5FB280`: the Terms tab shows the glossary snapshot (deviation → écart, Vault kept) and the document terms; a reference opened in the editor with its locked "No." chip.
+- **Bug found and fixed while checking:** the review shell in a plain block grew to its content, so focus and scrolling shifted the page (now in a flex column; the list scrolls itself). Two smaller ones from the T8b check ("1 blocks approval"; the translator's token count summing input, output and total) went into the T8b commit.
+- Files touched:
+  - New: `frontend/src/features/translations/{markers,editorDoc,chips}.ts`, `components/{SegmentGrid,SegmentEditor,SegmentText,ReviewPanels}.tsx`.
+  - Changed: `components/SegmentReview.tsx`, `translations.test.ts`, `frontend/package.json` and `package-lock.json` (`@tiptap/pm` declared), `docs/translation/{IMPLEMENTATION_PLAN,T8_PLAN,PROGRESS}.md`.
+- Tests: 13 new vitest (markers, the server-mirroring structural check, the editor document round trip, segments, activity); 40 pass. `npm run build` passes (the main chunk is 925 kB, about 30 kB more than before T8; the editor is its own 391 kB chunk; the >500 kB warning was already there). oxlint is clean on the translation files.
+- Open issues / decisions:
+  - **The chip lock is strict:** selecting everything and typing over a segment that has a marker is refused as a whole. The reviewer edits around the chips (the hint says so). If that proves tedious, a softer rule could keep the markers and drop only the text.
+  - The sample SOP has no template text with formatting pairs (`⟦k⟧…⟦/k⟧`). Pairs are covered by the unit tests, not yet by a real document.
+  - Not run end to end: es-ES (the dialog was checked from the SOP tab without starting it) and the "neither" case (ja-JP). About 28k tokens each.
+  - The scratch copy (`t8root`), the Playwright venv and the screenshots stay in the session's scratchpad; nothing was written to the real `data/`.
+- Next step: T9. `scripts/inspect_translation.py` (an HTML report like `inspect_sop.py`), then run all 8 languages on the samples and review the reports, now possible in the UI too.

@@ -151,12 +151,13 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `DELETE …/{t}` (409 `RECORD_IN_USE` when a job uses it)
 - **Jobs** (the first five as built in T4; `{id}` is a `TRN-…` job id):
   - `POST /translations {migration_job_id, languages:[{language, glossary_id?, glossary_version?, language_template_id?, language_template_version?}]}`: one job per language; both resources are optional. Without a version, the newest approved glossary or ready language template of that id is used. Every language is checked before any job is created: 404 `MIGRATION_NOT_FOUND`, `GLOSSARY_NOT_FOUND`, `LANGUAGE_TEMPLATE_NOT_FOUND`; 409 `MIGRATION_NOT_COMPLETED`, `GLOSSARY_NOT_APPROVED`, `LANGUAGE_TEMPLATE_NOT_READY`; 422 `NO_LANGUAGES`, `UNSUPPORTED_LANGUAGE`, `DUPLICATE_LANGUAGE`, `…_LANGUAGE_MISMATCH`, `…_ID_REQUIRED`.
-  - `GET` list (`?migration_job_id=&language=&status=`)
+  - `GET` list (`?migration_job_id=&language=&status=`; since T8 each row carries `running`)
   - `GET /{id}`, `POST /{id}/cancel`, `POST /{id}/retry?from_stage=`, `GET /{id}/audit`
   - `GET /{id}/segments?section=` (the `SegmentSet`, with the latest translations once translated (T5); `section` is a target section id, `xrefs` or `template`)
   - `GET /{id}/validation` (built in T5: the latest `quality_report[translation]`; 404 `NO_VALIDATION` before CHECKING)
   - `GET /{id}/export/preview` (built in T6: the latest `docx[translated]`, inline; 404 `NO_RENDER` before RENDERING, 409 `JOB_RUNNING`)
   - `GET /{id}/render-report` (built in T6: the latest `render_report[translated]`; 404 `NO_RENDER`)
+  - `GET /{id}/glossary?scope=terms` (built in T8: the job's glossary snapshot, or with `scope=terms` its document terms; 404 `NO_GLOSSARY`) and `GET /{id}/english` (built in T8: the `docx[english]` snapshot, inline; 404 `NO_RENDER`)
   - Review, as built in T7 (rules and codes in `CONTRACTS.md`; only while REVIEW_PENDING and not running):
     - `PATCH /{id}/segments/{segment_id}` (`{target_text, apply_to: same_text|this}`)
     - `POST /{id}/replace/preview` (`{find, case_sensitive, whole_word, section?}`) and `POST /{id}/replace` (`+ {replace, targets: "all"|[{segment_id, occurrence}], expected_versions}`)
@@ -165,26 +166,19 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
     - `POST /{id}/approve` (409 `APPROVAL_BLOCKED` while the render is out of date or has problems, or a gate or critical issue is open)
     - `GET /{id}/export/word` (only once approved: the approved `docx`, recorded as an event)
     - `GET /{id}` carries `review: {render_current, blockers, can_approve}`.
-- **Retire** the `review.py` translation stub and the dead `/translations` vite proxy target (in T8: the mock UI still uses them until then).
+- **Retired** in T8: the `review.py` translation stub (no actions, no `targetLocale`) and the dead `/translations` vite proxy target (it would have sent reloads of the new page to the backend).
 
-### Frontend (`frontend/src/features/translations/`)
+### Frontend (`frontend/src/features/translations/`, as built in T8; details in `T8_PLAN.md`)
 
-- **Language resources page** (sidebar "Glossary" and "Translation" links, which currently go nowhere):
-  - **Glossaries tab:** upload, editable term table, versions, approve.
-  - **Language templates tab:** upload, a front-matter preview with `DocxViewer`, mark ready.
-- **"Translate" button** on a completed migration (`FinalDocument.tsx` / `JobHeader.tsx`). It opens `StartTranslationDialog`, which offers a multi-select of the 8 languages and, per language, two optional pickers:
-  - **Glossary:** preselected when an approved one exists, otherwise "None (free translation)".
-  - **Language template:** preselected when a ready one exists, otherwise "None (keep English first page, header and footer)".
-- **Migration page:** a panel listing that migration's translation jobs and the status of each.
-- **Translation workspace `/translations/:id`:**
-  - steps: Preparing, Translating, Review, Final (reusing `StageStepper` and `ReviewShell`);
-  - per-section review: English segments on the left, editable target segments on the right;
-  - the existing issue panel components;
-  - the glossary and QA panels, rewritten on real data (replacing the mocks);
-  - approve;
-  - final preview and download through `DocxViewer` and `useDownloads`.
-- Point `SopTable`'s "Start Translation" at this flow, and delete the mock `TranslationReviewMode` path.
-- Polling follows `features/migrations/hooks.ts`. Pure-logic tests go in vitest, like `migrations.test.ts`.
+- **Pages:** `/translations` (every job; sidebar "Translation"), `/translations/resources` (sidebar "Glossary": a coverage strip per language, then glossaries and language templates, versions folded under the newest), `/translations/resources/glossaries/:id` (editable term table, style notes, approve, export; an approved version is never changed, saving makes the next), `/translations/resources/templates/:id` (preview with `DocxViewer`, extraction report, mark ready), `/translations/:id` (the workspace).
+- **"Translate…"** on a completed migration (`JobHeader`, the Final step's translations list) and on the SOP review page's Translation tab (`SopTranslationJobs`, which `SopTable`'s "Start Translation" opens). `StartTranslationDialog`: a checkbox per language, and per checked language a glossary select (approved versions; the newest preselected, else "None (free translation)") and a language-template select (ready versions; else "None (keep English first page, header and footer)").
+- **Workspace:** steps Preparing, Translating, Review, Final on the shared `StepBar` (`StageStepper` is its migration wrapper), with Activity through the shared `ActivityView`.
+  - Review: `ReviewShell` with sections on the left; in the middle, the section's segments with the English and the translation side by side (filters: issues, edited, shown in English, copied); on the right, Issues, Terms (glossary snapshot and document terms) and Find & replace.
+  - Editing: a TipTap editor (loaded on the first edit) where `⟦k⟧`, `⟦1⟧`, `{{ref:}}` and `|` are locked chips: a plugin refuses any change to the multiset of markers; `markers.structuralProblems` mirrors the server's EMPTY, REF_TOKENS, TAGS and CELLS checks before saving. When other segments show the same English, Save asks "All N with this English / This segment only".
+  - `ReviewBar` (Review and Final): render current, or "Update document"; what blocks the approval; "Approve…" with an optional note.
+  - Final: the translated render or the English snapshot, render notes, segments shown in English (linking to the review), download once approved.
+- The mock `TranslationReviewMode`, `GlossaryPanel` and `TranslationQaPanel` are deleted.
+- Polling follows `features/migrations/hooks.ts` (queries keyed on artifact versions). Pure-logic tests are in `translations.test.ts` (vitest).
 
 ## Phases
 
@@ -201,7 +195,7 @@ Phases follow the `docs/migration_v2/IMPLEMENTATION_PLAN.md` conventions: one se
 | T5 ★ | Translator, QA, repair | `prompts/v2/translator.py`, `translation/translator.py`, `translation/checks.py`, `audit._PROMPTS` | Offline tests with `FakeChain` pass; a live `@pytest.mark.llm` run on one sample for fr and ja |
 | T6 ★ | Translated render and export | `translation/render.py` (translated drafts, source copy, ref_text, template-text hook, `w:lang`/fonts, front matter, TOC), `verify.py` param, export | The rendered `.docx` has a translated body, a correct TOC, and `verify` clean, both with a language template (its cover/header/footer) and without one (English cover/header/footer kept) |
 | T7 | Review API | segment PATCH → new version → re-check and re-render, issue resolve, approve gate, export | Edit → approve → export end-to-end through the API |
-| T8 ★ | Frontend (detailed plan: `T8_PLAN.md`, sessions T8a/b/c) | resources page, start dialog, workspace, review, final; remove mocks | A reviewer goes from a completed migration to a downloaded translated `.docx` in the UI |
+| T8 ★ | Frontend (done in sessions T8a/b/c; `T8_PLAN.md`) | resources page, start dialog, workspace, review, final; remove mocks | A reviewer goes from a completed migration to a downloaded translated `.docx` in the UI |
 | T9 | Evaluation | `scripts/inspect_translation.py` (HTML report like `inspect_sop.py`) | All 8 languages run on the samples; reports reviewed |
 
 Before T1's schema file is saved: the user's `uvicorn --reload` applies new migrations to the real `data/app.db` on every save. Check whether it is running, and stage the change or ask the user to stop the server.

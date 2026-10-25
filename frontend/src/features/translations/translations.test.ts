@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { TRANSLATION_LABELS } from './activity';
+import { fromEditorDoc, toEditorDoc } from './editorDoc';
 import { emptyRow, rowProblems, rowsChanged, toEntries, toRows } from './glossaryEdit';
+import { cleanTyped, formattedRuns, markerKey, partsToText, structuralProblems, tokenize } from './markers';
+import {
+  filterSegments,
+  groupByScope,
+  issuesBySegment,
+  keptInEnglish,
+  locatorLabel,
+  sameTextSegments,
+  sectionOrder,
+  worstSeverity,
+} from './segments';
 import { defaultPicks, jobSopTitles, jobsByMigration, languageChoice, usableGlossaries } from './jobs';
 import {
   defaultTranslationStep,
@@ -11,10 +24,13 @@ import {
 import type {
   GlossaryRecord,
   LanguageTemplateRecord,
+  RenderReport,
+  Segment,
   TranslationArtifactKind,
   TranslationJob,
   TranslationJobRow,
   TranslationStatus,
+  ValidationIssue,
 } from './types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────
@@ -164,5 +180,121 @@ describe('job lists', () => {
     const row = (job_id: string, migration_job_id: string) => ({ job_id, migration_job_id }) as TranslationJobRow;
     const grouped = jobsByMigration([row('T3', 'M1'), row('T2', 'M2'), row('T1', 'M1')]);
     expect(grouped.get('M1')!.map((j) => j.job_id)).toEqual(['T3', 'T1']);
+  });
+});
+
+// ── Markers ───────────────────────────────────────────────────────────
+
+describe('markers', () => {
+  it('tokenizes pairs, objects, reference tokens, cells and line breaks', () => {
+    const parts = tokenize('⟦1⟧Note:⟦/1⟧ see {{ref:SRC-5.2}}⟦2⟧a | b\nc', true);
+    expect(parts.map((p) => p.type)).toEqual(['open', 'text', 'close', 'text', 'ref', 'object', 'text', 'cell', 'text', 'break', 'text']);
+    expect(partsToText(parts)).toBe('⟦1⟧Note:⟦/1⟧ see {{ref:SRC-5.2}}⟦2⟧a | b\nc');
+    expect(tokenize('a | b', false).map((p) => p.type)).toEqual(['text']); // a "|" is text unless the English has cells
+    expect(tokenize('Chapter ⟦1⟧', false)[1]).toMatchObject({ type: 'object', k: 1 });
+  });
+
+  it('finds the problems the server would refuse, as its checks word them', () => {
+    expect(structuralProblems('see {{ref:A}}', 'siehe {{ref:A}}')).toEqual([]);
+    expect(structuralProblems('see {{ref:A}}', '⟦1⟧')).toEqual(['no translation']);
+    expect(structuralProblems('see {{ref:A}}', 'siehe A')).toEqual(['reference tokens changed: lost {{ref:A}}']);
+    expect(structuralProblems('⟦1⟧Bold⟦/1⟧ text', 'Text ⟦1⟧fett⟦/1⟧')).toEqual([]); // pairs may move
+    expect(structuralProblems('⟦1⟧Bold⟦/1⟧ text', 'fett Text')).toEqual(['lost the marker(s) ⟦1⟧ ⟦/1⟧']);
+    expect(structuralProblems('⟦1⟧a⟦/1⟧⟦2⟧b⟦/2⟧', '⟦1⟧a⟦2⟧b⟦/1⟧⟦/2⟧')).toEqual(['the pair ⟦1⟧…⟦/1⟧ is out of order or crosses another pair']);
+    expect(structuralProblems('a | b | c', 'x | y')).toEqual(["2 table cell separator(s) '|' in the English, 1 in the translation"]);
+  });
+
+  it('keys the markers as a multiset, so moving one keeps the key and dropping one changes it', () => {
+    const key = (t: string) => markerKey(tokenize(t, false));
+    expect(key('⟦1⟧a⟦/1⟧ {{ref:X}}')).toBe(key('{{ref:X}} b ⟦1⟧c⟦/1⟧'));
+    expect(key('⟦1⟧a⟦/1⟧ {{ref:X}}')).not.toBe(key('⟦1⟧a⟦/1⟧'));
+  });
+
+  it('cleans typed or pasted marker characters', () => {
+    expect(cleanTyped('a ⟦3⟧ {{ref:Y}} b')).toBe('a 3 ref:Y b');
+  });
+
+  it('round-trips a text through the editor document, line breaks and markers included', () => {
+    const text = '⟦1⟧Hinweis:⟦/1⟧ siehe {{ref:SRC-5.2}}\nzweite Zeile | Zelle';
+    const doc = toEditorDoc(text, true);
+    expect(doc.content?.[0].content?.filter((n) => n.type === 'marker')).toHaveLength(4);
+    expect(fromEditorDoc(doc)).toBe(text);
+    const typed = { ...doc, content: [{ type: 'paragraph', content: [...(doc.content?.[0].content ?? []), { type: 'text', text: ' ⟦9⟧' }] }] };
+    expect(fromEditorDoc(typed)).toBe(`${text} 9`);
+  });
+
+  it('marks the words inside a formatting pair', () => {
+    const parts = tokenize('a ⟦2⟧b⟦/2⟧ c', false);
+    expect([...formattedRuns(parts)]).toEqual([[2, 2]]);
+  });
+});
+
+// ── Segments ──────────────────────────────────────────────────────────
+
+describe('segments', () => {
+  const seg = (segment_id: string, kind: Segment['kind'], source_text: string, extra: Partial<Segment> = {}): Segment => ({
+    segment_id, kind, source_text, target_text: `DE ${source_text}`, origin: 'llm', locator: { section_id: 'TGT-2' }, ...extra,
+  });
+  const all = [
+    seg('SEG-0001', 'claim', 'Purpose', { locator: { section_id: 'TGT-1' } }),
+    seg('SEG-0002', 'table_cell', 'Owner', { locator: { section_id: 'TGT-2', row: 0, col: 1 } }),
+    seg('SEG-0003', 'table_cell', 'Owner', { locator: { section_id: 'TGT-2', row: 1, col: 1 }, origin: 'human' }),
+    seg('SEG-0004', 'claim', 'Owner'),
+    seg('SEG-0005', 'xref', 'Chapter ⟦1⟧', { locator: { ref_index: 0 } }),
+    seg('SEG-0006', 'template_text', 'PURPOSE', { locator: { block_path: 'body/p[2]' } }),
+  ];
+
+  it('orders sections as the template, then headings and labels, then cross-references', () => {
+    const scopes = [...groupByScope(all).keys()];
+    expect(scopes).toEqual(['TGT-1', 'TGT-2', 'xrefs', 'template']);
+    const order = sectionOrder(scopes, [{ section_id: 'TGT-2', number: '2', heading: 'Scope' }, { section_id: 'TGT-1', number: '1', heading: 'Purpose' }]);
+    expect(order.map((s) => s.scope)).toEqual(['TGT-2', 'TGT-1', 'template', 'xrefs']);
+  });
+
+  it('labels where a segment sits', () => {
+    expect(locatorLabel(all[1])).toBe('Table r1 c2');
+    expect(locatorLabel(seg('S', 'claim', 'a | b'))).toBe('Table row');
+    expect(locatorLabel(all[5])).toBe('Heading or label');
+  });
+
+  it('finds the other segments a same-English edit changes, leaving human edits alone', () => {
+    expect(sameTextSegments(all[1], all).map((s) => s.segment_id)).toEqual(['SEG-0004']);
+  });
+
+  it('maps issues to segments and finds the worst', () => {
+    const issue = (issue_id: string, severity: ValidationIssue['severity'], segment_ids: string[], gate?: ValidationIssue['gate']) =>
+      ({ issue_id, severity, category: 'language', message: issue_id, segment_ids, gate }) as ValidationIssue;
+    const map = issuesBySegment([issue('A', 'low', ['SEG-0002']), issue('B', 'medium', ['SEG-0002', 'SEG-0004'])]);
+    expect(map.get('SEG-0002')?.map((i) => i.issue_id)).toEqual(['A', 'B']);
+    expect(worstSeverity(map.get('SEG-0002')!)).toBe('medium');
+    expect(worstSeverity([issue('C', 'low', [], 'numerical_change')])).toBe('critical');
+  });
+
+  it('reads the segments a render showed in English from its warnings', () => {
+    const report = { warnings: ['SEG-0012: no translation; shown in English', 'TGT-5-RACI: source table … written with its own columns'] } as RenderReport;
+    expect([...keptInEnglish(report)]).toEqual(['SEG-0012']);
+  });
+
+  it('filters by issues, edits and text', () => {
+    const open = new Map([['SEG-0004', [{ issue_id: 'X' } as ValidationIssue]]]);
+    const context = { open, english: new Set<string>() };
+    expect(filterSegments(all, 'issues', context).map((s) => s.segment_id)).toEqual(['SEG-0004']);
+    expect(filterSegments(all, 'edited', context).map((s) => s.segment_id)).toEqual(['SEG-0003']);
+    expect(filterSegments(all, 'all', context, 'chapter').map((s) => s.segment_id)).toEqual(['SEG-0005']);
+  });
+});
+
+// ── Activity ──────────────────────────────────────────────────────────
+
+describe('activity labels', () => {
+  it('summarizes the translator once, without counting tokens twice', () => {
+    const event = {
+      id: 1, job_id: 'TRN-1', at: '', actor: null, event: 'translator', from_status: null, to_status: null,
+      detail: {
+        translated: 318, groups: 325, copied: 7, calls: 8, failed_calls: 0, terms: 44, terms_translated: 44,
+        usage: { calls: 9, input_tokens: 18210, output_tokens: 9893, total_tokens: 28103 },
+      },
+    };
+    expect(TRANSLATION_LABELS.summary?.(event)).toBe('318 of 325 distinct texts translated, 7 copied · 8 calls · 44/44 document terms · 28,103 tokens');
   });
 });
