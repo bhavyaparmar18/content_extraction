@@ -205,3 +205,22 @@ Entry format:
   - Inline instructions the renderer rewrites (e.g. "This ⟨SOP/Work Instruction⟩ is applicable:") lose their run formatting already in the English render; the translation keeps what the English shows.
   - The cover's cached header field results (e.g. "Page 2 of 3") are the template's; Word refreshes them.
 - Next step: T7. Segment `PATCH` → a new `translation[<scope>]` version (origin `human`) → CHECKING and RENDERING again; issue resolve; approve (REVIEW_PENDING only, a clean render, no open gate); `GET /{id}/export/word` once approved, recorded as an event.
+
+## 2026-10-25: Document terms (consistent terminology without a glossary): done
+- Why: reviewing the German T6 job (no glossary) showed one English term translated several ways across sections and tables, e.g. "owning system" as *besitzendes System* (11×), *zugehöriges System* (4×), *Eigentümersystem* (5×); "RPAS owner" three ways; "risk assessment" as *Risikoanalyse* and *Risikobewertung*. The memory held only the first wave's headings and headers, the body blocks were translated independently and in parallel, and no check compared segments with each other.
+- Done:
+  - **`translation/terms.py`, `find_terms`:** the document's recurring English terms (phrases of 2–4 words without function words in 3+ distinct texts, the longer phrase winning when it covers 75% of a shorter one's texts; short table labels used elsewhere; plurals and case folded, each written as most often; names/IDs and glossary terms left out; at most 80).
+  - **Translator:** the terms are translated first, in calls of their own (`TERM-<n>`, role `term`, section "Terms of this document: translate each term"); every later call and repair gets the ones its texts use as DOCUMENT TERMS (`translator_terms_tokens`, 800); the "already translated" memory no longer repeats them. Prompt `translator/2`.
+  - **Artifact `glossary[terms]`** (written by TRANSLATING, read by CHECKING and REPAIRING); `translator` event: `terms`, `terms_translated`.
+  - **Check `TERM-<n>`** (MEDIUM, terminology, so repaired once): the English uses a term, the translation neither renders it as agreed (`glossary.term_present`, loose: every word inflects, hyphens, compounds) nor keeps it in English.
+  - Settings `translator_terms_tokens`, `translation_terms_max`, `translation_term_min_texts`.
+- Files touched:
+  - New: `app/services/translation/terms.py`, `tests/test_translation_terms.py`.
+  - Changed: `app/services/translation/{translator,checks,stages,glossary}.py`, `app/services/llm/prompts/v2/translator.py`, `app/config/settings.py`, `tests/test_translation_{jobs,translator}.py` (the fake also answers `TERM-` lines; `translator/2`), `docs/translation/CONTRACTS.md`.
+- Tests: 7 new. Full suite in `venv`: 719 passed, 17 skipped, 1 failed (the known `test_samples_pass_inspection`), plus 1 failure and 2 errors from Word's `~$` lock file of a sample SOP that was open in Word (the sample tests read every `.docx` in `documents/SOPs`).
+- **Real sample** (scratch copy of `data/`, live LLM, de-DE with the German template, `MIG-20261019-7BF76968`): 44 terms, all agreed in one call; round 1 flagged 9 segments with `TERM`, all 9 fixed by the one repair; round 2 left only LOW issues; render clean. Terms that had 2–5 German variants now have one each (owning system → *Eigentümersystem* 23×, RPAS owner → *RPAS-Eigentümer* 8×, risk assessment → *Risikobewertung* 13×, CSV&C Function → *CSV&C-Funktion* 9×, change control → *Änderungskontrolle* 13×). About 26.5k tokens plus 2.6k for the repair (before: 22k).
+- Open issues / decisions:
+  - **A section titled only "Recurring terms of this document" was answered with an empty list** by gpt-4o once the list reached about 30 terms (every time; any other title, or none, got all 44). The title now says what to do.
+  - The agreed term is the model's choice; a glossary entry, when the glossary comes, takes precedence (its terms are left out of the document terms).
+  - Forcing a compound term into a coordinated phrase can read awkwardly ("im Funktionalen und Anforderungstestfälle Plan"); the reviewer edits such segments in T7.
+  - English spelling variants of a term ("Requirement test cases" vs "Requirements Test Cases") are separate texts to the matcher: only the plural is folded.

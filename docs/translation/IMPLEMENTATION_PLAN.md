@@ -105,7 +105,7 @@ Repeated source strings are translated once per job. Template text is collected 
 - **Stages:**
   1. `PENDING`
   2. `PREPARING`: the migration must be COMPLETED or COMPLETED_WITH_WARNINGS. Snapshot the English drafts, source, number map, assembly and accepted gaps; snapshot the glossary and front matter; produce the `segments` artifact.
-  3. `TRANSLATING`: blocks packed with `planning/budget.py:pack`, run concurrently behind `llm_max_concurrent`, with a bounded memory of the previous segments (as built in T5: two waves; the short translations of the template text, table headers and cross-reference phrases are the memory of the section texts). Without an LLM the job fails technically: there is nothing to fall back on.
+  3. `TRANSLATING`: blocks packed with `planning/budget.py:pack`, run concurrently behind `llm_max_concurrent`, with a bounded memory of the previous segments (as built in T5: two waves; the short translations of the template text, table headers and cross-reference phrases are the memory of the section texts; since T6 the document's recurring terms are translated first and given to every call, `TERM-<n>` checks them). Without an LLM the job fails technically: there is nothing to fall back on.
   4. `CHECKING` ⇄ `REPAIRING`: one retranslation with the issue as feedback. A segment that still fails is left for the reviewer.
   5. `RENDERING`: final mode, then the language front matter (skipped when the job has no language template), then verify.
   6. `REVIEW_PENDING`

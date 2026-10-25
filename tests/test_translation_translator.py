@@ -108,7 +108,7 @@ def test_the_prompt_has_the_batch_glossary_terms_and_style_notes_only():
 
     call = describe([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=plain)])
     assert (call["task"], call["prompt_version"], call["segment_ids"], call["retry"]) == (
-        "translator", "translator/1", ["SEG-0001"], False)
+        "translator", "translator/2", ["SEG-0001"], False)
     block = free.blocks(groups)[0]
     repair = describe([SystemMessage(content=SYSTEM_PROMPT),
                        HumanMessage(content=free.repair_prompt(block, {"SEG-0001": "x"}, {"SEG-0001": ["lost y"]}))])
@@ -208,7 +208,7 @@ async def test_a_job_is_translated_checked_and_rendered(tpl, tmp_path):  # noqa:
     segment_set = env.orch.artifacts.latest(job, ArtifactKind.SEGMENTS, SegmentSet)
     assert {a.scope for a in job.artifacts if a.kind == ArtifactKind.TRANSLATION} == set(segment_set.scopes)
     sets = _latest_sets(env, job, segment_set)
-    assert {s.prompt_version for s in sets} == {"translator/1"} and {s.model for s in sets} == {"azure/fake"}
+    assert {s.prompt_version for s in sets} == {"translator/2"} and {s.model for s in sets} == {"azure/fake"}
     current = merged(segment_set, sets)
     assert len(current.segments) == len(segment_set.segments)
     llm = [s for s in current.segments if s.origin == SegmentOrigin.LLM]
@@ -229,7 +229,7 @@ async def test_a_job_is_translated_checked_and_rendered(tpl, tmp_path):  # noqa:
     assert {"translator", "checks"} <= set(names) and "repair" not in names
     calls = [e["detail"] for e in events if e["event"] == "llm_call"]
     assert calls and {c["task"] for c in calls} == {"translator"} and {c["stage"] for c in calls} == {"TRANSLATING"}
-    assert {c["prompt_version"] for c in calls} == {"translator/1"}
+    assert {c["prompt_version"] for c in calls} == {"translator/2"}
     translator = next(e["detail"] for e in events if e["event"] == "translator")
     assert translator["missing"] == 0 and translator["copied"] == len({s.source_text for s in copied})
 

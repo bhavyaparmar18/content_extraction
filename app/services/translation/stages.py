@@ -4,7 +4,8 @@ A stage receives a ``TranslationStageContext`` and may return a status to go to 
 A stage must be safe to re-run: after a crash or a retry it runs again and writes the next artifact versions.
 
 PREPARING (Phase T4) snapshots the completed migration's English final document into the job and cuts it into
-segments. TRANSLATING translates them (one ``translation[<scope>]`` per scope), CHECKING runs the QA checks
+segments. TRANSLATING translates the document's recurring terms (``glossary[terms]``) and then the segments (one
+``translation[<scope>]`` per scope), CHECKING runs the QA checks
 (``quality_report[translation]``) and sends the failing segments to REPAIRING once (Phase T5). RENDERING renders the
 translated final document (``docx[translated]``, ``render_report[translated]``) for review (Phase T6).
 """
@@ -20,6 +21,7 @@ from app.schemas.v2 import (
     ArtifactKind,
     AssembledDocument,
     Glossary,
+    GlossaryEntry,
     NumberMap,
     QualityReport,
     SectionDraft,
@@ -44,7 +46,18 @@ from .languages import get_language
 from .render import TRANSLATED, render_translation
 from .segments import build_segments
 from .template_text import harvest_hook
-from .translator import Translator, build_sets, group_of, group_segments, merged, repair_all, translate_all
+from .terms import find_terms
+from .translator import (
+    TERMS,
+    Translator,
+    build_sets,
+    group_of,
+    group_segments,
+    merged,
+    repair_all,
+    term_entries,
+    translate_all,
+)
 
 SYSTEM_ACTOR = "system"
 ENGLISH = "english"  # scope of the English final document's snapshot artifacts
@@ -203,15 +216,23 @@ def _job_glossary(ctx: TranslationStageContext) -> Optional[Glossary]:
     return ctx.require(ArtifactKind.GLOSSARY, Glossary) if ctx.job.glossary_id else None
 
 
+def _job_terms(ctx: TranslationStageContext) -> list[GlossaryEntry]:
+    """The job's document terms as TRANSLATING agreed them (none for a job translated before they existed)."""
+    terms = ctx.latest(ArtifactKind.GLOSSARY, Glossary, TERMS)
+    return terms.entries if terms is not None else []
+
+
 def _drafts(ctx: TranslationStageContext, segment_set: SegmentSet) -> list[SectionDraft]:
     drafts = [ctx.latest(ArtifactKind.SECTION_DRAFT, SectionDraft, s) for s in segment_set.draft_versions]
     return [d for d in drafts if d is not None]
 
 
-def _translator(ctx: TranslationStageContext, groups, glossary: Optional[Glossary]) -> Translator:
+def _translator(ctx: TranslationStageContext, groups, glossary: Optional[Glossary],
+                terms: list[GlossaryEntry] = ()) -> Translator:
     template = ctx.latest(ArtifactKind.TEMPLATE_MODEL, TemplateModel)
     titles = {s.section_id: s.heading for s in template.sections} if template else {}
-    return Translator(ctx.job.language, groups, glossary, titles, _setting(ctx, "translator_memory_tokens", 600))
+    return Translator(ctx.job.language, groups, glossary, titles, _setting(ctx, "translator_memory_tokens", 600),
+                      terms, _setting(ctx, "translator_terms_tokens", 800))
 
 
 def _model(ctx: TranslationStageContext) -> Optional[str]:
@@ -231,18 +252,25 @@ def current_segments(ctx: TranslationStageContext, segment_set: SegmentSet) -> S
 
 
 async def translating(ctx: TranslationStageContext) -> None:
-    """Translate every distinct text once (copy those with nothing to translate) and write every scope's set."""
+    """Translate the document's terms, then every distinct text once (copy those with nothing to translate); write
+    the agreed terms (``glossary[terms]``) and every scope's set."""
     _need_llm(ctx)
     segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
     glossary = _job_glossary(ctx)
     groups = group_segments(segment_set.segments, _drafts(ctx, segment_set))
     copied = [g for g in groups if copy_only(g.source_text, glossary)]
     todo = [g for g in groups if g not in copied]
+    terms = find_terms(segment_set.segments, glossary, _setting(ctx, "translation_terms_max", 80),
+                       _setting(ctx, "translation_term_min_texts", 3)) if todo else []
     translator = _translator(ctx, groups, glossary)
     run = await translate_all(translator, todo, ctx.chain_factory, ctx.rate_limiter,
-                              _setting(ctx, "translator_block_tokens", 1500), _setting(ctx, "llm_max_concurrent", 3))
+                              _setting(ctx, "translator_block_tokens", 1500), _setting(ctx, "llm_max_concurrent", 3),
+                              terms)
     if todo and run.all_failed:
         raise RuntimeError(f"every translation call failed ({run.failed_calls}); see the llm_call events")
+    ctx.write(ArtifactKind.GLOSSARY, Glossary(
+        glossary_id=f"{ctx.job.job_id}-terms", version=ctx.next_version(ArtifactKind.GLOSSARY, TERMS),
+        language=ctx.job.language, name="Document terms", entries=term_entries(run.terms)), scope=TERMS)
 
     targets: dict[str, tuple[Optional[str], Optional[SegmentOrigin]]] = {}
     for group in copied:
@@ -257,7 +285,8 @@ async def translating(ctx: TranslationStageContext) -> None:
         "segments": len(segment_set.segments), "groups": len(groups), "copied": len(copied),
         "translated": len(run.targets), "missing": len(todo) - len(run.targets), "blocks": run.blocks,
         "calls": run.calls, "failed_calls": run.failed_calls, "left_out": run.left_out, "memory_pairs": run.memory_pairs,
-        "glossary_terms_used": len(run.glossary_terms), "usage": run.usage,
+        "glossary_terms_used": len(run.glossary_terms), "terms": len(terms), "terms_translated": len(run.terms),
+        "usage": run.usage,
     })
 
 
@@ -267,7 +296,8 @@ async def checking(ctx: TranslationStageContext) -> Optional[TranslationStatus]:
     current = current_segments(ctx, segment_set)
     previous = ctx.latest(ArtifactKind.QUALITY_REPORT, QualityReport, CHECKS)
     report = check_translations(ctx.job.job_id, ctx.next_version(ArtifactKind.QUALITY_REPORT, CHECKS),
-                                current.segments, ctx.job.language, _job_glossary(ctx), ctx.settings, previous)
+                                current.segments, ctx.job.language, _job_glossary(ctx), ctx.settings, previous,
+                                _job_terms(ctx))
     ctx.write(ArtifactKind.QUALITY_REPORT, report, scope=CHECKS)
     repair = repair_candidates(current.segments, report)
     open_issues = [i for i in report.issues if not i.resolved]
@@ -296,6 +326,7 @@ async def repairing(ctx: TranslationStageContext) -> None:
     if not wanted:
         return
     glossary = _job_glossary(ctx)
+    terms = _job_terms(ctx)
     segments = {s.segment_id: s for s in current.segments}
     groups = group_segments(current.segments, _drafts(ctx, segment_set))
     by_segment = group_of(groups)
@@ -311,7 +342,7 @@ async def repairing(ctx: TranslationStageContext) -> None:
     first = {g.key: next(s for s in g.segment_ids if s in wanted) for g in repair_groups}
     previous = {key: segments[sid].target_text for key, sid in first.items()}
 
-    translator = _translator(ctx, groups, glossary)
+    translator = _translator(ctx, groups, glossary, terms)
     translator.remember((g.source_text, segments[g.key].target_text) for g in groups
                         if g.wave == 1 and segments[g.key].origin not in (None, SegmentOrigin.COPIED)
                         and segments[g.key].target_text is not None)
@@ -324,9 +355,9 @@ async def repairing(ctx: TranslationStageContext) -> None:
         text, answer = previous[group.key], run.targets.get(group.key)
         if answer is not None:
             sample = segments[first[group.key]]
-            before = check_segment(sample, ctx.job.language, glossary, ctx.settings)
+            before = check_segment(sample, ctx.job.language, glossary, ctx.settings, terms)
             after = check_segment(sample.model_copy(update={"target_text": answer, "origin": SegmentOrigin.REPAIR}),
-                                  ctx.job.language, glossary, ctx.settings)
+                                  ctx.job.language, glossary, ctx.settings, terms)
             if worst(after) <= worst(before):
                 text, improved = answer, improved + 1
             else:

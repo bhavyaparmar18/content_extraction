@@ -69,7 +69,7 @@ def _template(env, tmp_path, language="de-DE", template_id="t-de", status="ready
 
 # ── A fake translator (also used by test_translation_translator) ──────
 
-_LINE = re.compile(r'^\[(SEG-\d+)\] \(([^)]*)\)(?: \(in: ".*"\))? (.*)$')
+_LINE = re.compile(r'^\[((?:SEG|TERM)-\d+)\] \(([^)]*)\)(?: \(in: ".*"\))? (.*)$')
 
 
 def asked(prompt: str) -> list[tuple[str, str]]:

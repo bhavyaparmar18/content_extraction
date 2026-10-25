@@ -3,15 +3,19 @@
 - **Once per distinct text.** Segments with the same ``source_text`` (markers included) form a group, keyed by its
   first segment's id; the answer goes to every segment of the group. A text with nothing to translate (no letters
   once markers, tokens, references and do-not-translate terms are removed) is copied (``origin=copied``).
-- **Two waves.** The template's own text, the table headers and the cross-reference phrases go first; their short
-  translations (six words or fewer, no markers) become the bounded "already translated in this document" memory of
-  the second wave, the section texts, so headings, labels and the body name things the same way. Like the
-  glossary, the memory sends a call only the entries its texts use.
+- **Terms, then two waves.** The document's recurring terms (``terms.find_terms``) are translated first, in calls
+  of their own (one ``(term)`` line each, keys ``TERM-<n>``); their translations are the DOCUMENT TERMS of every
+  later call, so a term reads the same in every section. The template's own text, the table headers and the
+  cross-reference phrases go next; their short translations (six words or fewer, no markers) become the bounded
+  "already translated in this document" memory of the second wave, the section texts, so headings, labels and the
+  body name things the same way. Like the glossary, the terms and the memory send a call only the entries its
+  texts use.
 - **Blocks.** Groups are packed per scope with ``planning/budget.pack`` and translated concurrently. One attempt
   per block, plus one more call for what it did not translate (the segments the answer left out, or a failed
   call's segments as two halves): a segment still without an answer stays untranslated for CHECKING and REPAIRING. Markers an answer adds that its English does not have are
   dropped (they carry no text); anything else wrong is left to the checks.
-- **Repair.** The same prompt with a ``REPAIR:`` section: the previous translation and the problems found.
+- **Repair.** The same prompt with a ``REPAIR:`` section: the previous translation and the problems found (the
+  job's terms, ``glossary[terms]``, are given again).
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ from app.services.llm.prompts.v2.translator import (
     REPAIR_HEADING,
     STYLE_SECTION,
     SYSTEM_PROMPT,
+    TERMS_SECTION,
     USER_PROMPT,
 )
 from app.services.migration_v2.drafting.drafter import _call
@@ -58,6 +63,8 @@ from .template_text import TAG, has_letters
 LINE_BREAK = "⏎"
 DEFAULT_BLOCK_TOKENS = 1500
 DEFAULT_MEMORY_TOKENS = 600
+DEFAULT_TERMS_TOKENS = 800
+TERMS = "terms"  # the scope of the term calls and of the job's ``glossary[terms]``
 MEMORY_MAX_WORDS = 6
 _FIRST_WAVE = (SegmentKind.TEMPLATE_TEXT, SegmentKind.TABLE_HEADER, SegmentKind.XREF)
 _ROLES = {
@@ -91,13 +98,18 @@ class Group:
     source_text: str
     segment_ids: list[str]
     scope: str
-    kind: SegmentKind
+    kind: Optional[SegmentKind]   # None for a document term
     role: str
     context: Optional[str] = None  # a cross-reference phrase: the English claim it is inserted into
 
     @property
     def wave(self) -> int:
-        return 1 if self.kind in _FIRST_WAVE else 2
+        return 0 if self.kind is None else 1 if self.kind in _FIRST_WAVE else 2
+
+
+def term_groups(terms: Iterable[str]) -> list[Group]:
+    """One group per document term (no segments: its answer is the job's translation of the term)."""
+    return [Group(f"TERM-{n:03d}", term, [], TERMS, None, "term") for n, term in enumerate(terms, start=1)]
 
 
 def _role(segment: Segment, claims: dict) -> str:
@@ -121,6 +133,15 @@ def group_segments(segments: Iterable[Segment], drafts: Iterable[SectionDraft] =
                                             segment.scope, segment.kind, _role(segment, claims),
                                             claim.text if claim is not None else None)
     return list(groups.values())
+
+
+def term_entries(terms: dict[str, str]) -> list[GlossaryEntry]:
+    """The document terms (English → translation) as entries; of two that differ only in case, the first."""
+    out: dict[str, GlossaryEntry] = {}
+    for source, target in terms.items():
+        entry = GlossaryEntry(source_term=source, target_term=target)
+        out.setdefault(entry.key, entry)
+    return list(out.values())
 
 
 def memory_entries(pairs: Iterable[tuple[str, str]]) -> list[GlossaryEntry]:
@@ -156,6 +177,18 @@ def _restore(answer: str, source: str) -> str:
     return f"{lead}{text}{trail}"
 
 
+def _within(entries: Iterable[GlossaryEntry], budget: int) -> list[GlossaryEntry]:
+    """The first *entries* whose prompt lines fit *budget* tokens."""
+    picked, size = [], 0
+    for entry in entries:
+        cost = estimate_tokens(_entry_line(entry))
+        if size + cost > budget:
+            break
+        picked.append(entry)
+        size += cost
+    return picked
+
+
 def _entry_line(entry: GlossaryEntry) -> str:
     if entry.do_not_translate:
         return f'- "{entry.source_term}": DO NOT TRANSLATE'
@@ -168,18 +201,29 @@ def _entry_line(entry: GlossaryEntry) -> str:
 
 class Translator:
     def __init__(self, language: LanguageCode | str, groups: Iterable[Group], glossary: Optional[Glossary] = None,
-                 titles: Optional[dict[str, str]] = None, memory_tokens: int = DEFAULT_MEMORY_TOKENS):
+                 titles: Optional[dict[str, str]] = None, memory_tokens: int = DEFAULT_MEMORY_TOKENS,
+                 terms: Iterable[GlossaryEntry] = (), terms_tokens: int = DEFAULT_TERMS_TOKENS):
         self.language = get_language(language)
         self.glossary = glossary
         self.titles = titles or {}
         self.memory_tokens = memory_tokens
         self.memory: list[GlossaryEntry] = []
+        self.terms: list[GlossaryEntry] = list(terms)
+        self.terms_tokens = terms_tokens
         self.by_key = {g.key: g for g in groups}
 
     def remember(self, pairs: Iterable[tuple[str, str]]) -> None:
         self.memory = memory_entries(pairs)
 
+    def add_terms(self, terms: Iterable[str]) -> list[Group]:
+        """The term groups of *terms*, known to the prompts from now on."""
+        groups = term_groups(terms)
+        self.by_key.update({g.key: g for g in groups})
+        return groups
+
     def _title(self, scope: str) -> str:
+        if scope == TERMS:
+            return "Terms of this document: translate each term"  # a bare "terms" title is often answered empty
         if scope == SCOPE_TEMPLATE:
             return "Template text (headings, labels and fixed text of the document template)"
         if scope == SCOPE_XREFS:
@@ -208,19 +252,17 @@ class Translator:
     def glossary_terms(self, block: Block) -> list[GlossaryEntry]:
         return terms_in(TAG.sub(" ", self._texts(block)), self.glossary.entries) if self.glossary else []
 
+    def document_terms(self, block: Block) -> list[GlossaryEntry]:
+        """The job's terms the block's texts use, in order of first use, within ``terms_tokens``."""
+        return _within(terms_in(TAG.sub(" ", self._texts(block)), self.terms), self.terms_tokens)
+
     def memory_terms(self, block: Block) -> list[GlossaryEntry]:
         texts = TAG.sub(" ", self._texts(block))
         own = {g.source_text.casefold() for g in (self.by_key[k] for k in self.keys(block))}
-        picked, size = [], 0
-        for entry in terms_in(texts, self.memory):
-            if entry.source_term.casefold() in own:
-                continue  # the text being translated is not its own example
-            cost = estimate_tokens(_entry_line(entry))
-            if size + cost > self.memory_tokens:
-                break
-            picked.append(entry)
-            size += cost
-        return picked
+        own |= {e.source_term.casefold() for e in self.terms}  # a document term is given as one
+        # the text being translated is not its own example
+        return _within([e for e in terms_in(texts, self.memory) if e.source_term.casefold() not in own],
+                       self.memory_tokens)
 
     def prompt(self, block: Block) -> str:
         resources = ""
@@ -229,6 +271,9 @@ class Translator:
             resources += GLOSSARY_SECTION.format(entries="\n".join(_entry_line(e) for e in entries))
         if self.glossary is not None and (self.glossary.style_notes or "").strip():
             resources += STYLE_SECTION.format(notes=self.glossary.style_notes.strip())
+        terms = self.document_terms(block)
+        if terms:
+            resources += TERMS_SECTION.format(entries="\n".join(_entry_line(e) for e in terms))
         memory = self.memory_terms(block)
         if memory:
             resources += MEMORY_SECTION.format(entries="\n".join(_entry_line(e) for e in memory))
@@ -267,6 +312,7 @@ class TranslateRun:
     blocks: int = 0
     memory_pairs: int = 0
     glossary_terms: set[str] = field(default_factory=set)
+    terms: dict[str, str] = field(default_factory=dict)  # document term → its translation
 
     @property
     def all_failed(self) -> bool:
@@ -311,12 +357,24 @@ async def _run_blocks(translator: Translator, run: TranslateRun, blocks: list[Bl
 
 
 async def translate_all(translator: Translator, groups: list[Group], chain_factory: Any, rate_limiter: Any = None,
-                        block_tokens: int = DEFAULT_BLOCK_TOKENS, max_concurrent: int = 3) -> TranslateRun:
-    """Translate *groups* in two waves; the first wave's short texts are the second wave's memory."""
+                        block_tokens: int = DEFAULT_BLOCK_TOKENS, max_concurrent: int = 3,
+                        terms: Iterable[str] = ()) -> TranslateRun:
+    """Translate the document *terms*, then *groups* in two waves; the terms go to every later call that uses them,
+    the first wave's short texts are the second wave's memory."""
     run = TranslateRun()
     if not groups:
         return run
     chain = chain_factory.create_structured_planner(TranslatorOutput, include_raw=True)
+    term_set = translator.add_terms(terms)
+    if term_set:
+        blocks = translator.blocks(term_set, block_tokens)
+        run.blocks += len(blocks)
+        await _run_blocks(translator, run, blocks, translator.prompt, chain, rate_limiter, max_concurrent, "translator")
+        for group in term_set:
+            answer = run.targets.pop(group.key, None)
+            if answer and not TAG.search(answer) and "{{" not in answer:
+                run.terms[group.source_text] = " ".join(answer.split())
+        translator.terms = term_entries(run.terms)
     for wave in (1, 2):
         blocks = translator.blocks([g for g in groups if g.wave == wave], block_tokens)
         run.blocks += len(blocks)

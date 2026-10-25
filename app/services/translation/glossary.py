@@ -323,3 +323,28 @@ def target_present(translation: str, entry: GlossaryEntry, language: LanguageCod
     case = not entry.case_sensitive
     pattern = _target_regex(_fold(entry.target_term, case=case))
     return re.search(rf"(?<!\w){pattern}(?!\w)", _fold(translation, case=case)) is not None
+
+
+def _stem(word: str) -> str:
+    """A word whose ending may change: its last letter (two for words of seven letters or more) may differ."""
+    if len(word) <= 4 or not word[-1:].isalpha():
+        return re.escape(word) + (r"\w{0,3}" if word[-1:].isalpha() else "")
+    return re.escape(word[:-2] if len(word) >= 7 else word[:-1]) + r"\w{0,4}"
+
+
+def term_present(translation: str, term: str, language: LanguageCode) -> bool:
+    """Whether ``translation`` uses a document term's translation, loosely: case and accents aside, every word may
+    change its ending (adjectives inflect too: "besitzendes System", "des besitzenden Systems"), words may be
+    joined by a hyphen, the last may start a compound ("Risikoanalysedokument") and a one-word term of six letters
+    or more may end one ("RPAS-Risikoanalyse", "Systemlebenszyklus")."""
+    if get_language(language).east_asian:
+        squash = lambda s: re.sub(r"\s+", "", _fold(s, accents=False))  # noqa: E731
+        return squash(term) in squash(translation)
+    words = _fold(term).split()
+    if not words:
+        return True
+    last = words[-1]
+    tail = re.escape(last[:-2] if len(last) >= 7 else last[:-1] if len(last) > 4 else last) + r"\w*"
+    body = r"[\s-]+".join([_stem(w) for w in words[:-1]] + [tail])
+    left = "" if len(words) == 1 and len(last) >= 6 else r"(?<!\w)"
+    return re.search(rf"{left}{body}", _fold(translation)) is not None

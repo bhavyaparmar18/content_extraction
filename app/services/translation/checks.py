@@ -9,6 +9,9 @@ Per segment (issue id ``TQ-<segment>-<code>``, so a reviewer's resolution carrie
   (a document ID, e-mail address or URL of the source is missing);
 - HIGH, only with a glossary: ``GLOSSARY-<n>`` (a term the source uses is not translated with its target term) and
   ``DNT-<n>`` (a do-not-translate term was altered); ``n`` is the entry's place in the glossary;
+- MEDIUM, with the job's document terms (``glossary[terms]``, see ``terms.py``): ``TERM-<n>`` (the source uses a
+  document term the translation does not render as agreed, loosely matched by ``glossary.term_present``; a term
+  the translation keeps in English, such as a document title, passes); ``n`` is the term's place in the list;
 - MEDIUM: ``UNTRANSLATED`` (identical to the English: wording of two words or more; LOW for one word or only
   capitalized words, such as a person's name and unit; abbreviations do not count), ``SCRIPT`` (Chinese, Japanese, Greek: mostly Latin letters once the English's own names, acronyms and
   do-not-translate terms are left out), ``LINE_BREAKS``;
@@ -33,6 +36,7 @@ from app.schemas.v2 import (
     FactKind,
     Gate,
     Glossary,
+    GlossaryEntry,
     IssueCategory,
     LanguageCode,
     QualityReport,
@@ -46,7 +50,7 @@ from app.services.migration_v2.drafting.refs import tokens_of
 from app.services.migration_v2.quality.facts import extract_values
 from app.services.migration_v2.quality.gates import carry_resolutions, gate_counts
 
-from .glossary import match_terms, target_present, terms_in
+from .glossary import match_terms, target_present, term_present, terms_in
 from .languages import get_language
 from .template_text import TAG, has_letters, parse_tags, strip_tags
 
@@ -154,8 +158,8 @@ def _setting(settings: Any, name: str, default):
 
 
 def check_segment(segment: Segment, language: LanguageCode | str, glossary: Optional[Glossary] = None,
-                  settings: Any = None) -> list[ValidationIssue]:
-    """The issues of one translated segment (none for a copied one)."""
+                  settings: Any = None, terms: Optional[list[GlossaryEntry]] = None) -> list[ValidationIssue]:
+    """The issues of one translated segment (none for a copied one); *terms* are the job's document terms."""
     if segment.origin == SegmentOrigin.COPIED:
         return []
     lang = get_language(language)
@@ -211,6 +215,16 @@ def check_segment(segment: Segment, language: LanguageCode | str, glossary: Opti
             else:
                 add(f"GLOSSARY-{position[entry.key]}", Severity.HIGH, IssueCategory.TERMINOLOGY,
                     f"glossary: \"{entry.source_term}\" must be translated as \"{entry.target_term}\"")
+
+    if terms:
+        position = {e.key: n for n, e in enumerate(terms, start=1)}
+        translated = strip_tags(target)
+        for entry in terms_in(strip_tags(source), terms):
+            if term_present(translated, entry.target_term, lang.code) or term_present(
+                    translated, entry.source_term, lang.code):
+                continue
+            add(f"TERM-{position[entry.key]}", Severity.MEDIUM, IssueCategory.TERMINOLOGY,
+                f"document term \"{entry.source_term}\" is translated as \"{entry.target_term}\" in this document")
 
     plain = [w for w in words(source) if any(c.islower() for c in w)]  # abbreviations stay as they are
     if target.strip() == source.strip() and plain and not copy_only(source, glossary):
@@ -268,9 +282,11 @@ def repair_candidates(segments: Iterable[Segment], report: QualityReport) -> lis
 
 def check_translations(job_id: str, version: int, segments: list[Segment], language: LanguageCode | str,
                        glossary: Optional[Glossary] = None, settings: Any = None,
-                       previous: Optional[QualityReport] = None) -> QualityReport:
+                       previous: Optional[QualityReport] = None,
+                       terms: Optional[list[GlossaryEntry]] = None) -> QualityReport:
     """Every segment's checks in one report; resolutions of the previous round's issues carry over."""
-    issues = carry_resolutions([i for s in segments for i in check_segment(s, language, glossary, settings)], previous)
+    issues = carry_resolutions([i for s in segments for i in check_segment(s, language, glossary, settings, terms)],
+                               previous)
     total = len(segments) or 1
     done = [s for s in segments if s.target_text is not None]
     copied = sum(s.origin == SegmentOrigin.COPIED for s in segments)

@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     language_template_allowed_extensions: list[str] = [".docx"]
     translator_block_tokens: int = 1500    # source tokens per translation call
     translator_memory_tokens: int = 600    # cap on the "already translated" pairs (headings, labels) sent per call
+    translator_terms_tokens: int = 800     # cap on the document terms sent per call
+    translation_terms_max: int = 80        # document terms translated first and checked (terms.find_terms)
+    translation_term_min_texts: int = 3    # a phrase is a document term from this many distinct texts
     translation_length_min_chars: int = 20  # the length check skips shorter source texts
     # translated / source characters outside these bounds is a LOW issue (loose on purpose)
     translation_length_bounds: dict[str, tuple[float, float]] = {

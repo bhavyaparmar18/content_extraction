@@ -72,12 +72,14 @@ Built in `app/services/translation/segments.py` and `template_text.py` from the 
 | `glossary` | — | the job's glossary version (only when it names one) |
 | `front_matter` | — | the language template's front-matter package `.docx` (only when it names one) |
 | `segments` | — | the `SegmentSet` |
+| `glossary` | `terms` | the document's terms as TRANSLATING agreed them (a `Glossary`, id `<job>-terms`; written by TRANSLATING) |
 
 ## Translation, checks and repair (Phase T5)
 
-Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATING, CHECKING and REPAIRING stages; prompt `translator/1` (`app/services/llm/prompts/v2/translator.py`).
+Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATING, CHECKING and REPAIRING stages; prompt `translator/2` (`app/services/llm/prompts/v2/translator.py`; `translator/1` had no document terms).
 
 - **TRANSLATING** writes `translation[<scope>]` for every scope. Each distinct English text (markers included) is translated once and the answer goes to every segment that shows it. A text with nothing to translate (no letters once markers, `{{ref:}}` tokens, document IDs, e-mails, URLs and do-not-translate terms are removed) is copied (`origin: copied`).
+- **Document terms first** (`translation/terms.py`): the English terms the document uses again and again: phrases of two to four words without function words in at least `translation_term_min_texts` (3) distinct texts (a phrase inside a longer one that covers 75% of its texts gives way to it), and short table labels used in another text too; at most `translation_terms_max` (80), the most used first. Names, IDs and abbreviations alone, and terms the job's glossary covers, are left out. They are translated in calls of their own (`TERM-<n>` keys, role `term`), saved as `glossary[terms]`, and every later call (repairs too) gets the ones its texts use under DOCUMENT TERMS (capped at `translator_terms_tokens`), as mandatory as a glossary's but checked as MEDIUM, so a term reads the same in every section and table.
 - **Two waves:** the template text, table headers and cross-reference phrases first; their short translations (six words or fewer, no markers) are then the "already translated in this document" entries of the section texts, sent only to the calls whose texts use them (capped at `translator_memory_tokens`), so headings, labels and the body agree.
 - **Calls:** groups are packed per scope (`planning/budget.pack`, `translator_block_tokens`) and run concurrently (`llm_max_concurrent`). The segments an answer leaves out are asked again once; a failed call is tried once more as two halves. Markers an answer adds that its English does not have are dropped. Without an LLM, or when every call fails, the job fails technically.
 - **CHECKING** writes `quality_report[translation]` (a `QualityReport`; issue id `TQ-<segment>-<code>`, stable, so a reviewer's resolution carries over to the next round):
@@ -92,6 +94,7 @@ Built in `app/services/translation/translator.py`, `checks.py` and the TRANSLATI
   | `REFERENCES` | critical, gate `numerical_change` | preservation | a document ID, e-mail or URL of the English is missing |
   | `GLOSSARY-<n>` | high | terminology | a glossary term the English uses is not translated with its target term (`n`: the entry's place) |
   | `DNT-<n>` | high | terminology | a do-not-translate term was altered |
+  | `TERM-<n>` | medium | terminology | a document term (`glossary[terms]`) the English uses is not rendered as agreed (`glossary.term_present`: case and accents aside, every word may inflect, words may be hyphenated, the last may start a compound and a one-word term may end one); a term kept in English, e.g. in a document title, passes (`n`: the term's place) |
   | `UNTRANSLATED` | medium (low for one word or only capitalized words, e.g. a name) | language | identical to the English |
   | `SCRIPT` | medium | language | Chinese, Japanese, Greek: mostly Latin letters, the English's own names and acronyms left out |
   | `LINE_BREAKS` | medium | formatting | a different number of line breaks |
