@@ -8,6 +8,11 @@ Both resources are per language and optional on a translation job:
 A translation job (Phase T4) is one language of a completed migration; ``POST /translations`` starts one per
 language. Its segments carry their translations once translated, and ``/validation`` serves the QA checks (T5).
 Once rendered (T6), ``/export/preview`` serves the translated document and ``/render-report`` its render.
+
+In review (T7) a reviewer edits segments (``PATCH /segments/{id}``: that segment, or every segment with the same
+English text) or replaces a word or phrase (``/replace/preview``, ``/replace``: one occurrence, a chosen set or all),
+resolves issues, renders again (``/render``), approves and exports the approved document (``/export/word``). Each
+change is checked again at once; ``GET /{id}`` carries the review state (render current, what blocks the approval).
 """
 
 from pathlib import Path
@@ -35,7 +40,7 @@ from app.schemas.v2.translation import GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
 from app.services.migration_v2.artifacts import ArtifactCorrupted
 from app.services.migration_v2.orchestrator import JobStateError
-from app.services.translation import glossary_service, job_service, language_template_service
+from app.services.translation import glossary_service, job_service, language_template_service, review_service
 from app.services.translation.glossary import GlossaryInvalid, parse_glossary_file, to_csv, to_xlsx
 from app.services.translation.languages import LANGUAGES, get_language
 from app.services.translation.orchestrator import TranslationOrchestrator
@@ -413,6 +418,11 @@ def _job(orch: TranslationOrchestrator, job_id: str) -> TranslationJob:
 def _view(orch: TranslationOrchestrator, job: TranslationJob) -> dict[str, Any]:
     data = job.to_clean_dict()
     data["running"] = orch.is_running(job.job_id)
+    if not data["running"] and job.status in (TranslationStatus.REVIEW_PENDING, TranslationStatus.APPROVED):
+        try:
+            data["review"] = review_service.review_view(orch.context(job))
+        except ArtifactCorrupted as exc:
+            raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
     return data
 
 
@@ -535,7 +545,8 @@ async def get_render_report(request: Request, job_id: str = PathParam(..., patte
 
 @router.get("/{job_id}/export/preview")
 async def preview_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID)):
-    """The latest translated document (``docx[translated]``) for viewing in the app; the approved export is T7's."""
+    """The latest translated document (``docx[translated]``) for viewing in the app; ``/export/word`` serves the
+    approved one."""
     orch = _orchestrator(request)
     job = _job(orch, job_id)
     if orch.is_running(job_id):
@@ -549,3 +560,147 @@ async def preview_translation(request: Request, job_id: str = PathParam(..., pat
         raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
     name = f"{job_id}_{job.language.value}_v{ref.version}_preview.docx"
     return Response(data, media_type=_DOCX, headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+
+# ── Review (Phase T7) ─────────────────────────────────────────────────
+
+_SEGMENT_ID = r"^SEG-\d+$"
+_ISSUE_ID = r"^TQ-[A-Za-z0-9-]+$"
+
+
+class SegmentEdit(BaseModel):
+    target_text: str = Field(min_length=1, max_length=20000)
+    apply_to: review_service.ApplyTo = "same_text"
+
+
+class ReplacePreview(BaseModel):
+    find: str = Field(min_length=1, max_length=500)
+    case_sensitive: bool = False
+    whole_word: bool = True
+    section: Optional[str] = None
+
+
+class ReplaceOccurrence(BaseModel):
+    segment_id: str
+    occurrence: int = Field(ge=0)
+
+
+class ReplaceRequest(ReplacePreview):
+    replace: str = Field(max_length=500)
+    targets: Literal["all"] | list[ReplaceOccurrence]
+    expected_versions: dict[str, int]
+
+
+class IssueResolution(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class Approval(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+def _review_error(exc: review_service.ReviewError) -> AppError:
+    return AppError(exc.status, exc.code, exc.message,
+                    field_errors=[ApiFieldError(field="review", code=exc.code.lower(), message=d[:500])
+                                  for d in exc.details[:50]])
+
+
+def _review(orch: TranslationOrchestrator, job_id: str, user: dict, in_review: bool = True):
+    """The job's context with the reviewer as actor; with *in_review*, only while it waits for review."""
+    job = _job(orch, job_id)
+    if in_review:
+        try:
+            review_service.require_review(job, orch.is_running(job_id))
+        except review_service.ReviewError as exc:
+            raise _review_error(exc) from exc
+    return orch.context(job, _actor(user) or "reviewer")
+
+
+def _run_review(call, *args):
+    try:
+        return call(*args)
+    except review_service.ReviewError as exc:
+        raise _review_error(exc) from exc
+    except ArtifactCorrupted as exc:
+        raise AppError(500, "ARTIFACT_CORRUPTED", str(exc)) from exc
+
+
+@router.patch("/{job_id}/segments/{segment_id}")
+async def edit_segment(request: Request, body: SegmentEdit, job_id: str = PathParam(..., pattern=_JOB_ID),
+                       segment_id: str = PathParam(..., pattern=_SEGMENT_ID), user: dict = Depends(require_user)):
+    """Save a reviewer's translation of a segment (``origin: human``): with ``apply_to: same_text`` (the default)
+    also of every segment with the same English text that no human has edited, with ``this`` of that one only.
+
+    Refused (422 ``SEGMENT_INVALID``) when the document could not show it: empty, or its ``{{ref:}}`` tokens,
+    ``⟦k⟧`` markers or ``|`` cell separators differ from the English. The checks run again at once; the render is
+    then out of date until ``POST /{id}/render``.
+    """
+    ctx = _review(_orchestrator(request), job_id, user)
+    return _run_review(review_service.edit_segment, ctx, segment_id, body.target_text, body.apply_to)
+
+
+@router.post("/{job_id}/replace/preview")
+async def preview_replace(request: Request, body: ReplacePreview, job_id: str = PathParam(..., pattern=_JOB_ID),
+                          user: dict = Depends(require_user)):
+    """Every occurrence of a word or phrase in the translations (whole words, case-insensitive by default; Chinese
+    and Japanese match inside words), never inside a marker or token. Nothing is saved."""
+    ctx = _review(_orchestrator(request), job_id, user)
+    return _run_review(review_service.find_matches, ctx, body.find, body.case_sensitive, body.whole_word,
+                       body.section)
+
+
+@router.post("/{job_id}/replace")
+async def apply_replace(request: Request, body: ReplaceRequest, job_id: str = PathParam(..., pattern=_JOB_ID),
+                        user: dict = Depends(require_user)):
+    """Replace the chosen occurrences of a preview (``targets``: ``"all"`` or ``[{segment_id, occurrence}]``).
+
+    Refused (409 ``PREVIEW_OUT_OF_DATE``) when the translations changed since the preview (``expected_versions``
+    is the preview's ``translation_versions``). Replacing every occurrence of a document term's agreed translation,
+    in the whole document, agrees the new one.
+    """
+    ctx = _review(_orchestrator(request), job_id, user)
+    targets = body.targets if body.targets == "all" else [
+        review_service.Occurrence(t.segment_id, t.occurrence) for t in body.targets]
+    return _run_review(review_service.replace, ctx, body.find, body.replace, targets, body.expected_versions,
+                       body.case_sensitive, body.whole_word, body.section)
+
+
+@router.post("/{job_id}/issues/{issue_id}/resolve")
+async def resolve_issue(request: Request, body: IssueResolution, job_id: str = PathParam(..., pattern=_JOB_ID),
+                        issue_id: str = PathParam(..., pattern=_ISSUE_ID), user: dict = Depends(require_user)):
+    """Resolve one open QA issue with a note, as the next ``quality_report[translation]``; the resolution carries
+    over to later checks until its segment is edited."""
+    ctx = _review(_orchestrator(request), job_id, user)
+    return _run_review(review_service.resolve_issue, ctx, issue_id, body.note)
+
+
+@router.post("/{job_id}/render")
+async def render_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                             user: dict = Depends(require_user)):
+    """Render the translated document again from the latest translations, in the background; the job comes back
+    to REVIEW_PENDING."""
+    orch = _orchestrator(request)
+    _job(orch, job_id)
+    try:
+        return _view(orch, orch.rerender(job_id, _actor(user)))
+    except JobStateError as exc:
+        raise AppError(409, exc.code, exc.message) from exc
+
+
+@router.post("/{job_id}/approve")
+async def approve_translation(request: Request, body: Optional[Approval] = None,
+                              job_id: str = PathParam(..., pattern=_JOB_ID), user: dict = Depends(require_user)):
+    """Approve the latest render. Refused (409 ``APPROVAL_BLOCKED``, the reasons as field errors) while the render is
+    out of date or has post-render problems, or a gate or critical issue is open."""
+    orch = _orchestrator(request)
+    ctx = _review(orch, job_id, user)
+    return _view(orch, _run_review(review_service.approve, ctx, body.note if body else None))
+
+
+@router.get("/{job_id}/export/word")
+async def export_translation(request: Request, job_id: str = PathParam(..., pattern=_JOB_ID),
+                             user: dict = Depends(require_user)):
+    """The approved translated document (409 ``NOT_APPROVED`` before the approval); each download is recorded."""
+    ctx = _review(_orchestrator(request), job_id, user, in_review=False)
+    data, name = _run_review(review_service.approved_export, ctx)
+    return Response(data, media_type=_DOCX, headers={"Content-Disposition": f'attachment; filename="{name}"'})

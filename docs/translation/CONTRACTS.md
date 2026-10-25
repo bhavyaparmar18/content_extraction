@@ -128,6 +128,26 @@ Built in `app/services/translation/render.py`, the RENDERING stage and `template
 - **Artifacts:** `docx[translated]` (saved even when the post-render check has problems, so the reviewer sees them) and `render_report[translated]`. The render warnings leave out the "source column … is under template column …" ones (translated source headers against the English template's). Events: `render` (segments written per kind, those kept in English, TOC, front matter, East Asian font, problems) and `render_problems`.
 - **Status:** the job goes to REVIEW_PENDING; approval waits for a render without problems (T7).
 
+## Review (Phase T7)
+
+Built in `app/services/translation/review_service.py`, `TranslationOrchestrator.rerender` and the review routes of `app/api/translations.py`. A reviewer changes a job only while it is REVIEW_PENDING and not running (409 `JOB_RUNNING` / `NOT_IN_REVIEW`); approved is final.
+
+- **Segment edit** (`PATCH /{id}/segments/{segment_id}`, `{target_text, apply_to}`): the translation becomes `origin: human`.
+  - `apply_to: same_text` (the default): also every segment with the same English text that no human has edited yet (a human edit is never overwritten); `this`: that segment only.
+  - Refused with 422 `SEGMENT_INVALID` when the document could not show it: empty, or `{{ref:}}` tokens, `⟦k⟧` / `⟦1⟧` markers or `|` cell separators that differ from the English (the checks `EMPTY`, `REF_TOKENS`, `TAGS`, `CELLS`). Every other issue is accepted and reported, the `numerical_change` gate included.
+- **Find and replace** (`POST /{id}/replace/preview`, then `POST /{id}/replace`):
+  - matches the current translations (copied ones too), never inside or across a marker or token; whole words by default (Unicode letters and digits), any whitespace between the words of a phrase; Chinese and Japanese match inside words; case-insensitive unless `case_sensitive`; optionally one scope (`section`);
+  - the preview lists each occurrence (`segment_id`, `occurrence` within the segment, context) with `translation_versions`, and warns when the text is a glossary target (replacing it opens `GLOSSARY-<n>`), a document term's agreed translation, or also occurs inside longer words that whole-word matching leaves out (`longer_words`, e.g. German inflections "Eigentümersystems"; without whole words they are replaced too: "Eigentümer-Systems");
+  - `targets` is `"all"` or `[{segment_id, occurrence}]`; `expected_versions` must equal the current translation versions, or 409 `PREVIEW_OUT_OF_DATE`. The replacement is inserted as typed (no markers allowed); every changed segment becomes `origin: human`, human edits included. A segment whose result could not be shown is skipped and listed. 422 `NO_MATCHES` / `REPLACE_INVALID`;
+  - replacing **all** occurrences in the whole document (no `section`) of a document term's agreed translation agrees the new text: the next `glossary[terms]`, so the `TERM-<n>` checks follow it. The job's glossary snapshot never changes.
+- **After every change:** the next `translation[<scope>]` of each scope touched (prompt and model of the previous set kept), then the QA checks again, in the request (no LLM), as the next `quality_report[translation]`. The changed segments' issues lose their resolutions (they were about the old text); every other resolution carries over. A human edit is checked but never repaired. The render is then out of date.
+- **Issue resolution** (`POST /{id}/issues/{issue_id}/resolve`, `{note}`): any open issue, as the next report version, `resolution_note` `"<reviewer>: <note>"`, gate counts recomputed. 404 `ISSUE_NOT_FOUND`, 409 `ISSUE_RESOLVED`.
+- **Render again** (`POST /{id}/render`): REVIEW_PENDING → RENDERING (event `render_requested`) → REVIEW_PENDING, in the background. A render is **current** when its `render` event's `translation_versions` equal the latest; a render from before T7 (no versions in its event) is current while no translation artifact is newer than its `docx`.
+- **Approval** (`POST /{id}/approve`, optional `note`) is refused with 409 `APPROVAL_BLOCKED` (the blockers as field errors) while any of these holds: `NO_RENDER`, `RENDER_OUT_OF_DATE`, `RENDER_PROBLEMS` (the post-render check), `OPEN_GATE` (an open `numerical_change` issue), `OPEN_CRITICAL` (an open `EMPTY`, `REF_TOKENS`, `TAGS` or `CELLS`). HIGH issues and lower do not block. The `approved` event records the `docx` version and hash, the translation and report versions, the open issues by severity and the segments shown in English.
+- **Export** (`GET /{id}/export/word`): only once APPROVED (409 `NOT_APPROVED`); the very `docx[translated]` the approval names, hash-checked, never re-rendered, as `{job_id}_{language}_v{n}.docx`. Each download is an `export` event.
+- **Review state:** `GET /{id}` of a job in review or approved carries `review: {render_current, docx_version, blockers, can_approve}`.
+- **Events:** `segment_edited` (segment, `apply_to`, `applied_to`, versions, before/after), `segments_replaced` (find, replace, count, segments, skipped, `term_updated`), `issue_resolved`, `render_requested`, `approved`, `export`; artifacts written in review carry the reviewer as `created_by`.
+
 ## Changing a contract
 
 Change the model, update the example, run `tests/test_translation_contracts.py`, and note the change in `PROGRESS.md`.

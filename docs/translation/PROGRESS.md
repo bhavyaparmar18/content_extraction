@@ -224,3 +224,38 @@ Entry format:
   - The agreed term is the model's choice; a glossary entry, when the glossary comes, takes precedence (its terms are left out of the document terms).
   - Forcing a compound term into a coordinated phrase can read awkwardly ("im Funktionalen und Anforderungstestfälle Plan"); the reviewer edits such segments in T7.
   - English spelling variants of a term ("Requirement test cases" vs "Requirements Test Cases") are separate texts to the matcher: only the plural is folded.
+
+## 2026-10-25: Phase T7 (review API): done
+- Decisions (user, 2026-10-25):
+  - **The reviewer chooses how far a change goes.** A segment edit goes by default to every segment with the same English text (`apply_to: same_text`; human edits never overwritten), or to that one only (`this`). A find-and-replace changes a word or phrase in one occurrence, a chosen set or all.
+  - **Re-rendering is a step of its own:** each change is checked again at once, in the request (no LLM); the render is out of date until `POST /{id}/render`. (The plan said an edit re-runs CHECKING and RENDERING.)
+  - **The approval gate:** a current render without post-render problems, no open `numerical_change` gate issue and no open CRITICAL issue (`EMPTY`, `REF_TOKENS`, `TAGS`, `CELLS`). HIGH (glossary) and lower do not block.
+  - **Approved is final:** no reopen; a change needs a new job.
+- Done:
+  - **`translation/review_service.py`:** `edit_segment`, `find_matches` / `replace`, `resolve_issue`, `render_state`, `approval_blockers`, `review_view`, `approve`, `approved_export`, as described in `CONTRACTS.md` ("Review (Phase T7)").
+    - An edit the document could not show (empty; tokens, markers or `|` separators changed) is refused (422 `SEGMENT_INVALID`); everything else is saved and reported.
+    - A change writes the next `translation[<scope>]` of the scopes it touches and the next `quality_report[translation]`; the changed segments' resolutions are cleared, the others carried over.
+    - Find and replace never matches inside markers or tokens; whole words by default (substrings for zh/ja); a stale preview is refused (409 `PREVIEW_OUT_OF_DATE`, by `translation_versions`). Replacing every occurrence of a document term's agreed translation agrees the new one (`glossary[terms]`).
+    - The export serves the approved `docx[translated]` itself (hash-checked), never a new render.
+  - **Stages / orchestrator:** `TranslationStageContext.actor` (artifacts and events written in review carry the reviewer) and `refresh()`; `job_glossary` / `job_terms` public; `translation_versions(job)`; the `render` event records the `translation_versions` it rendered. `TranslationOrchestrator.context(job, actor)` (the run loop uses it too) and `rerender(job_id, actor)` (REVIEW_PENDING → RENDERING, event `render_requested`).
+  - **API:** `PATCH /{id}/segments/{segment_id}`, `POST /{id}/replace/preview`, `POST /{id}/replace`, `POST /{id}/issues/{iid}/resolve`, `POST /{id}/render`, `POST /{id}/approve`, `GET /{id}/export/word`; `GET /{id}` carries `review: {render_current, docx_version, blockers, can_approve}`.
+- Files touched:
+  - New: `app/services/translation/review_service.py`, `tests/test_translation_review.py`.
+  - Changed: `app/services/translation/{stages,orchestrator}.py`, `app/api/translations.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 11 new (service and API, end to end: edit → replace → render → approve → export, the edits in the exported `.docx`). Full suite in `venv`: 730 passed, 17 skipped; failing, all unrelated: the known `test_samples_pass_inspection` (`BI-VQD-10643-S (1).docx`), plus 1 failure and 2 errors from Word's `~$` lock file of the RPAS sample SOP, which was open in Word.
+- **Real sample** (a copy of the T6 scratch data, de-DE job `TRN-20261025-C46CE38E` with the German template, through the API router; Word measuring TOC pages):
+  - edited SEG-0268 ("im Funktionalen und Anforderungstestfälle Plan" → "im Plan für Funktions- und Anforderungstestfälle");
+  - `Eigentümersystem` → `Eigentümer-System`: one occurrence, then all. Whole words found 9 occurrences, and the preview warned about 16 more inside longer words (`Eigentümersystems` 15, `Eigentümersysteme` 1). Without whole words, 24 were replaced (`Eigentümer-Systems`), the term "owning system" was agreed again, and no `TERM` issue opened. On a first run with whole words, the 16 inflected forms stayed and got `TERM-1` issues, which led to the `longer_words` warning;
+  - resolved a LOW issue; approval refused while the render was out of date; rendered again (about 9 s); approved; exported.
+  - Word opens the export: 21 pages, the German header ("Seite 1 von 21"), 40 TOC entries, and the edit is in it. The audit holds `segment_edited`, `segments_replaced` (twice), `issue_resolved`, `render_requested`, `render`, `approved` and `export`. A PATCH after the approval gets 409 `NOT_IN_REVIEW`.
+- Open issues / decisions:
+  - Same text means the identical English string (the translator's grouping), so "Role" in a table header and the same word as template text change together.
+  - A replacement is inserted exactly as typed: no case matching (replacing "role" with "Rolle" also turns "ROLE" into "Rolle").
+  - The handlers check the job's status and change it within one request without awaiting in between, and the status changes are compare-and-swap. This is enough for one server process; a second process would need a lock.
+  - The `review.py` stub and the dead `/translations` vite proxy target are retired in T8, because the mock UI still uses them.
+  - The frontend's `IssueCategory` union still needs `terminology` and `language` (T8).
+- Next step: T8, the frontend (`frontend/src/features/translations/`):
+  - the language resources page (glossaries, language templates);
+  - `StartTranslationDialog` on a completed migration, and the migration page's list of translation jobs;
+  - the workspace `/translations/:id`: per-section English/target review. An edit asks "this segment / all N with this English", find-and-replace previews its matches and the longer-word forms, then the issue panel, "Update document" (`POST /render`), and approve once `review.can_approve`;
+  - final preview and download; remove the mocks.

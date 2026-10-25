@@ -110,7 +110,7 @@ Repeated source strings are translated once per job. Template text is collected 
   5. `RENDERING`: final mode, then the language front matter (skipped when the job has no language template), then verify.
   6. `REVIEW_PENDING`
   7. `APPROVED`
-- A reviewer's segment edit makes a new artifact version (origin `human`) and re-runs CHECKING and RENDERING.
+- A reviewer's segment edit makes a new artifact version (origin `human`). As built in T7: the edit goes to every segment with the same English text unless the reviewer asks for that one only, and a find-and-replace changes a word or phrase in one, some or all occurrences; the QA checks run again in the request, and the render is out of date until the reviewer renders again (`POST /{id}/render`).
 - **Prompt:** a new module `app/services/llm/prompts/v2/translator.py` (`PROMPT_VERSION = "translator/1"`), registered in `migration_v2/audit.py:_PROMPTS`. The structured output is `[{segment_id, translation}]`.
   - Fixed duties: translate en → target; keep `{{ref:…}}`, `⟦n⟧` and `⟦k⟧…⟦/k⟧` markers; never change numbers, units, dates, IDs, emails or URLs; never add or drop content; use the supplied glossary terms exactly.
   - The glossary entries and the style notes go into the user prompt.
@@ -154,14 +154,18 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `GET` list (`?migration_job_id=&language=&status=`)
   - `GET /{id}`, `POST /{id}/cancel`, `POST /{id}/retry?from_stage=`, `GET /{id}/audit`
   - `GET /{id}/segments?section=` (the `SegmentSet`, with the latest translations once translated (T5); `section` is a target section id, `xrefs` or `template`)
-  - `PATCH /{id}/segments/{segment_id}`
   - `GET /{id}/validation` (built in T5: the latest `quality_report[translation]`; 404 `NO_VALIDATION` before CHECKING)
-  - `POST /{id}/issues/{iid}/resolve`
-  - `POST /{id}/approve`
   - `GET /{id}/export/preview` (built in T6: the latest `docx[translated]`, inline; 404 `NO_RENDER` before RENDERING, 409 `JOB_RUNNING`)
   - `GET /{id}/render-report` (built in T6: the latest `render_report[translated]`; 404 `NO_RENDER`)
-  - `GET /{id}/export/word` (only once approved; recorded as an event)
-- **Retire** the `review.py` translation stub and the dead `/translations` vite proxy target.
+  - Review, as built in T7 (rules and codes in `CONTRACTS.md`; only while REVIEW_PENDING and not running):
+    - `PATCH /{id}/segments/{segment_id}` (`{target_text, apply_to: same_text|this}`)
+    - `POST /{id}/replace/preview` (`{find, case_sensitive, whole_word, section?}`) and `POST /{id}/replace` (`+ {replace, targets: "all"|[{segment_id, occurrence}], expected_versions}`)
+    - `POST /{id}/issues/{iid}/resolve` (`{note}`)
+    - `POST /{id}/render` (render again after edits)
+    - `POST /{id}/approve` (409 `APPROVAL_BLOCKED` while the render is out of date or has problems, or a gate or critical issue is open)
+    - `GET /{id}/export/word` (only once approved: the approved `docx`, recorded as an event)
+    - `GET /{id}` carries `review: {render_current, blockers, can_approve}`.
+- **Retire** the `review.py` translation stub and the dead `/translations` vite proxy target (in T8: the mock UI still uses them until then).
 
 ### Frontend (`frontend/src/features/translations/`)
 

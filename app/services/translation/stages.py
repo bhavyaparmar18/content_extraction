@@ -7,7 +7,8 @@ PREPARING (Phase T4) snapshots the completed migration's English final document 
 segments. TRANSLATING translates the document's recurring terms (``glossary[terms]``) and then the segments (one
 ``translation[<scope>]`` per scope), CHECKING runs the QA checks
 (``quality_report[translation]``) and sends the failing segments to REPAIRING once (Phase T5). RENDERING renders the
-translated final document (``docx[translated]``, ``render_report[translated]``) for review (Phase T6).
+translated final document (``docx[translated]``, ``render_report[translated]``) for review (Phase T6); its
+``render`` event records the translation versions it rendered, so review (T7) knows when a render is out of date.
 """
 
 from __future__ import annotations
@@ -76,12 +77,18 @@ class TranslationStageContext:
     settings: Any = None
     rate_limiter: Any = None
     chain_factory: Any = None
+    actor: str = SYSTEM_ACTOR       # who writes the artifacts and events: a reviewer in review (T7)
 
     def write(self, kind: ArtifactKind, payload, scope: Optional[str] = None):
-        return self.artifacts.write(self.job.job_id, kind, payload, scope=scope, created_by=SYSTEM_ACTOR)
+        return self.artifacts.write(self.job.job_id, kind, payload, scope=scope, created_by=self.actor)
 
     def write_file(self, kind: ArtifactKind, data: bytes, suffix: str, scope: Optional[str] = None):
-        return self.artifacts.write_file(self.job.job_id, kind, data, suffix, scope=scope, created_by=SYSTEM_ACTOR)
+        return self.artifacts.write_file(self.job.job_id, kind, data, suffix, scope=scope, created_by=self.actor)
+
+    def refresh(self) -> TranslationJob:
+        """Re-read the job, so ``latest`` sees the artifacts written since."""
+        self.job = self.store.get_job(self.job.job_id)
+        return self.job
 
     def next_version(self, kind: ArtifactKind, scope: Optional[str] = None) -> int:
         return self.store.next_artifact_version(self.job.job_id, kind, scope)
@@ -96,7 +103,7 @@ class TranslationStageContext:
         return value
 
     def event(self, event: str, detail: Optional[dict] = None) -> None:
-        self.store.add_event(self.job.job_id, event, SYSTEM_ACTOR, detail)
+        self.store.add_event(self.job.job_id, event, self.actor, detail)
 
 
 Stage = Callable[[TranslationStageContext], Awaitable[Optional[TranslationStatus]]]
@@ -211,12 +218,12 @@ def _setting(ctx: TranslationStageContext, name: str, default):
     return getattr(ctx.settings, name, default) if ctx.settings is not None else default
 
 
-def _job_glossary(ctx: TranslationStageContext) -> Optional[Glossary]:
+def job_glossary(ctx: TranslationStageContext) -> Optional[Glossary]:
     """The job's snapshot of its glossary (None for a job without one: free translation)."""
     return ctx.require(ArtifactKind.GLOSSARY, Glossary) if ctx.job.glossary_id else None
 
 
-def _job_terms(ctx: TranslationStageContext) -> list[GlossaryEntry]:
+def job_terms(ctx: TranslationStageContext) -> list[GlossaryEntry]:
     """The job's document terms as TRANSLATING agreed them (none for a job translated before they existed)."""
     terms = ctx.latest(ArtifactKind.GLOSSARY, Glossary, TERMS)
     return terms.entries if terms is not None else []
@@ -251,12 +258,21 @@ def current_segments(ctx: TranslationStageContext, segment_set: SegmentSet) -> S
     return merged(segment_set, [s for s in sets if s is not None])
 
 
+def translation_versions(job: TranslationJob) -> dict[str, int]:
+    """scope → the latest ``translation[<scope>]`` version."""
+    out: dict[str, int] = {}
+    for ref in job.artifacts:
+        if ref.kind == ArtifactKind.TRANSLATION and ref.scope:
+            out[ref.scope] = max(out.get(ref.scope, 0), ref.version)
+    return out
+
+
 async def translating(ctx: TranslationStageContext) -> None:
     """Translate the document's terms, then every distinct text once (copy those with nothing to translate); write
     the agreed terms (``glossary[terms]``) and every scope's set."""
     _need_llm(ctx)
     segment_set = ctx.require(ArtifactKind.SEGMENTS, SegmentSet)
-    glossary = _job_glossary(ctx)
+    glossary = job_glossary(ctx)
     groups = group_segments(segment_set.segments, _drafts(ctx, segment_set))
     copied = [g for g in groups if copy_only(g.source_text, glossary)]
     todo = [g for g in groups if g not in copied]
@@ -296,8 +312,8 @@ async def checking(ctx: TranslationStageContext) -> Optional[TranslationStatus]:
     current = current_segments(ctx, segment_set)
     previous = ctx.latest(ArtifactKind.QUALITY_REPORT, QualityReport, CHECKS)
     report = check_translations(ctx.job.job_id, ctx.next_version(ArtifactKind.QUALITY_REPORT, CHECKS),
-                                current.segments, ctx.job.language, _job_glossary(ctx), ctx.settings, previous,
-                                _job_terms(ctx))
+                                current.segments, ctx.job.language, job_glossary(ctx), ctx.settings, previous,
+                                job_terms(ctx))
     ctx.write(ArtifactKind.QUALITY_REPORT, report, scope=CHECKS)
     repair = repair_candidates(current.segments, report)
     open_issues = [i for i in report.issues if not i.resolved]
@@ -325,8 +341,8 @@ async def repairing(ctx: TranslationStageContext) -> None:
     wanted = set(repair_candidates(current.segments, report))
     if not wanted:
         return
-    glossary = _job_glossary(ctx)
-    terms = _job_terms(ctx)
+    glossary = job_glossary(ctx)
+    terms = job_terms(ctx)
     segments = {s.segment_id: s for s in current.segments}
     groups = group_segments(current.segments, _drafts(ctx, segment_set))
     by_segment = group_of(groups)
@@ -421,7 +437,8 @@ async def rendering(ctx: TranslationStageContext) -> None:
     ctx.write(ArtifactKind.RENDER_REPORT, report, scope=TRANSLATED)
     swap = result.swap
     ctx.event("render", {
-        "docx_version": docx.version, "sha256": docx.sha256, "applied": result.applied, "kept_english": len(result.kept),
+        "docx_version": docx.version, "sha256": docx.sha256, "translation_versions": translation_versions(job),
+        "applied": result.applied, "kept_english": len(result.kept),
         "kept_ids": result.kept[:50], "toc_entries": report.toc_entries, "toc_page_numbers": report.toc_page_numbers,
         "front_matter": ({"blocks_inserted": swap.blocks_inserted, "parts_added": len(swap.parts_added),
                           "styles_replaced": len(swap.styles_replaced)} if swap else None),

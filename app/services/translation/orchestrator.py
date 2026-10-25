@@ -6,7 +6,8 @@ The happy path:
 
 All state lives in the ``TranslationStore``: ``resume_incomplete`` re-queues every job that was mid-stage, and that
 stage runs again. Each job runs in its own asyncio task behind a semaphore; cancellation is cooperative and takes
-effect between stages. A status without a stage leaves the job waiting there.
+effect between stages. A status without a stage leaves the job waiting there. In review, ``rerender`` sends a job
+back through RENDERING after a reviewer's edits (Phase T7, ``review_service``).
 """
 
 from __future__ import annotations
@@ -201,6 +202,26 @@ class TranslationOrchestrator:
         self.submit(job_id)
         return self._job(job_id)
 
+    def rerender(self, job_id: str, actor: Optional[str]) -> TranslationJob:
+        """Render a job in review again, after a reviewer's edits; it comes back to REVIEW_PENDING (Phase T7)."""
+        job = self._job(job_id)
+        if self.is_running(job_id):
+            raise JobStateError("JOB_RUNNING", f"Job {job_id} is running")
+        if job.status != TranslationStatus.REVIEW_PENDING or not self.store.set_status(
+                job_id, TranslationStatus.RENDERING, actor, "render_requested", expected=TranslationStatus.REVIEW_PENDING):
+            raise JobStateError("NOT_IN_REVIEW", f"Job {job_id} is {job.status.value}; only a job in review is rendered again")
+        self.submit(job_id)
+        return self._job(job_id)
+
+    def context(self, job: TranslationJob, actor: str = SYSTEM_ACTOR) -> TranslationStageContext:
+        """The context a stage runs with; review (T7) uses it with the reviewer as *actor*."""
+        return TranslationStageContext(
+            job=job, store=self.store, artifacts=self.artifacts, migrations=self.migrations,
+            migration_artifacts=self.migration_artifacts, glossaries=self.glossaries,
+            language_templates=self.language_templates, settings=self.settings,
+            rate_limiter=self.rate_limiter, chain_factory=audited(self.chain_factory), actor=actor,
+        )
+
     # ── Run loop ──────────────────────────────────────────────────────
 
     async def _run(self, job_id: str) -> None:
@@ -224,12 +245,7 @@ class TranslationOrchestrator:
                 stage = self.stages.get(status)
                 if stage is None:  # a stage left out (tests): the job waits here
                     return
-                ctx = TranslationStageContext(
-                    job=job, store=self.store, artifacts=self.artifacts, migrations=self.migrations,
-                    migration_artifacts=self.migration_artifacts, glossaries=self.glossaries,
-                    language_templates=self.language_templates, settings=self.settings,
-                    rate_limiter=self.rate_limiter, chain_factory=audited(self.chain_factory),
-                )
+                ctx = self.context(job)
                 self.store.add_event(job_id, "stage_started", SYSTEM_ACTOR, {"stage": status.value})
                 try:
                     override = await stage(ctx)
