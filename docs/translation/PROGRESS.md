@@ -112,3 +112,15 @@ Entry format:
   - Header and footer XML is compared byte for byte against the package. After Word re-saves a file the bytes differ (Word rewrites the parts), so the Word test compares texts.
   - No real language template has been uploaded yet; when one arrives, upload it and open the preview in Word.
 - Next step: T4. `translation/segments.py`, `translation/orchestrator.py`, `translation/stages.py`, a `body_hook` parameter on `render_document`, and the job API. PREPARING snapshots the drafts, source, number map, assembly, glossary and the `front_matter` package (only `ready` language templates and `approved` glossaries may be named).
+
+## 2026-10-25: Phase T3 follow-up (the real German and Spanish templates): done
+- Done:
+  - Tried `documents/Templates/Template Main GP Docs-de.docx` and `…-es.docx`. Both have the company template's shape: the first page ends at a next-page section break (7 blocks); the first page's section has first-page and default headers and footers (no even ones); the body section has its own two headers and inherits the footers. No problems, no warnings beyond the two below.
+  - Swapped into `MIG-20261019-7BF76968/docx_final_v1.docx`: the check is clean. Word renders both, and pages 1–3 match the language templates (logo, header tables, German or Spanish page numbering over the whole document, footer).
+  - **Style rule changed:** the language templates define `Header` and `Footer` with other spacing (12 pt above and below) and tab stops. A style that only the first page, headers and footers use now takes the language template's definition (`FrontMatterSwap.styles_replaced`); a style the body also uses (`Normal`) keeps the document's, with a warning. Before, every differing style kept the English definition, and the headers would not have looked like the language template's.
+  - **`DOCVARIABLE` warning:** both templates were saved from a Vault document. Their Scope cell is a `DOCVARIABLE vault_r:document_scope__c:0` field, and `settings.xml` holds 24 document variables of another document (`BI-VQD-29892`). They are not copied; the extraction report now warns about such fields. Until Vault fills the variable, the cell shows its saved text `${vault:document_scope__c}`, or nothing once Word refreshes fields.
+- Tests: 4 new (style rule, `DOCVARIABLE` warning, the German and Spanish templates against the rendered migration).
+- Open issues / decisions:
+  - The Spanish first-page header "Página 1 de N" wraps when N has two digits; the German one does not. That is in the template's header, which is copied unchanged.
+  - The first page's section of both templates has an **English** default header ("Page 5 of 5 Document Name"). It only shows if the first page runs onto a second page.
+  - Not yet registered in the app: `data/app.db` is still at schema version 1 (the translation tables of T1 are created on the next server start).

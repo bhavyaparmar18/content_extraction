@@ -283,4 +283,5 @@ class FrontMatterSwap(V2Model):
     parts_added: list[str] = Field(default_factory=list)
     parts_dropped: list[str] = Field(default_factory=list)
     styles_added: list[str] = Field(default_factory=list)
+    styles_replaced: list[str] = Field(default_factory=list, description="styles only the front matter uses, given the language template's definition")
     warnings: list[str] = Field(default_factory=list)

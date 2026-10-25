@@ -58,6 +58,8 @@ Built in `app/services/translation/front_matter.py`.
   - the document's first page is replaced by the package's, with its images and links re-created;
   - header and footer parts are copied with their own relationship ids, so their XML stays byte-identical to the package's;
   - body sections keep their own page size, margins and page numbering, and take the package body section's headers, footers and different-first-page setting;
-  - missing styles are copied (a copy whose name clashes is renamed `"<name> (<language>)"`); lists on the first page get numbering definitions of their own;
+  - styles: a style the document lacks is copied (a copy whose name clashes is renamed `"<name> (<language>)"`). A style the document defines differently takes the language template's definition when the rest of the document does not use it (e.g. `Header`, `Footer`); a style the body uses (e.g. `Normal`) keeps the document's definition, with a warning;
+  - lists on the first page get numbering definitions of their own;
+  - document variables (`w:docVars`) are not copied: `DOCVARIABLE` fields on the first page are Vault's to fill;
   - the document's own header and footer parts are dropped.
 - **Check:** `front_matter_problems(doc, package)` compares the first page (relationships compared by their targets' content) and, by section role, each header and footer part byte for byte, then `titlePg`, `evenAndOddHeaders`, and that every relationship reference resolves. T6 uses it in place of `verify.py`'s comparison with the English template.

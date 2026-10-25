@@ -358,11 +358,38 @@ def _definition(style) -> bytes:
     return etree.tostring(style, method="c14n", exclusive=True)
 
 
-def _copy_styles(source_doc, doc, roots, language: str, swap: FrontMatterSwap) -> list:
-    """Copy the styles *roots* use that the document lacks (with the styles they are based on); the copies."""
+def _styles_in_use(styles: dict, roots) -> set[str]:
+    """The styles *roots* use, the default styles, and every style those are based on or linked to."""
+    pending = list(_style_ids(roots)) + [sid for sid, s in styles.items() if _on_attr(s, "w:default")]
+    used: set[str] = set()
+    while pending:
+        style_id = pending.pop()
+        if style_id in used or style_id not in styles:
+            continue
+        used.add(style_id)
+        for tag in ("w:basedOn", "w:link"):
+            ref = styles[style_id].find(qn(tag))
+            if ref is not None and ref.get(qn("w:val")):
+                pending.append(ref.get(qn("w:val")))
+    return used
+
+
+def _on_attr(el, name: str) -> bool:
+    return el.get(qn(name)) in ("1", "true", "on")
+
+
+def _copy_styles(source_doc, doc, roots, body_roots, language: str, swap: FrontMatterSwap) -> list:
+    """Give the document the styles *roots* (the first page, headers and footers) use, with the styles they are
+    based on; the new style elements.
+
+    A style the document lacks is copied. A style it defines differently takes the language template's definition
+    when nothing in *body_roots* (the rest of the document) depends on it, as with the Header and Footer styles; a
+    style the body uses keeps the document's definition, with a warning.
+    """
     source = {s.get(qn("w:styleId")): s for s in source_doc.styles.element.findall(qn("w:style"))}
     styles = doc.styles.element
     target = {s.get(qn("w:styleId")): s for s in styles.findall(qn("w:style"))}
+    body_styles = _styles_in_use(target, body_roots)
     names = {(_style_name(s) or "").lower() for s in target.values()}
     pending, seen, copies, differing = sorted(_style_ids(roots)), set(), [], []
     while pending:
@@ -370,28 +397,38 @@ def _copy_styles(source_doc, doc, roots, language: str, swap: FrontMatterSwap) -
         if style_id in seen or style_id not in source:
             continue  # a style neither file defines: Word uses the default
         seen.add(style_id)
-        if style_id in target:
-            if _definition(target[style_id]) != _definition(source[style_id]):
-                differing.append(style_id)
-            continue
         new = copy.deepcopy(source[style_id])
-        new.attrib.pop(qn("w:default"), None)
-        name = _style_name(new)
-        if name and name.lower() in names:  # e.g. German "Kopfzeile", named "header", next to English "Header"
-            name = f"{name} ({language})"
-            new.find(qn("w:name")).set(qn("w:val"), name)
-        styles.append(new)
+        if style_id in target:
+            old = target[style_id]
+            if _definition(old) == _definition(new):
+                continue
+            if style_id in body_styles:
+                differing.append(style_id)
+                continue
+            new.attrib.pop(qn("w:default"), None)
+            if old.get(qn("w:default")) is not None:
+                new.set(qn("w:default"), old.get(qn("w:default")))
+            old.addprevious(new)
+            styles.remove(old)
+            swap.styles_replaced.append(style_id)
+        else:
+            new.attrib.pop(qn("w:default"), None)
+            name = _style_name(new)
+            if name and name.lower() in names:  # e.g. German "Kopfzeile", named "header", next to English "Header"
+                name = f"{name} ({language})"
+                new.find(qn("w:name")).set(qn("w:val"), name)
+            styles.append(new)
+            names.add((name or "").lower())
+            swap.styles_added.append(style_id)
         target[style_id] = new
-        names.add((name or "").lower())
         copies.append(new)
-        swap.styles_added.append(style_id)
         for tag in ("w:basedOn", "w:link", "w:next"):
             ref = new.find(qn(tag))
             if ref is not None and ref.get(qn("w:val")):
                 pending.append(ref.get(qn("w:val")))
     if differing:
-        swap.warnings.append("styles kept as the document defines them, although the language template's differ: "
-                             + ", ".join(sorted(differing)))
+        swap.warnings.append("styles the document's body also uses keep the document's definition, although the "
+                             "language template's differ: " + ", ".join(sorted(differing)))
     return copies
 
 
@@ -509,6 +546,13 @@ def _end_with_page_break(blocks: list) -> None:
         blocks.append(p)
 
 
+def _docvariables(roots) -> list[str]:
+    """The document variables the DOCVARIABLE fields under *roots* show."""
+    instructions = [el.text or "" for root in roots for el in root.iter(qn("w:instrText"))]
+    instructions += [el.get(qn("w:instr")) or "" for root in roots for el in root.iter(qn("w:fldSimple"))]
+    return sorted({m.group(1) for text in instructions for m in [re.match(r"\s*DOCVARIABLE\s+(\S+)", text)] if m})
+
+
 def _part_info(kind: str, type_: str, part) -> FrontMatterPart:
     return FrontMatterPart(kind=kind, type=type_, partname=str(part.partname), text=_text([part.element])[:120],
                            images=sum(1 for r in part.rels.values() if not r.is_external and r.reltype == RT.IMAGE))
@@ -615,6 +659,12 @@ def extract_front_matter(
     if any(True for root in roots for _ in root.iter(qn("w:dataBinding"))):
         report.warnings.append("a content control on the first page or in a header or footer is bound to document "
                                "data; it shows its saved text")
+    variables = _docvariables(roots)
+    if variables:
+        report.warnings.append(
+            f"the first page, headers or footers have DOCVARIABLE fields ({', '.join(variables)}): Vault fills their "
+            "values in. The language template's own document variables are not copied, so until then a field shows "
+            "its saved text, or nothing once Word refreshes the fields")
     text = _text(roots)
     if not report.cover_text and not any(True for b in blocks for _ in b.iter(qn("w:drawing"), qn("w:pict"))):
         report.warnings.append("the first page is empty")
@@ -724,7 +774,7 @@ def apply_front_matter(doc, package_path: str | Path, language: str) -> FrontMat
     _set_even_and_odd(doc, even_and_odd(package.doc))
 
     stories = [doc.part.related_parts[rId].element for rId in dict.fromkeys(part_map.values())]
-    copied_styles = _copy_styles(package.doc, doc, copies + stories, language, swap)
+    copied_styles = _copy_styles(package.doc, doc, copies + stories, remaining, language, swap)
     _copy_numbering(package.doc, doc, copies + copied_styles, swap)
     if _num_uses(stories):
         swap.warnings.append("the language template's headers or footers use list numbering, which is not copied")

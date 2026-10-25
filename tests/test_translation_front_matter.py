@@ -462,6 +462,52 @@ def test_bookmarks_on_the_language_first_page_are_renumbered_or_dropped(tmp_path
     assert any("PURPOSE_MARK" in w for w in swap.warnings)
 
 
+def _restyle(path: Path, style_id: str, spacing: str) -> None:
+    doc = Document(str(path))
+    style = next(s for s in doc.styles.element.findall(qn("w:style")) if s.get(qn("w:styleId")) == style_id)
+    ppr = style.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        style.append(ppr)
+    node = ppr.find(qn("w:spacing"))
+    if node is None:
+        node = OxmlElement("w:spacing")
+        ppr.append(node)
+    node.set(qn("w:before"), spacing)
+    doc.save(str(path))
+
+
+def _spacing(doc, style_id: str):
+    style = next(s for s in doc.styles.element.findall(qn("w:style")) if s.get(qn("w:styleId")) == style_id)
+    node = style.find(f"{qn('w:pPr')}/{qn('w:spacing')}")
+    return node.get(qn("w:before")) if node is not None else None
+
+
+def test_header_styles_take_the_language_definition_and_body_styles_stay(tmp_path):
+    """The real German and Spanish templates define Header with other spacing and tabs; the headers must look as
+    in the language template. Normal is used by the body, so the document keeps its own."""
+    path = language_template(tmp_path / "lt.docx")
+    _restyle(path, "Header", "240")
+    _restyle(path, "Normal", "60")
+    doc, swap, package, _ = _swap(tmp_path, path, english(tmp_path / "en.docx"))
+    assert _spacing(doc, "Header") == "240"
+    assert _spacing(doc, "Normal") is None
+    assert "Header" in swap.styles_replaced and "Normal" not in swap.styles_replaced
+    assert any("Normal" in w for w in swap.warnings)
+    assert front_matter_problems(doc, package) == []
+
+
+def test_docvariable_fields_are_a_warning(tmp_path):
+    path = language_template(tmp_path / "lt.docx")
+    doc = Document(str(path))
+    field = OxmlElement("w:fldSimple")
+    field.set(qn("w:instr"), " DOCVARIABLE vault_r:document_scope__c:0 \\* MERGEFORMAT ")
+    doc.element.body[0].append(field)
+    doc.save(str(path))
+    report, _, _ = _extract(tmp_path, path)
+    assert report.ok and any("vault_r:document_scope__c:0" in w for w in report.warnings)
+
+
 def test_a_document_without_a_first_page_cannot_take_the_front_matter(tmp_path):
     _, package, _ = _extract(tmp_path, language_template(tmp_path / "lt.docx"))
     doc = Document()
@@ -473,13 +519,19 @@ def test_a_document_without_a_first_page_cannot_take_the_front_matter(tmp_path):
 # ── The real company template ─────────────────────────────────────────
 
 
-@pytest.mark.skipif(not (REAL_TEMPLATE.exists() and REAL_FINAL.exists()), reason="sample files not available")
-def test_the_company_template_front_matter_swaps_into_a_rendered_migration(tmp_path):
-    report, package, _ = _extract(tmp_path, REAL_TEMPLATE)
+@pytest.mark.parametrize("template, language", [
+    (REAL_TEMPLATE, "de-DE"),  # the English template as if it were a language's: the swap must be clean
+    (ROOT / "documents" / "Templates" / "Template Main GP Docs-de.docx", "de-DE"),
+    (ROOT / "documents" / "Templates" / "Template Main GP Docs-es.docx", "es-ES"),
+], ids=["company", "de", "es"])
+def test_the_company_template_front_matter_swaps_into_a_rendered_migration(tmp_path, template, language):
+    if not (template.exists() and REAL_FINAL.exists()):
+        pytest.skip("sample files not available")
+    report, package, _ = _extract(tmp_path, template, language)
     assert report.ok and report.cover_end == "section_break" and report.sections == 2
     doc = Document(str(REAL_FINAL))
     body_before = _body_text(doc)[6:]
-    apply_front_matter(doc, package, "de-DE")
+    apply_front_matter(doc, package, language)
     doc.save(str(tmp_path / "swapped.docx"))
     doc = Document(str(tmp_path / "swapped.docx"))
     assert _body_text(doc)[7:] == body_before
