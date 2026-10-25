@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 
@@ -227,3 +227,60 @@ class TranslationJob(V2Model):
     def latest_artifact(self, kind: ArtifactKind, scope: Optional[str] = None) -> Optional[ArtifactRef]:
         matches = [a for a in self.artifacts if a.kind == kind and a.scope == scope]
         return max(matches, key=lambda a: a.version, default=None)
+
+
+# ── Language template front matter ────────────────────────────────────
+
+CoverEnd = Literal["section_break", "page_break"]
+
+
+class FrontMatterPart(V2Model):
+    """One header or footer of a front-matter section."""
+
+    kind: Literal["header", "footer"]
+    type: Literal["default", "first", "even"]
+    partname: str
+    text: str = Field(default="", description="the first characters of its text")
+    images: int = Field(default=0, ge=0)
+
+
+class FrontMatterReport(V2Model):
+    """What was taken from a language template: its first page, headers and footers.
+
+    ``problems`` block marking the template ready; ``warnings`` are shown to the admin.
+    """
+
+    template_id: str
+    version: int = Field(ge=1)
+    language: LanguageCode
+    source_filename: Optional[str] = None
+    source_sha256: str = ""
+    cover_end: Optional[CoverEnd] = Field(default=None, description="how the first page ends; None when not found")
+    cover_blocks: int = Field(default=0, ge=0)
+    cover_text: str = ""
+    sections: int = Field(default=0, ge=0, description="sections in the language template")
+    title_page_cover: bool = False
+    title_page_body: bool = False
+    even_and_odd: bool = False
+    cover_parts: list[FrontMatterPart] = Field(default_factory=list)
+    body_parts: list[FrontMatterPart] = Field(default_factory=list)
+    styles: list[str] = Field(default_factory=list, description="style ids the first page and headers use")
+    images: int = Field(default=0, ge=0)
+    problems: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+class FrontMatterSwap(V2Model):
+    """What ``apply_front_matter`` changed in a document."""
+
+    blocks_removed: int = 0
+    blocks_inserted: int = 0
+    sections_rewired: int = 0
+    parts_added: list[str] = Field(default_factory=list)
+    parts_dropped: list[str] = Field(default_factory=list)
+    styles_added: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

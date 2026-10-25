@@ -1,0 +1,111 @@
+{
+  "template_id": "GP_Template_DE",
+  "version": 1,
+  "language": "de-DE",
+  "source_filename": "GP Template DE.docx",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "cover_end": "section_break",
+  "cover_blocks": 4,
+  "cover_text": "Deckblatt Titel Titel ${vault:title__v}",
+  "sections": 2,
+  "title_page_cover": true,
+  "title_page_body": true,
+  "even_and_odd": false,
+  "cover_parts": [
+    {
+      "kind": "footer",
+      "type": "default",
+      "partname": "/word/footer2.xml",
+      "text": "LT Fuss",
+      "images": 0
+    },
+    {
+      "kind": "footer",
+      "type": "even",
+      "partname": "/word/footer3.xml",
+      "text": "LT gerade Fuss",
+      "images": 0
+    },
+    {
+      "kind": "footer",
+      "type": "first",
+      "partname": "/word/footer1.xml",
+      "text": "LT Fuss erste Seite",
+      "images": 1
+    },
+    {
+      "kind": "header",
+      "type": "default",
+      "partname": "/word/header1.xml",
+      "text": "LT Kopf Standard Link",
+      "images": 0
+    },
+    {
+      "kind": "header",
+      "type": "even",
+      "partname": "/word/header3.xml",
+      "text": "LT gerade Kopf",
+      "images": 0
+    },
+    {
+      "kind": "header",
+      "type": "first",
+      "partname": "/word/header2.xml",
+      "text": "LT Kopf erste Seite",
+      "images": 0
+    }
+  ],
+  "body_parts": [
+    {
+      "kind": "footer",
+      "type": "default",
+      "partname": "/word/footer2.xml",
+      "text": "LT Fuss",
+      "images": 0
+    },
+    {
+      "kind": "footer",
+      "type": "even",
+      "partname": "/word/footer3.xml",
+      "text": "LT gerade Fuss",
+      "images": 0
+    },
+    {
+      "kind": "footer",
+      "type": "first",
+      "partname": "/word/footer1.xml",
+      "text": "LT Fuss erste Seite",
+      "images": 1
+    },
+    {
+      "kind": "header",
+      "type": "default",
+      "partname": "/word/header4.xml",
+      "text": "LT Kopf Inhalt",
+      "images": 0
+    },
+    {
+      "kind": "header",
+      "type": "even",
+      "partname": "/word/header3.xml",
+      "text": "LT gerade Kopf",
+      "images": 0
+    },
+    {
+      "kind": "header",
+      "type": "first",
+      "partname": "/word/header5.xml",
+      "text": "LT Kopf Inhalt erste",
+      "images": 0
+    }
+  ],
+  "styles": [
+    "CoverTitel",
+    "Footer",
+    "Header",
+    "Kopfzeile"
+  ],
+  "images": 2,
+  "problems": [],
+  "warnings": []
+}

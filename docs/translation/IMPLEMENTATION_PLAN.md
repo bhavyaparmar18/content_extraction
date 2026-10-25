@@ -142,12 +142,13 @@ Issues use the existing `ValidationIssue` and `QualityReport` shapes, so the fro
   - `POST /glossaries/{glossary}/approve`
   - `GET /glossaries/{glossary}/export?format=csv|xlsx`
   - `DELETE /glossaries/{glossary}` (409 `RECORD_IN_USE` when a translation job uses the version)
-- **Language templates:**
-  - `POST /language-templates` (upload with a language)
-  - `GET` list
-  - `GET /{id}/{v}/preview` (`.docx` of the extracted front matter)
-  - `POST …/ready`
-  - `DELETE`
+- **Language templates** (as built in T3; `{t}` is a record id or a `template_id`, with `?version=`):
+  - `POST /language-templates` (multipart: `language`, `.docx` file, optional `name` and `template_id`): saves the next version and extracts its front matter at once; the result is `extracted`, or `failed` with the reason. The response carries the report.
+  - `GET /language-templates?language=&status=&template_id=`
+  - `GET /language-templates/{t}`, `GET …/{t}/report`
+  - `GET …/{t}/preview` (`.docx`: the first page and two placeholder body pages)
+  - `POST …/{t}/ready` (409 `LANGUAGE_TEMPLATE_NOT_READY` while the report has problems)
+  - `DELETE …/{t}` (409 `RECORD_IN_USE` when a job uses it)
 - **Jobs:**
   - `POST /translations {migration_job_id, languages:[{language, glossary_id?, glossary_version?, language_template_id?, language_template_version?}]}` (one job per language; both resources optional)
   - `GET` list (`?migration_job_id=`)

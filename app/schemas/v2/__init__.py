@@ -70,6 +70,10 @@ from .trace import TraceRow, Traceability
 from .translation import (
     SOURCE_LANGUAGE,
     TRANSLATION_TERMINAL_STATUSES,
+    CoverEnd,
+    FrontMatterPart,
+    FrontMatterReport,
+    FrontMatterSwap,
     Glossary,
     GlossaryEntry,
     LanguageCode,

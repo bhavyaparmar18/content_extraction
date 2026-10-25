@@ -9,6 +9,8 @@ The models are in `app/schemas/v2/translation.py` and are exported from `app.sch
 | `Segment`, `SegmentLocator`, `SegmentKind`, `SegmentOrigin` | One piece of English text to translate, and where its translation goes back. | in `translation_set.json` |
 | `TranslationSet` | The segments of one scope in one language: a target section id, `template` or `xrefs`. | `translation_set.json` |
 | `TranslationJob`, `TranslationStatus` | One language of one completed migration. | `translation_job.json` |
+| `FrontMatterReport`, `FrontMatterPart`, `CoverEnd` | What was taken from a language template: how its first page ends, the headers and footers of the first page's section and of the first body section, styles, images, and the problems that block marking it ready. | `front_matter_report.json` |
+| `FrontMatterSwap` | What `apply_front_matter` changed in a document (blocks, sections, parts, styles, warnings). | — |
 
 ## Rules enforced by the models
 
@@ -20,6 +22,7 @@ The models are in `app/schemas/v2/translation.py` and are exported from `app.sch
 | A translated segment records its origin (`llm`, `repair`, `human` or `copied`). | `Segment._locator_fits_kind` |
 | Segment ids are unique within a set. | `TranslationSet._unique_ids` |
 | The glossary and the language template are **optional** on a job, but each id needs its version. | `TranslationJob._versions_with_ids` |
+| A language template with report problems cannot be marked ready. | `language_template_service.mark_ready` |
 
 ## Conventions
 
@@ -43,3 +46,18 @@ The models are in `app/schemas/v2/translation.py` and are exported from `app.sch
 ## Changing a contract
 
 Change the model, update the example, run `tests/test_translation_contracts.py`, and note the change in `PROGRESS.md`.
+
+## Language template front matter
+
+Built in `app/services/translation/front_matter.py`.
+
+- **First page:** the body blocks through the first section break that starts a new page, or through the first page break when it comes earlier. A paragraph with "page break before" ends the first page before it. A continuous section break inside the first page is an error.
+- **Headers and footers** follow Word's inheritance: a section that does not name a type uses the previous section's. The first page's section supplies the first page's; the section after it (the same one when the first page ends at a page break) supplies every body section's.
+- **Package:** a `.docx` holding only the first page and an empty body page whose section names its headers and footers explicitly, with the template's styles and numbering. Files: `data/language_templates/{template_id}_v{n}_front_matter.docx`, `…_preview.docx` (two placeholder body pages added) and `…_report.json`. A translation job snapshots the package as its `front_matter` artifact.
+- **Swap** (`apply_front_matter(doc, package, language)`):
+  - the document's first page is replaced by the package's, with its images and links re-created;
+  - header and footer parts are copied with their own relationship ids, so their XML stays byte-identical to the package's;
+  - body sections keep their own page size, margins and page numbering, and take the package body section's headers, footers and different-first-page setting;
+  - missing styles are copied (a copy whose name clashes is renamed `"<name> (<language>)"`); lists on the first page get numbering definitions of their own;
+  - the document's own header and footer parts are dropped.
+- **Check:** `front_matter_problems(doc, package)` compares the first page (relationships compared by their targets' content) and, by section role, each header and footer part byte for byte, then `titlePg`, `evenAndOddHeaders`, and that every relationship reference resolves. T6 uses it in place of `verify.py`'s comparison with the English template.

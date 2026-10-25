@@ -85,3 +85,30 @@ Entry format:
   - write a preview `.docx`;
   - `apply_front_matter(doc, front_matter)`;
   - language-template upload and preview API, with a ready status.
+
+## 2026-10-25: Phase T3 (language template front matter): done
+- Done:
+  - **What the real files look like** (`data/template_output/Template_Main_GP_Docs_v1_normalized.docx`, and the rendered `MIG-20261019-7BF76968/docx_final_v1.docx`):
+    - the first page is the first section, ending at a next-page section break, with `titlePg` and all three header and footer types;
+    - the body section names only its two headers and inherits its footers from the first page's section;
+    - the rendered final keeps the template's first page and header relationships, but one empty first-page paragraph is gone, so the first page is found by its break, never by a block count.
+  - **`app/services/translation/front_matter.py`:**
+    - `find_cover` (the first section break that starts a new page, or the first page break when earlier; "page break before" on the next paragraph also counts; a continuous break is an error). A section break's type is read from the *following* section's `sectPr`, as Word does.
+    - `section_props`, `effective_refs` (Word's inheritance), `set_refs`.
+    - `extract_front_matter` writes the package, preview and report. Problems: no first page, objects other than images and links, tracked changes, footnotes. Warnings: comments (removed), several sections, data-bound controls, header lists, no Han/kana or Greek letters for zh-CN, ja-JP and el-GR, an empty first page.
+    - `apply_front_matter` and `front_matter_problems`, as described in `CONTRACTS.md`.
+  - **`renumber_drawings(doc)`** moved from `_Renderer` to `render/xml.py`, so the renderer and the swap share it (no behaviour change).
+  - **`language_template_service.py`:** `create_version` (refuses a language change for an existing `template_id`), `extract`, `load_report`, `mark_ready`.
+  - **API:** the language-template routes in `app/api/translations.py`; `_resolve` now serves both stores. Setting `language_template_allowed_extensions = [".docx"]`.
+  - **Contracts:** `FrontMatterReport`, `FrontMatterPart`, `FrontMatterSwap`, `CoverEnd`, with `examples/front_matter_report.json`.
+  - **Checked on the real files:** the company template's front matter swaps into the rendered migration and the check is clean. Word opens the swapped document (20 pages) and the preview (3 pages: first page, body first page, body following page).
+- Files touched:
+  - New: `app/services/translation/{front_matter,language_template_service}.py`, `tests/test_translation_front_matter.py`, `docs/translation/examples/front_matter_report.json`.
+  - Changed: `app/api/translations.py`, `app/schemas/v2/{translation,__init__}.py`, `app/config/settings.py`, `app/services/migration_v2/render/{xml,renderer}.py`, `tests/test_translation_contracts.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 29 new (the Word one is opt-in with `SOP_RUN_WORD_TESTS=1`; it passes). Full suite in `venv`: 650 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`). `.venv` (uv) lacks `openpyxl`, so the glossary tests do not collect there until `uv sync`.
+- Open issues / decisions:
+  - Body sections keep the English page geometry; only headers, footers and `titlePg` come from the language template. The first page takes the language template's whole section.
+  - A style id in both files with different definitions keeps the English definition (a warning). Chinese and Japanese `eastAsia` fonts are T6.
+  - Header and footer XML is compared byte for byte against the package. After Word re-saves a file the bytes differ (Word rewrites the parts), so the Word test compares texts.
+  - No real language template has been uploaded yet; when one arrives, upload it and open the preview in Word.
+- Next step: T4. `translation/segments.py`, `translation/orchestrator.py`, `translation/stages.py`, a `body_hook` parameter on `render_document`, and the job API. PREPARING snapshots the drafts, source, number map, assembly, glossary and the `front_matter` package (only `ready` language templates and `approved` glossaries may be named).

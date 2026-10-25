@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.schemas.v2 import (
     ArtifactKind,
+    FrontMatterReport,
     Glossary,
     GlossaryEntry,
     LanguageCode,
@@ -29,6 +30,7 @@ EXAMPLE_MODELS = {
     "glossary.json": Glossary,
     "translation_set.json": TranslationSet,
     "translation_job.json": TranslationJob,
+    "front_matter_report.json": FrontMatterReport,
 }
 
 

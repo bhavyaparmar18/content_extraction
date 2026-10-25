@@ -1,14 +1,16 @@
-"""Translation API (docs/translation/IMPLEMENTATION_PLAN.md): languages and per-language glossaries (Phase T2).
+"""Translation API (docs/translation/IMPLEMENTATION_PLAN.md): languages, glossaries and language templates.
 
-Glossaries are optional on a translation job. Without one the LLM translates
-freely; with one its terms are mandatory.
+Both resources are per language and optional on a translation job:
+- a glossary (Phase T2): without one the LLM translates freely; with one its terms are mandatory;
+- a language template (Phase T3): its first page, headers and footers replace the English ones; without one the
+  English front matter is kept.
 """
 
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_user
@@ -17,14 +19,16 @@ from app.core.exceptions import AppError, NotFoundError, ValidationError
 from app.schemas.auth import ApiFieldError
 from app.schemas.v2.translation import GlossaryEntry
 from app.services.extraction.metadata_extractor import SOPMetadataExtractor
-from app.services.translation import glossary_service
+from app.services.translation import glossary_service, language_template_service
 from app.services.translation.glossary import GlossaryInvalid, parse_glossary_file, to_csv, to_xlsx
 from app.services.translation.languages import LANGUAGES, get_language
 from app.stores.glossary_store import GlossaryStore
+from app.stores.language_template_store import LanguageTemplateStore
 
 router = APIRouter(prefix="/api/v1/translations", tags=["Translations"], dependencies=[Depends(require_user)])
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 class EntriesUpdate(BaseModel):
@@ -44,13 +48,21 @@ def _glossary_store(request: Request, settings: Settings) -> GlossaryStore:
     return store
 
 
-def _resolve(store: GlossaryStore, glossary: str, version: Optional[int] = None) -> dict[str, Any]:
-    """A glossary by numeric record id, or by glossary_id (latest version unless one is given)."""
-    record = store.get_record_by_id(int(glossary)) if glossary.isdigit() else None
+def _language_template_store(request: Request, settings: Settings) -> LanguageTemplateStore:
+    store = getattr(request.app.state, "language_template_store", None)
+    if store is None:
+        store = LanguageTemplateStore(settings.db_path, settings)
+    return store
+
+
+def _resolve(store, key: str, version: Optional[int] = None) -> dict[str, Any]:
+    """A record by numeric record id, or by its glossary_id / template_id (latest version unless one is given)."""
+    record = store.get_record_by_id(int(key)) if key.isdigit() else None
     if record is None:
-        record = store.get_version(glossary, version) if version is not None else store.get_latest(glossary)
+        record = store.get_version(key, version) if version is not None else store.get_latest(key)
     if record is None:
-        raise NotFoundError(f"Glossary '{glossary}' not found", code="GLOSSARY_NOT_FOUND")
+        code = "GLOSSARY_NOT_FOUND" if isinstance(store, GlossaryStore) else "LANGUAGE_TEMPLATE_NOT_FOUND"
+        raise NotFoundError(f"{store.LABEL} '{key}' not found", code=code)
     return record
 
 
@@ -225,3 +237,120 @@ async def delete_glossary(request: Request, glossary: str, version: Optional[int
     record = _resolve(store, glossary, version)
     store.delete_record(record["id"])
     return {"deleted": True, "glossary_id": record["glossary_id"], "version": record["version"]}
+
+
+# ── Language templates ────────────────────────────────────────────────
+
+
+def _with_report(record: dict[str, Any]) -> dict[str, Any]:
+    try:
+        report = language_template_service.load_report(record).to_clean_dict()
+    except FileNotFoundError:
+        report = None
+    return {**record, "report": report}
+
+
+@router.post("/language-templates")
+async def create_language_template(
+    request: Request,
+    language: str = Form(...),
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    template_id: Optional[str] = Form(None),
+    settings: Settings = Depends(get_settings),
+    user: dict = Depends(require_user),
+):
+    """Upload a language template (.docx) as the next version and extract its first page, headers and footers.
+
+    A template whose front matter cannot be extracted is still saved, as ``failed`` with the reason.
+    """
+    language = _language(language)
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in settings.language_template_allowed_extensions:
+        raise ValidationError(
+            f"Unsupported language template file type '{extension}'. "
+            f"Allowed: {settings.language_template_allowed_extensions}",
+            code="UNSUPPORTED_LANGUAGE_TEMPLATE_FILE_TYPE",
+        )
+    contents = await file.read()
+    if not contents:
+        raise ValidationError("Uploaded language template file is empty.", code="EMPTY_LANGUAGE_TEMPLATE_FILE")
+    if len(contents) > settings.max_upload_size_mb * 1024 * 1024:
+        raise ValidationError(f"Language template exceeds the maximum size of {settings.max_upload_size_mb} MB.",
+                              code="LANGUAGE_TEMPLATE_FILE_TOO_LARGE")
+    display = (name or "").strip() or Path(file.filename).stem
+    record_id = SOPMetadataExtractor.sanitize_string((template_id or "").strip() or display)
+    if not record_id:
+        raise ValidationError("Give the language template a name.", code="LANGUAGE_TEMPLATE_NAME_REQUIRED")
+    try:
+        record = language_template_service.create_version(
+            _language_template_store(request, settings), settings, template_id=record_id, name=display or record_id,
+            language=language, data=contents, filename=file.filename, created_by=_actor(user))
+    except language_template_service.LanguageTemplateLanguageMismatch as exc:
+        raise AppError(status_code=409, code="LANGUAGE_TEMPLATE_LANGUAGE_MISMATCH", message=str(exc)) from exc
+    return _with_report(record)
+
+
+@router.get("/language-templates")
+async def list_language_templates(
+    request: Request,
+    language: Optional[str] = None,
+    status: Optional[str] = None,
+    template_id: Optional[str] = None,
+    settings: Settings = Depends(get_settings),
+):
+    return _language_template_store(request, settings).get_records(
+        record_id=template_id, language=_language(language) if language else None, status=status)
+
+
+@router.get("/language-templates/{template}")
+async def get_language_template(request: Request, template: str, version: Optional[int] = None,
+                                settings: Settings = Depends(get_settings)):
+    return _resolve(_language_template_store(request, settings), template, version)
+
+
+@router.get("/language-templates/{template}/report")
+async def get_language_template_report(request: Request, template: str, version: Optional[int] = None,
+                                       settings: Settings = Depends(get_settings)):
+    record = _resolve(_language_template_store(request, settings), template, version)
+    try:
+        return language_template_service.load_report(record).to_clean_dict()
+    except FileNotFoundError as exc:
+        raise NotFoundError(str(exc), code="LANGUAGE_TEMPLATE_REPORT_NOT_FOUND") from exc
+
+
+@router.get("/language-templates/{template}/preview")
+async def get_language_template_preview(request: Request, template: str, version: Optional[int] = None,
+                                        settings: Settings = Depends(get_settings)):
+    """The extracted first page, headers and footers, with two placeholder body pages (.docx)."""
+    record = _resolve(_language_template_store(request, settings), template, version)
+    path = record.get("preview_path")
+    if not path or not Path(path).exists():
+        raise NotFoundError(f"Language template '{template}' has no preview",
+                            code="LANGUAGE_TEMPLATE_PREVIEW_NOT_FOUND")
+    return FileResponse(path, media_type=_DOCX,
+                        filename=f"{record['template_id']}_v{record['version']}_front_matter_preview.docx")
+
+
+@router.post("/language-templates/{template}/ready")
+async def mark_language_template_ready(request: Request, template: str, version: Optional[int] = None,
+                                       settings: Settings = Depends(get_settings)):
+    store = _language_template_store(request, settings)
+    record = _resolve(store, template, version)
+    try:
+        return language_template_service.mark_ready(store, record)
+    except language_template_service.LanguageTemplateNotReady as exc:
+        raise AppError(
+            status_code=409, code="LANGUAGE_TEMPLATE_NOT_READY",
+            message=f"Language template cannot be marked ready ({len(exc.reasons)} problem(s))",
+            field_errors=[ApiFieldError(field="report", code="problem", message=r) for r in exc.reasons],
+        ) from exc
+
+
+@router.delete("/language-templates/{template}")
+async def delete_language_template(request: Request, template: str, version: Optional[int] = None,
+                                   settings: Settings = Depends(get_settings)):
+    store = _language_template_store(request, settings)
+    record = _resolve(store, template, version)
+    store.delete_record(record["id"])
+    return {"deleted": True, "template_id": record["template_id"], "version": record["version"]}

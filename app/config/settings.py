@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     glossary_allowed_extensions: list[str] = [".csv", ".xlsx"]
     language_template_dir: Path = Path("data/language_templates")  # extracted front matter and previews
     language_template_upload_dir: Path = Path("data/language_templates/uploads")
+    language_template_allowed_extensions: list[str] = [".docx"]
 
     # --- Migration v2 jobs ---
     migration_v2_dir: Path = Path("data/migrations")  # data/migrations/{job_id}/{kind}_v{n}.json

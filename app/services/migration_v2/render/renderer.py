@@ -103,6 +103,7 @@ from .xml import (
     norm,
     ref_field,
     remove,
+    renumber_drawings,
     sdt_tag,
     text_of,
     unwrap,
@@ -307,7 +308,7 @@ class _Renderer:
                 if (sdt_tag(sdt) or "").startswith(SLOT_TAG_PREFIX):
                     unwrap(sdt)
         self._tidy()
-        self._renumber_drawings()
+        renumber_drawings(self.doc)
         self.toc = rebuild_toc(self.doc)
         self.update_fields_on_open(True)
         bad = sum("�" in c.text for d in drafts for c in d.iter_claims())
@@ -633,18 +634,6 @@ class _Renderer:
             for a, b in zip(children, children[1:]):
                 if a.tag == W_TBL and b.tag == W_TBL:
                     a.addnext(w_el("p"))
-
-    def _renumber_drawings(self) -> None:
-        """Clones and pictures must not share a drawing ID; numbering starts above the headers' and footers'."""
-        used = []
-        for rel in self.doc.part.rels.values():
-            part = rel.target_part if not rel.is_external else None
-            if part is not None and part is not self.doc.part and hasattr(part, "element"):
-                used += [int(d.get("id")) for d in part.element.iter(qn("wp:docPr")) if (d.get("id") or "").isdigit()]
-        next_id = max(used, default=0) + 1
-        for node in self.body.iter(qn("wp:docPr")):
-            node.set("id", str(next_id))
-            next_id += 1
 
     def update_fields_on_open(self, on: bool) -> None:
         """Word refreshes the table of contents' page numbers (and later the REF fields) when the document is opened."""
