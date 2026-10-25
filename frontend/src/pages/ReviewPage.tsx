@@ -12,8 +12,8 @@ import { ReviewBootstrap, ReviewMode, AISuggestion, Issue } from '@/types';
 import { ReviewHeader } from '@/components/review/ReviewHeader';
 import { ActionFooter } from '@/components/review/ActionFooter';
 import { ExtractionReviewMode } from '@/components/review/ExtractionReviewMode';
-import { TranslationReviewMode } from '@/components/review/TranslationReviewMode';
 import { SopMigrationJobs } from '@/features/migrations/components/SopMigrationJobs';
+import { SopTranslationJobs } from '@/features/translations/components/MigrationTranslations';
 import { useSopRecord } from '@/features/migrations/hooks';
 import { ReprocessingRequestDialog } from '@/components/review/ReprocessingRequestDialog';
 import { Button } from '@/components/ui/Button';
@@ -226,39 +226,25 @@ export const ReviewPage: React.FC = () => {
           />
         )}
 
-        {currentMode === 'translation' && (
-          <TranslationReviewMode
-            documentUid={bootstrap.document.documentUid}
-            v2Content={v2Content || null}
-            targetLocale={bootstrap.reviewContext.targetLocale || 'fr'}
-            suggestions={suggestions}
-            onAcceptSuggestion={handleAcceptSuggestion}
-            onRejectSuggestion={handleRejectSuggestion}
-            onGenerateSuggestion={handleGenerateSuggestion}
-          />
-        )}
+        {currentMode === 'translation' && <SopTranslationJobs sop={sopRecord.data} sopRecordId={numRecordId} />}
 
         {currentMode === 'migration' && <SopMigrationJobs sop={sopRecord.data} sopRecordId={numRecordId} />}
       </div>
 
-      {/* Sticky Bottom Action Footer */}
-      <ActionFooter
-        availableActions={bootstrap.availableActions}
-        isSaving={isSaving}
-        isApproving={isApproving}
-        onSave={handleSaveDraft}
-        onApprove={handleApprove}
-        onRequestReprocessing={() => setIsReprocessingOpen(true)}
-        onReportIssue={() => {
-          handleCreateIssue({ description: 'Reviewer flagged potential extraction defect', category: 'formatting' });
-        }}
-        onRunQa={() => {
-          toastSuccess('All 6 translation QA checks passed without blocking errors.', 'QA Complete');
-        }}
-        onAiTranslate={() => {
-          toastSuccess('AI Translation complete with GxP terminology enforcement.', 'Translated');
-        }}
-      />
+      {/* Sticky Bottom Action Footer (the Translation tab only lists jobs: their actions are in each job) */}
+      {currentMode !== 'translation' && (
+        <ActionFooter
+          availableActions={bootstrap.availableActions}
+          isSaving={isSaving}
+          isApproving={isApproving}
+          onSave={handleSaveDraft}
+          onApprove={handleApprove}
+          onRequestReprocessing={() => setIsReprocessingOpen(true)}
+          onReportIssue={() => {
+            handleCreateIssue({ description: 'Reviewer flagged potential extraction defect', category: 'formatting' });
+          }}
+        />
+      )}
 
       {/* Reprocessing Request Dialog */}
       <ReprocessingRequestDialog

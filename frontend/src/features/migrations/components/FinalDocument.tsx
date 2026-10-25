@@ -11,6 +11,7 @@ import { blockingIssues } from '../report';
 import { useDownloads } from '../useDownloads';
 import { ResolutionNote } from './issues';
 import { PaneTabs } from './paneParts';
+import { MigrationTranslations } from '@/features/translations/components/MigrationTranslations';
 
 type Tab = 'final' | 'review';
 
@@ -84,6 +85,8 @@ export const FinalDocument: React.FC<{
           </Button>
           <p className="text-[11px] text-text-muted">Downloading the final document records the export in the job history and on the SOP.</p>
         </div>
+
+        <MigrationTranslations migration={job} />
 
         {accepted.length > 0 && (
           <Section title="Removed from the final document">

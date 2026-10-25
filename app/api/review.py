@@ -30,25 +30,19 @@ async def get_review_bootstrap(
 
     # Determine layout based on mode
     if mode == "translation":
+        # The SOP's translation jobs (app/api/translations.py); review happens in each job's workspace.
         layout = {
-            "leftPanel": "SOURCE_CONTENT",
-            "rightPanel": "TRANSLATED_CONTENT",
-            "showOriginalViewer": True,
-            "showAiSuggestions": True,
-            "showCompareView": True,
-            "showVersionHistory": True,
-            "showIssuePanel": True,
+            "leftPanel": "TRANSLATION_JOBS",
+            "rightPanel": None,
+            "showOriginalViewer": False,
+            "showAiSuggestions": False,
+            "showCompareView": False,
+            "showVersionHistory": False,
+            "showIssuePanel": False,
         }
-        actions = [
-            "AI_TRANSLATE",
-            "ACCEPT_SUGGESTION",
-            "EDIT",
-            "SAVE",
-            "RUN_QA",
-            "APPROVE",
-        ]
+        actions = []
         links = {
-            "content": f"/translations/{w_id}/segments",
+            "content": "/api/v1/translations",
             "versions": f"/workflows/{w_id}/versions",
             "issues": f"/issues?workflow_id={w_id}",
             "websocket": f"/workflows/{w_id}/progress",
@@ -120,7 +114,7 @@ async def get_review_bootstrap(
             "workflowVersion": 1,
             "status": record.get("status", "in_review"),
             "sourceLocale": record.get("language", "en"),
-            "targetLocale": "fr" if mode == "translation" else None,
+            "targetLocale": None,  # a translation job names its language
             "rowVersion": 1,
         },
         "layout": layout,

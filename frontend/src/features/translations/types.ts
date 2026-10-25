@@ -4,7 +4,7 @@
  */
 import type { JobEvent, QualityReport, RenderReport, Severity, ValidationIssue } from '@/features/migrations/types';
 
-export type { JobEvent, QualityReport, RenderReport, ValidationIssue };
+export type { JobEvent, QualityReport, RenderReport, Severity, ValidationIssue };
 
 // ── Languages ─────────────────────────────────────────────────────────
 

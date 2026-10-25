@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   RotateCcw,
   Sparkles,
-  Languages,
   ArrowRightLeft,
   Check,
   ShieldAlert,
@@ -21,9 +20,7 @@ interface ActionFooterProps {
   onApprove?: () => void;
   onRequestReprocessing?: () => void;
   onReportIssue?: () => void;
-  onRunQa?: () => void;
   onValidateMigration?: () => void;
-  onAiTranslate?: () => void;
   onAiMigrate?: () => void;
 }
 
@@ -36,9 +33,7 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
   onApprove,
   onRequestReprocessing,
   onReportIssue,
-  onRunQa,
   onValidateMigration,
-  onAiTranslate,
   onAiMigrate,
 }) => {
   const hasAction = (act: string) => availableActions.includes(act);
@@ -69,17 +64,6 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
           </Button>
         )}
 
-        {hasAction('RUN_QA') && onRunQa && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onRunQa}
-            leftIcon={<Sparkles className="size-3.5 text-sky-400" />}
-          >
-            Run QA Checks
-          </Button>
-        )}
-
         {hasAction('VALIDATE') && onValidateMigration && (
           <Button
             variant="secondary"
@@ -94,17 +78,6 @@ export const ActionFooter: React.FC<ActionFooterProps> = ({
 
       {/* Right Action Group */}
       <div className="flex items-center gap-2.5">
-        {hasAction('AI_TRANSLATE') && onAiTranslate && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onAiTranslate}
-            leftIcon={<Languages className="size-3.5 text-primary" />}
-          >
-            AI Translate
-          </Button>
-        )}
-
         {hasAction('AI_MIGRATE') && onAiMigrate && (
           <Button
             variant="secondary"

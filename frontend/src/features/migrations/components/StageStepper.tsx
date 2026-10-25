@@ -7,11 +7,25 @@ import type { MigrationJob } from '../types';
 export type View = Step | 'activity';
 
 /** ① Section mapping → ② Slot mapping → ③ Draft & issues → ④ Final document, plus the activity log. */
-export const StageStepper: React.FC<{ job: MigrationJob; view: View; onChange: (view: View) => void }> = ({ job, view, onChange }) => {
-  const states = stepStates(job);
+export const StageStepper: React.FC<{ job: MigrationJob; view: View; onChange: (view: View) => void }> = ({ job, view, onChange }) => (
+  <StepBar steps={STEPS} states={stepStates(job)} view={view} onChange={onChange} />
+);
+
+/** Numbered steps with their states, plus the activity log at the end (any kind of job). */
+export function StepBar<S extends string>({
+  steps,
+  states,
+  view,
+  onChange,
+}: {
+  steps: { id: S; label: string; short: string }[];
+  states: Record<S, StepState>;
+  view: S | 'activity';
+  onChange: (view: S | 'activity') => void;
+}) {
   return (
     <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5">
-      {STEPS.map((step, index) => {
+      {steps.map((step, index) => {
         const state = states[step.id];
         return (
           <React.Fragment key={step.id}>
@@ -47,7 +61,7 @@ export const StageStepper: React.FC<{ job: MigrationJob; view: View; onChange: (
       </button>
     </nav>
   );
-};
+}
 
 const TITLES: Record<StepState, string> = {
   done: 'Done; open to see it',

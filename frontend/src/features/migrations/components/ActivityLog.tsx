@@ -10,9 +10,23 @@ import type { JobEvent, JobStatus, MigrationJob } from '../types';
 /** The job's audit trail: status changes, reviewer edits with their before and after, LLM calls, exports. */
 export const ActivityLog: React.FC<{ job: MigrationJob }> = ({ job }) => {
   const audit = useAudit(job.job_id, job);
+  return <ActivityView events={audit.data} loading={audit.isLoading} labels={MIGRATION_LABELS} />;
+};
+
+/** How a kind of job names its events: status labels, event titles and one-line summaries (``null``: the default). */
+export interface EventLabels {
+  status: (status: string) => string;
+  title?: (event: JobEvent) => string | null;
+  summary?: (event: JobEvent) => string | null;
+}
+
+const MIGRATION_LABELS: EventLabels = { status: (s) => statusInfo(s as JobStatus).label };
+
+/** An audit trail, newest first, with the technical events behind a switch. */
+export const ActivityView: React.FC<{ events?: JobEvent[]; loading?: boolean; labels: EventLabels }> = ({ events: all, loading, labels }) => {
   const [technical, setTechnical] = useState(false);
-  const events = (audit.data ?? []).filter((e) => technical || !TECHNICAL.has(e.event)).reverse();
-  const llmCalls = (audit.data ?? []).filter((e) => e.event === 'llm_call');
+  const events = (all ?? []).filter((e) => technical || !TECHNICAL.has(e.event)).reverse();
+  const llmCalls = (all ?? []).filter((e) => e.event === 'llm_call');
   const tokens = llmCalls.reduce((n, e) => n + (e.detail?.input_tokens ?? 0) + (e.detail?.output_tokens ?? 0), 0);
 
   return (
@@ -30,9 +44,9 @@ export const ActivityLog: React.FC<{ job: MigrationJob }> = ({ job }) => {
             Show technical events (LLM calls, saved files, stages)
           </label>
         </div>
-        {audit.isLoading && <Loader2 className="size-4 animate-spin text-text-muted" />}
+        {loading && <Loader2 className="size-4 animate-spin text-text-muted" />}
         <ol className="relative space-y-2 border-l border-border pl-5">
-          {events.map((e) => <EventItem key={e.id} event={e} />)}
+          {events.map((e) => <EventItem key={e.id} event={e} labels={labels} />)}
         </ol>
       </div>
     </div>
@@ -53,8 +67,10 @@ const ICONS: Record<string, React.ReactNode> = {
   reconcile: <GitBranch className="size-3" />,
 };
 
-const EventItem: React.FC<{ event: JobEvent }> = ({ event }) => {
+const EventItem: React.FC<{ event: JobEvent; labels: EventLabels }> = ({ event, labels }) => {
   const [open, setOpen] = useState(false);
+  const heading = labels.title?.(event) ?? title(event, labels);
+  const line = labels.summary?.(event) ?? summary(event);
   const d = event.detail ?? {};
   const isStatus = !!event.to_status;
   return (
@@ -63,7 +79,7 @@ const EventItem: React.FC<{ event: JobEvent }> = ({ event }) => {
         {ICONS[event.event] ?? (isStatus ? ICONS.status : <span className="size-1 rounded-full bg-current" />)}
       </span>
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-medium text-text-main">{title(event)}</span>
+        <span className="font-medium text-text-main">{heading}</span>
         <span className="text-[11px] text-text-muted">{formatDate(event.at)}</span>
         <span className="flex items-center gap-1 text-[11px] text-text-muted">
           <User className="size-2.5" />
@@ -75,7 +91,7 @@ const EventItem: React.FC<{ event: JobEvent }> = ({ event }) => {
           </button>
         )}
       </div>
-      {summary(event) && <p className="mt-0.5 text-[11px] text-text-muted">{summary(event)}</p>}
+      {line && <p className="mt-0.5 text-[11px] text-text-muted">{line}</p>}
       {open && event.event === 'slot_edited' ? (
         <div className="mt-1.5 space-y-1">
           {(d.changed ?? []).map((c: { claim_id: string; before: string; after: string }) => (
@@ -95,8 +111,8 @@ const EventItem: React.FC<{ event: JobEvent }> = ({ event }) => {
   );
 };
 
-function title(e: JobEvent): string {
-  if (e.to_status) return `${e.from_status ? `${statusInfo(e.from_status as JobStatus).label} → ` : ''}${statusInfo(e.to_status as JobStatus).label}`;
+function title(e: JobEvent, labels: EventLabels): string {
+  if (e.to_status) return `${e.from_status ? `${labels.status(e.from_status)} → ` : ''}${labels.status(e.to_status)}`;
   const names: Record<string, string> = {
     slot_edited: 'Slot edited',
     plan_edited: 'Plan edited',

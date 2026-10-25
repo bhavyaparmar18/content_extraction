@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyRow, rowProblems, rowsChanged, toEntries, toRows } from './glossaryEdit';
-import { jobSopTitles, jobsByMigration } from './jobs';
+import { defaultPicks, jobSopTitles, jobsByMigration, languageChoice, usableGlossaries } from './jobs';
 import {
   defaultTranslationStep,
   groupVersions,
@@ -8,7 +8,14 @@ import {
   translationPermissions,
   translationStepStates,
 } from './status';
-import type { TranslationArtifactKind, TranslationJob, TranslationJobRow, TranslationStatus } from './types';
+import type {
+  GlossaryRecord,
+  LanguageTemplateRecord,
+  TranslationArtifactKind,
+  TranslationJob,
+  TranslationJobRow,
+  TranslationStatus,
+} from './types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -126,6 +133,31 @@ describe('job lists', () => {
     const titles = jobSopTitles([{ job_id: 'MIG-1', sop_record_id: 7 }, { job_id: 'MIG-2', sop_record_id: 8 }], new Map([[7, 'RPAS SOP']]));
     expect(titles.get('MIG-1')).toBe('RPAS SOP');
     expect(titles.get('MIG-2')).toBe('SOP #8');
+  });
+
+  it('preselects the newest approved glossary and ready template of the language, else none', () => {
+    const g = (glossary_id: string, version: number, language: string, status: string, updated_at: string) =>
+      ({ glossary_id, version, language, status, updated_at }) as GlossaryRecord;
+    const t = (template_id: string, version: number, language: string, status: string, updated_at: string) =>
+      ({ template_id, version, language, status, updated_at }) as LanguageTemplateRecord;
+    const glossaries = [
+      g('gx', 1, 'fr-FR', 'approved', '2026-10-01'),
+      g('gx', 2, 'fr-FR', 'in_review', '2026-10-05'), // not approved: never offered
+      g('gy', 1, 'fr-FR', 'approved', '2026-10-03'),
+      g('gz', 1, 'de-DE', 'approved', '2026-10-09'),
+    ];
+    const templates = [t('tde', 1, 'de-DE', 'ready', '2026-10-02'), t('tde', 2, 'de-DE', 'extracted', '2026-10-04')];
+    expect(defaultPicks('fr-FR', glossaries, templates)).toEqual({ glossary: 'gy@1', template: '' });
+    expect(defaultPicks('de-DE', glossaries, templates)).toEqual({ glossary: 'gz@1', template: 'tde@1' });
+    expect(defaultPicks('ja-JP', glossaries, templates)).toEqual({ glossary: '', template: '' });
+    expect(usableGlossaries(glossaries, 'fr-FR').map((r) => `${r.glossary_id}@${r.version}`)).toEqual(['gy@1', 'gx@1']);
+  });
+
+  it('builds a request choice without the resources left at none', () => {
+    expect(languageChoice('de-DE', { glossary: '', template: 'Template_Main@2' })).toEqual({
+      language: 'de-DE', language_template_id: 'Template_Main', language_template_version: 2,
+    });
+    expect(languageChoice('fr-FR', { glossary: 'a@b@3', template: '' })).toEqual({ language: 'fr-FR', glossary_id: 'a@b', glossary_version: 3 });
   });
 
   it('groups jobs by migration, keeping their order', () => {
