@@ -71,9 +71,10 @@ def set_tcpr_child(tcpr, child) -> None:
     insert_child(tcpr, child, _TCPR_ORDER)
 
 
-def base_ppr(p) -> Optional[object]:
+def base_ppr(p, colour=None) -> Optional[object]:
     """A paragraph's own layout (spacing, alignment...) to reuse for new text: numbering, mark formatting and
-    section breaks are dropped, and so is a heading style."""
+    section breaks are dropped, and so is a heading style. With *colour* (a ``TextColour``), so is a style that
+    makes text blue."""
     ppr = p.find(W_PPR) if p is not None else None
     if ppr is None:
         return None
@@ -84,6 +85,8 @@ def base_ppr(p) -> Optional[object]:
     style = out.find(qn("w:pStyle"))
     if style is not None and (style.get(qn("w:val")) or "").lower().startswith(("heading", "title", "toc")):
         out.remove(style)
+    if colour is not None:
+        colour.drop_blue_styles(out)
     return out
 
 
@@ -225,12 +228,15 @@ def renumber_drawings(doc) -> None:
         next_id += 1
 
 
-def make_plain(el) -> None:
-    """Drop colour and highlight from every run (and paragraph mark) under *el*: kept template text turns black."""
+def make_plain(el, colour=None) -> None:
+    """Drop colour and highlight from every run (and paragraph mark) under *el*: kept template text turns black.
+    With *colour* (a ``TextColour``), paragraph styles that make text blue are dropped too."""
     for node in list(el.iter(qn("w:color"), qn("w:highlight"))):
         parent = node.getparent()
         if parent is not None and parent.tag == W_RPR:
             parent.remove(node)
+    if colour is not None:
+        colour.drop_blue_styles(el)
 
 
 def ensure_ends_with_paragraph(container) -> None:

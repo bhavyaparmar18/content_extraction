@@ -305,7 +305,7 @@ class _Renderer:
     # ── Run ───────────────────────────────────────────────────────────
 
     def run(self, drafts: list[SectionDraft]) -> None:
-        self.regions = settle_regions(self.template, self.slot_plan, self.controls)
+        self.regions = settle_regions(self.template, self.slot_plan, self.controls, self.colour)
         by_section = {d.target_section_id: d for d in drafts}
         headings = self._section_headings()
         for section in sorted(self.template.sections, key=lambda s: s.display_order):
@@ -414,13 +414,13 @@ class _Renderer:
             return
         if target.kind == "paragraph":
             p = target.paragraph
-            ppr, rpr = base_ppr(p), base_rpr(p)
+            ppr, rpr = base_ppr(p, self.colour), base_rpr(p)
             blocks = [gap_marker(ppr)] if gap else build_blocks(claims, self.ctx, ppr, rpr, own_callout=slot.callout_kind)
             for block in blocks:
                 p.addprevious(block)
             self._keep(blocks)
             if slot.instruction_behavior == InstructionBehavior.RETAIN_AS_LABEL:
-                make_plain(p)
+                make_plain(p, self.colour)
                 self._keep([p])
             else:
                 _move_bookmarks(p, blocks)
@@ -429,14 +429,14 @@ class _Renderer:
         container = target.container
         in_cell = container.tag == W_TC or ancestor(container, W_TC) is not None
         first = container.find(W_P) if container.find(W_P) is not None else next(container.iter(W_P), None)
-        ppr, rpr = base_ppr(first), base_rpr(container)
+        ppr, rpr = base_ppr(first, self.colour), base_rpr(container)
         if ppr is not None and not in_cell:
             # Body text keeps the instruction's alignment but the template's own paragraph spacing.
             for node in [c for c in ppr if c.tag in (qn("w:spacing"), qn("w:ind"))]:
                 ppr.remove(node)
         blocks = [gap_marker(ppr)] if gap else build_blocks(claims, self.ctx, ppr, rpr, own_callout=slot.callout_kind)
         if slot.instruction_behavior == InstructionBehavior.RETAIN_AS_LABEL:
-            make_plain(container)
+            make_plain(container, self.colour)
             self._keep(list(container))
         else:
             clear_blocks(container)
@@ -448,6 +448,7 @@ class _Renderer:
 
     def _write_rows(self, slot: TargetSlot, target: _Target, claims: list[Claim], gap: bool) -> None:
         template_table = TemplateTable(target.table, target.header_rows, target.example_rows)
+        self.colour.drop_blue_styles(template_table.prototype)  # new rows: never in the example row's blue style
         pristine = copy.deepcopy(target.table)
         anchor_el = self._top_row_element(target.example_rows[0]) if target.example_rows else None
         if gap:
@@ -633,7 +634,7 @@ class _Renderer:
             lines = {norm(line) for line in slot.instruction.split("\n") if line.strip()}
             for p in self.body.iter(W_P):
                 if p not in self.keep and norm(text_of(p)) in lines:
-                    make_plain(p)
+                    make_plain(p, self.colour)
                     self.keep.add(p)
 
     # ── Finishing ─────────────────────────────────────────────────────
@@ -684,7 +685,9 @@ class _Renderer:
                 tbl = copy.deepcopy(target.table)
                 rows = table_rows(tbl)
                 n = len(target.header_rows)
-                return TableStyle.from_template(TemplateTable(tbl, rows[:n], rows[n:]))
+                template_table = TemplateTable(tbl, rows[:n], rows[n:])
+                self.colour.drop_blue_styles(template_table.prototype)
+                return TableStyle.from_template(template_table)
         return TableStyle.plain()
 
     def _text_width_emu(self) -> int:
