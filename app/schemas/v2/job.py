@@ -76,6 +76,11 @@ class ArtifactKind(str, Enum):
     DOCX = "docx"
     RENDER_REPORT = "render_report"
     TRACEABILITY = "traceability"
+    # Translation jobs (docs/translation/IMPLEMENTATION_PLAN.md); they also use DOCX, RENDER_REPORT and QUALITY_REPORT.
+    SEGMENTS = "segments"          # every segment of the English document, untranslated
+    TRANSLATION = "translation"    # a TranslationSet per scope
+    GLOSSARY = "glossary"          # the job's snapshot of its glossary version
+    FRONT_MATTER = "front_matter"  # the job's snapshot of its language template's first page, headers and footers
 
 
 class ArtifactRef(V2Model):

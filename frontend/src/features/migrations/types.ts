@@ -359,7 +359,8 @@ export type Gate =
   | 'broken_cross_reference' | 'unaccounted_source' | 'high_risk_unresolved' | 'sequence_violation';
 
 export type IssueCategory =
-  | 'structure' | 'traceability' | 'preservation' | 'order' | 'formatting' | 'cross_reference' | 'semantic' | 'consistency';
+  | 'structure' | 'traceability' | 'preservation' | 'order' | 'formatting' | 'cross_reference' | 'semantic' | 'consistency'
+  | 'terminology' | 'language'; // the last two: translation checks
 
 export interface ValidationIssue {
   issue_id: string;
@@ -371,6 +372,8 @@ export interface ValidationIssue {
   slot_id?: string;
   claim_ids?: string[];
   unit_ids?: string[];
+  /** Translation checks: the segments the issue is about. */
+  segment_ids?: string[];
   message: string;
   resolved?: boolean;
   resolution_note?: string;

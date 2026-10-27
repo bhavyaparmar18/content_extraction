@@ -34,7 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
         { label: 'SOP Repository', path: '/', icon: FileText },
         { label: 'Dashboard', path: '/#dashboard', icon: LayoutDashboard },
         { label: 'Templates', path: '/templates', icon: Layers },
-        { label: 'Glossary', path: '/#glossary', icon: BookOpen },
+        { label: 'Glossary', path: '/translations/resources', icon: BookOpen },
         { label: 'AI Instructions', path: '/#ai-prompts', icon: Sparkles },
       ],
     },
@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
       title: 'WORKFLOWS',
       items: [
         { label: 'SOP Extraction', path: '/', icon: ScanText },
-        { label: 'Translation', path: '/#translation', icon: Languages },
+        { label: 'Translation', path: '/translations', icon: Languages },
         { label: 'Migrations', path: '/migrations', icon: ArrowRightLeft },
       ],
     },
@@ -99,12 +99,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggleCollapse 
             <div className="space-y-1">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                // Placeholder links ('/#dashboard') are never active; '/' only on the repository itself.
+                // Placeholder links ('/#dashboard') are never active; '/' only on the repository itself;
+                // '/translations' not on the resources pages, which have their own link.
                 const isActive = item.path.includes('#')
                   ? false
                   : item.path === '/'
                     ? location.pathname === '/'
-                    : location.pathname.startsWith(item.path);
+                    : item.path === '/translations'
+                      ? location.pathname.startsWith(item.path) && !location.pathname.startsWith('/translations/resources')
+                      : location.pathname.startsWith(item.path);
 
                 return (
                   <NavLink

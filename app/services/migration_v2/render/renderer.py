@@ -38,7 +38,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -63,13 +63,14 @@ from app.schemas.v2 import (
     TargetSlot,
     TemplateModel,
 )
+from app.db.paths import relocate
 from app.services.parser.ooxml import NumberingResolver, iter_body_blocks
 
 from ..drafting.refs import raw_text_by_target
 from ..template.callout_palette import is_heading, palette_from_document, style_name
 from ..template.colour import TextColour
 from .callouts import Callouts
-from .content import ContentContext, RefText, build_blocks, gap_marker
+from .content import ContentContext, RefText, build_blocks, gap_marker, generated
 from .instructions import remove_instructions, settle_regions
 from .numbering import ListNumbering
 from .pages import PageCounter
@@ -103,6 +104,7 @@ from .xml import (
     norm,
     ref_field,
     remove,
+    renumber_drawings,
     sdt_tag,
     text_of,
     unwrap,
@@ -112,6 +114,12 @@ from .toc import rebuild_toc
 from .verify import verify_rendered
 
 SLOT_TAG_PREFIX = "CC_"
+DATA_ROOT = Path(__file__).resolve().parents[4] / "data"  # where a template file recorded on another PC is found
+
+# (document, elements built from the drafts and source rows) → None; see ``render_document``.
+BodyHook = Callable[[object, frozenset], None]
+FinishHook = Callable[[object], None]                 # (document) → None, just before it is saved
+HeaderCheck = Callable[[object], list[str]]           # (written document) → problems with its headers and footers
 
 
 class RenderError(RuntimeError):
@@ -182,31 +190,41 @@ def render_document(
     page_counter: Optional[PageCounter] = None,
     assembled: Optional[AssembledDocument] = None,
     number_map: Optional[NumberMap] = None,
+    body_hook: Optional[BodyHook] = None,
+    finish: Optional[FinishHook] = None,
+    header_check: Optional[HeaderCheck] = None,
 ) -> RenderReport:
     """Render *drafts* into a copy of the template's normalized file at *out_path*, check it, and report.
 
     *page_counter* (e.g. ``pages.word_page_counter()``) measures the page of each table-of-contents entry on the
     written file; the entries then carry their page numbers and Word is not asked to update fields on opening.
     *assembled* and *number_map* (Phase 12) give the resolved references and the bookmarks they point to.
+    *body_hook* (translation) sees the body once the slots are filled and the instructions removed, before the slot
+    controls are unwrapped and the table of contents is rebuilt, with the elements built from the drafts.
+    *finish* (translation) changes the finished document before it is first saved (the language template's first
+    page, headers and footers, the language); *header_check* then replaces the post-render check's comparison of the
+    headers and footers with the template's.
     """
     accepted = set(accepted_gaps)
     if mode == RenderMode.FINAL:
         open_gaps = [s for s in gap_slots(drafts) if s not in accepted]
         if open_gaps:
             raise RenderBlocked(open_gaps)
-    template_file = Path(template.normalized_file or "")
-    if not template.normalized_file or not template_file.exists():
+    template_file = relocate(template.normalized_file, DATA_ROOT)
+    if template_file is None:
         raise RenderError(f"normalized template file not found: {template.normalized_file!r}")
     numbered = number_map is not None and headings_numbered(template_file)
     if ref_text is None:
         ref_text = (assembled_ref_text(assembled, default_ref_text(source), fields=numbered) if assembled
                     else default_ref_text(source))
     renderer = _Renderer(template, source, slot_plan, mode, accepted, ref_text, template_file,
-                         number_map if numbered else None)
+                         number_map if numbered else None, body_hook)
     if number_map is not None and not numbered and assembled is not None and assembled.refs:
         renderer.warnings.append("the template's headings are not numbered by Word: cross-references show the new "
                                  "chapter numbers as plain text, not as REF fields")
     renderer.run(drafts)
+    if finish is not None:
+        finish(renderer.doc)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     renderer.doc.save(str(out_path))
@@ -229,7 +247,7 @@ def render_document(
         toc_entries=len(renderer.toc or []), toc_page_numbers=toc_pages,
     )
     report.problems = verify_rendered(out_path, template_file, template, drafts, source, report, ref_text,
-                                      number_map if numbered else None)
+                                      number_map if numbered else None, header_check)
     return report
 
 
@@ -250,12 +268,13 @@ class _Target:
 class _Renderer:
     def __init__(self, template: TemplateModel, source: SourceDocument, slot_plan: Optional[SlotPlan],
                  mode: RenderMode, accepted: set[str], ref_text: RefText, template_file: Path,
-                 number_map: Optional[NumberMap] = None):
+                 number_map: Optional[NumberMap] = None, body_hook: Optional[BodyHook] = None):
         try:
             self.doc = Document(str(template_file))
         except Exception as exc:
             raise RenderError(f"cannot open the template file {template_file}: {exc}") from exc
         self.template, self.source, self.slot_plan, self.number_map = template, source, slot_plan, number_map
+        self.body_hook = body_hook
         self.mode, self.accepted = mode, accepted
         self.body = self.doc.element.body
         self.colour = TextColour(self.doc)
@@ -302,12 +321,14 @@ class _Renderer:
             remove(self.legend)
         self._retain_instructions()
         remove_instructions(self.doc, self.colour, self.keep)
+        if self.body_hook is not None:
+            self.body_hook(self.doc, frozenset(self.ctx.generated))
         if self.mode == RenderMode.FINAL:
             for sdt in list(self.body.iter(W_SDT)):
                 if (sdt_tag(sdt) or "").startswith(SLOT_TAG_PREFIX):
                     unwrap(sdt)
         self._tidy()
-        self._renumber_drawings()
+        renumber_drawings(self.doc)
         self.toc = rebuild_toc(self.doc)
         self.update_fields_on_open(True)
         bad = sum("�" in c.text for d in drafts for c in d.iter_claims())
@@ -468,7 +489,7 @@ class _Renderer:
                     place(block)
                 continue
             if template_table.fits(items[0].header):
-                new_rows = [build_row(template_table.prototype, r.cells) for r in items]
+                new_rows = generated(self.ctx, [build_row(template_table.prototype, r.cells) for r in items])
                 if not placed_template:
                     self._replace_rows(target.table, target.example_rows, new_rows, anchor_el)
                     if cursor is not None and cursor.tag == W_TBL:
@@ -485,7 +506,7 @@ class _Renderer:
                 for problem in header_mismatches(template_table, items[0].header):
                     self.warnings.append(f"{slot.slot_id}: {problem} (table {items[0].table_id}); check the column")
             else:
-                place(source_shaped_table(TableStyle.from_template(template_table), items))
+                place(generated(self.ctx, [source_shaped_table(TableStyle.from_template(template_table), items)])[0])
                 self.warnings.append(
                     f"{slot.slot_id}: source table {items[0].table_id} ({' | '.join(items[0].header)}) does not fit the "
                     f"template table ({' | '.join(template_table.header_texts)}); written with its own columns")
@@ -633,18 +654,6 @@ class _Renderer:
             for a, b in zip(children, children[1:]):
                 if a.tag == W_TBL and b.tag == W_TBL:
                     a.addnext(w_el("p"))
-
-    def _renumber_drawings(self) -> None:
-        """Clones and pictures must not share a drawing ID; numbering starts above the headers' and footers'."""
-        used = []
-        for rel in self.doc.part.rels.values():
-            part = rel.target_part if not rel.is_external else None
-            if part is not None and part is not self.doc.part and hasattr(part, "element"):
-                used += [int(d.get("id")) for d in part.element.iter(qn("wp:docPr")) if (d.get("id") or "").isdigit()]
-        next_id = max(used, default=0) + 1
-        for node in self.body.iter(qn("wp:docPr")):
-            node.set("id", str(next_id))
-            next_id += 1
 
     def update_fields_on_open(self, on: bool) -> None:
         """Word refreshes the table of contents' page numbers (and later the REF fields) when the document is opened."""

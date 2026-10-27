@@ -39,7 +39,7 @@ from app.schemas.v2 import (
     UnitType,
     compute_content_hash,
 )
-from app.services.migration_v2.render import GAP_MARKER_TEXT, RenderBlocked, gap_slots, render_document
+from app.services.migration_v2.render import GAP_MARKER_TEXT, RenderBlocked, RenderError, gap_slots, render_document
 from app.services.migration_v2.render.verify import verify_rendered
 from app.services.migration_v2.template.colour import TextColour
 from app.services.migration_v2.template.service import build_template_model, normalize_and_save
@@ -400,6 +400,25 @@ def test_conditional_regions(tpl, tmp_path):
     none = render_document(tpl, drafts, source, tmp_path / "none.docx", job_id="J", slot_plan=plan)
     assert {r.region_id: r.outcome for r in none.regions}["p:4"] == RegionOutcome.REMOVED
     assert "is applicable" not in _texts(Document(str(tmp_path / "none.docx")))
+
+
+def test_template_file_recorded_on_another_pc_is_found_in_this_data_folder(tpl, tmp_path, monkeypatch):
+    """A template model copied from another PC names that PC's path; the renderer finds the file in this data folder."""
+    import shutil
+
+    from app.services.migration_v2.render import renderer
+
+    name = Path(tpl.normalized_file).name
+    data = tmp_path / "data"
+    (data / "template_output").mkdir(parents=True)
+    shutil.copy(tpl.normalized_file, data / "template_output" / name)
+    monkeypatch.setattr(renderer, "DATA_ROOT", data)
+    copied = tpl.model_copy(update={"normalized_file": rf"Z:\Other PC\content_extraction\data\template_output\{name}"})
+    report, doc, _ = _render(copied, tmp_path)
+    assert report.problems == [] and report.slot("TGT-1-WHAT").outcome == SlotOutcome.FILLED
+
+    with pytest.raises(RenderError, match="normalized template file not found"):
+        _render(tpl.model_copy(update={"normalized_file": r"Z:\Other PC\data\template_output\missing.docx"}), tmp_path)
 
 
 def test_unnormalized_anchors_table_cell_and_placeholder(tmp_path):

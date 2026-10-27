@@ -7,7 +7,8 @@ factory for one stage run, so each call is recorded without the stage code knowi
 - ``input_tokens`` / ``output_tokens`` from the provider's usage, and ``latency_ms``;
 - ``retry``: true for a second attempt (a repair or retry message added, or a failed attempt before it), and
   ``status`` ``ok`` / ``error`` (a failed attempt is recorded too, with its error);
-- ``unit_ids``: the source passages (``SRC-…-U…``) and claims (``C-…``) the prompt supplied, capped.
+- ``unit_ids``: the source passages (``SRC-…-U…``), claims (``C-…``) and translation segments (``SEG-…``) the
+  prompt supplied, capped.
 
 The orchestrator (and the inspection runner) writes the recorded calls as events after each stage.
 """
@@ -18,11 +19,12 @@ import re
 import time
 from typing import Any, Optional
 
-from app.services.llm.prompts.v2 import critic, drafter, reconcile, section_planner, slot_planner
+from app.services.llm.prompts.v2 import critic, drafter, reconcile, section_planner, slot_planner, translator
 
 _MAX_IDS = 300
 _UNIT = re.compile(r"\bSRC-[\w.]+?-U\d{3,}\b")
 _CLAIM = re.compile(r"\bC-[A-Z]+-[\w.]+-\d{3,}\b")
+_SEGMENT = re.compile(r"\bSEG-\d{4,}\b")
 _RETRY_MARKS = ("SECOND ATTEMPT", "REPAIR:", "previous answer", "Your answer had problems")
 
 _PROMPTS: list[tuple[str, str, str]] = [  # (system prompt, task, version)
@@ -32,6 +34,7 @@ _PROMPTS: list[tuple[str, str, str]] = [  # (system prompt, task, version)
     (drafter.SPLIT_SYSTEM_PROMPT, "drafter_split", drafter.PROMPT_VERSION),
     (critic.SYSTEM_PROMPT, "critic", critic.PROMPT_VERSION),
     (reconcile.SYSTEM_PROMPT, "reconcile", reconcile.PROMPT_VERSION),
+    (translator.SYSTEM_PROMPT, "translator", translator.PROMPT_VERSION),
 ]
 
 
@@ -46,12 +49,15 @@ def describe(messages: list) -> dict[str, Any]:
     task, version = next(((t, v) for prompt, t, v in _PROMPTS if system == prompt), ("unknown", None))
     if task == "drafter_rewrite" and any("REPAIR:" in _content(m) for m in messages[1:]):
         task = "repair"
+    if task == "translator" and any("REPAIR:" in _content(m) for m in messages[1:]):
+        task = "translator_repair"
     rest = " ".join(_content(m) for m in messages[1:])
     retry = len(messages) > 2 or any(mark in rest for mark in _RETRY_MARKS)
     return {
         "task": task, "prompt_version": version, "retry": retry,
         "unit_ids": list(dict.fromkeys(_UNIT.findall(rest)))[:_MAX_IDS],
         "claim_ids": list(dict.fromkeys(_CLAIM.findall(rest)))[:_MAX_IDS],
+        "segment_ids": list(dict.fromkeys(_SEGMENT.findall(rest)))[:_MAX_IDS],
     }
 
 

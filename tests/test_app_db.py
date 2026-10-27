@@ -10,7 +10,7 @@ import pytest
 from app.config.settings import Settings
 from app.db import RecordInUseError, connect, ensure_schema, transaction
 from app.db.legacy_import import import_legacy, needs_import
-from app.db.paths import from_stored, to_stored
+from app.db.paths import from_stored, relocate, to_stored
 from app.db.schema import latest_version
 from app.schemas.v2 import ArtifactKind, MigrationJob
 from app.services.migration_v2.artifacts import ArtifactWriter
@@ -39,17 +39,18 @@ def _job(store: MigrationStore, sop_id: int, job_id: str = "MIG-1", **kwargs) ->
 
 
 def test_schema_is_versioned_and_idempotent(settings):
-    assert ensure_schema(settings.db_path) == latest_version() == 1
-    assert ensure_schema(settings.db_path) == 1
+    assert ensure_schema(settings.db_path) == latest_version() == 2
+    assert ensure_schema(settings.db_path) == 2
     conn = connect(settings.db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     finally:
         conn.close()
-    assert {"users", "sop_records", "template_records", "gwp_guides", "migration_jobs", "migration_artifacts"} <= tables
+    assert {"users", "sop_records", "template_records", "gwp_guides", "migration_jobs", "migration_artifacts",
+            "glossaries", "language_templates", "translation_jobs", "translation_artifacts"} <= tables
 
 
 def test_every_store_shares_one_file(settings):
@@ -224,6 +225,20 @@ def test_concurrent_failed_logins_are_all_counted(settings):
 
 
 # ── Stored paths ─────────────────────────────────────────────────────
+
+
+def test_a_path_recorded_under_another_data_folder_is_found_under_this_one(tmp_path):
+    root = tmp_path / "data"
+    moved = root / "template_output" / "T_v1_normalized.docx"
+    moved.parent.mkdir(parents=True)
+    moved.write_bytes(b"x")
+    assert relocate(r"Z:\Other PC\data\project\data\template_output\T_v1_normalized.docx", root) == moved
+    assert relocate("/home/someone/project/data/template_output/T_v1_normalized.docx", root) == moved
+    assert relocate("template_output/T_v1_normalized.docx", root) == moved
+    assert relocate(str(moved), root) == moved
+    assert relocate(r"Z:\Other PC\data\template_output\missing.docx", root) is None
+    assert relocate(r"Z:\Other PC\data", root) is None  # the data folder itself is not a file
+    assert relocate(None, root) is None and relocate("", root) is None
 
 
 def test_paths_are_stored_relative_to_the_data_folder(settings, tmp_path):

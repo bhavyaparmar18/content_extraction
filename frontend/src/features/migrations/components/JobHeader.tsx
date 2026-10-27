@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, Download, FileSpreadsheet, FileText, Loader2, RotateCcw, Square } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Download, FileSpreadsheet, FileText, Languages, Loader2, RotateCcw, Square } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -11,6 +11,7 @@ import { useJobMutations } from '../hooks';
 import { useDownloads } from '../useDownloads';
 import { isExportable, permissions, statusInfo } from '../status';
 import type { JobStatus, MigrationJob } from '../types';
+import { StartTranslationDialog } from '@/features/translations/components/StartTranslationDialog';
 
 export const StatusPill: React.FC<{ status: JobStatus; running?: boolean; className?: string }> = ({ status, running, className }) => {
   const info = statusInfo(status);
@@ -28,6 +29,7 @@ export const JobHeader: React.FC<{ job: MigrationJob; sop?: SopRecord }> = ({ jo
   const mutations = useJobMutations(job.job_id);
   const can = permissions(job);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [translating, setTranslating] = useState(false);
 
   const cancel = () =>
     mutations.cancel.mutate(undefined, {
@@ -85,8 +87,14 @@ export const JobHeader: React.FC<{ job: MigrationJob; sop?: SopRecord }> = ({ jo
             Cancel job
           </Button>
         )}
+        {can.export && (
+          <Button size="sm" variant="secondary" leftIcon={<Languages className="size-3.5" />} onClick={() => setTranslating(true)}>
+            Translate…
+          </Button>
+        )}
         <DownloadMenu job={job} />
       </div>
+      {translating && <StartTranslationDialog migration={job} title={sop ? getDisplayTitle(sop) : undefined} onClose={() => setTranslating(false)} />}
       <ConfirmDialog
         isOpen={confirmCancel}
         title="Cancel this migration?"

@@ -12,7 +12,8 @@ problem does not complete cleanly. Checked:
 - the table of contents lists the document's headings, and its links have targets;
 - each bookmarked chapter and heading has the number the ``NumberMap`` gives it, and every REF field has its
   bookmark (Phase 12);
-- headers and footers are byte-for-byte the template's.
+- headers and footers are byte-for-byte the template's (or, for a translation, pass *header_check*: the language
+  template's).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -62,7 +63,8 @@ def _header_footer_xml(doc) -> dict[str, bytes]:
 
 def verify_rendered(path: Path, template_file: Path, template: TemplateModel, drafts: list[SectionDraft],
                     source: SourceDocument, report: RenderReport, ref_text: RefText,
-                    number_map: Optional[NumberMap] = None) -> list[str]:
+                    number_map: Optional[NumberMap] = None,
+                    header_check: Optional[Callable[[object], list[str]]] = None) -> list[str]:
     problems: list[str] = []
     try:
         doc = Document(str(path))
@@ -141,6 +143,8 @@ def verify_rendered(path: Path, template_file: Path, template: TemplateModel, dr
     if number_map is not None:
         problems += number_problems(doc, number_map)
 
+    if header_check is not None:
+        return problems + header_check(doc)
     try:
         before = _header_footer_xml(Document(str(template_file)))
         after = _header_footer_xml(doc)
