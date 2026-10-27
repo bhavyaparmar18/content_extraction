@@ -63,6 +63,7 @@ from app.schemas.v2 import (
     TargetSlot,
     TemplateModel,
 )
+from app.db.paths import relocate
 from app.services.parser.ooxml import NumberingResolver, iter_body_blocks
 
 from ..drafting.refs import raw_text_by_target
@@ -113,6 +114,7 @@ from .toc import rebuild_toc
 from .verify import verify_rendered
 
 SLOT_TAG_PREFIX = "CC_"
+DATA_ROOT = Path(__file__).resolve().parents[4] / "data"  # where a template file recorded on another PC is found
 
 # (document, elements built from the drafts and source rows) → None; see ``render_document``.
 BodyHook = Callable[[object, frozenset], None]
@@ -208,8 +210,8 @@ def render_document(
         open_gaps = [s for s in gap_slots(drafts) if s not in accepted]
         if open_gaps:
             raise RenderBlocked(open_gaps)
-    template_file = Path(template.normalized_file or "")
-    if not template.normalized_file or not template_file.exists():
+    template_file = relocate(template.normalized_file, DATA_ROOT)
+    if template_file is None:
         raise RenderError(f"normalized template file not found: {template.normalized_file!r}")
     numbered = number_map is not None and headings_numbered(template_file)
     if ref_text is None:
