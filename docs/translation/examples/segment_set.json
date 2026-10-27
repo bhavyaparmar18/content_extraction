@@ -1,0 +1,48 @@
+{
+  "job_id": "TRN-20261025-1A2B3C4D",
+  "migration_job_id": "MIG-20261019-7BF76968",
+  "language": "de-DE",
+  "version": 1,
+  "accepted_gaps": ["TGT-2-GEOGRAPHY"],
+  "draft_versions": {"TGT-1": 2, "TGT-2": 1, "TGT-3": 1},
+  "english_docx_sha256": "9f2c1e0b7a6d5c4b3a291807f6e5d4c3b2a19087f6e5d4c3b2a190807f6e5d4c",
+  "notes": ["No glossary for German: the text is translated freely."],
+  "segments": [
+    {
+      "segment_id": "SEG-0001",
+      "kind": "claim",
+      "source_text": "Record every deviation in the batch record within 2 working days (see {{ref:SRC-7.1}}).",
+      "locator": {"section_id": "TGT-3", "slot_id": "TGT-3-S1", "claim_id": "CLM-0012"}
+    },
+    {
+      "segment_id": "SEG-0002",
+      "kind": "xref",
+      "source_text": "Chapter ⟦1⟧",
+      "locator": {"section_id": "TGT-3", "claim_id": "CLM-0012", "ref_index": 0}
+    },
+    {
+      "segment_id": "SEG-0003",
+      "kind": "table_header",
+      "source_text": "Role",
+      "locator": {"section_id": "TGT-4", "unit_id": "SRC-3-U004", "col": 0}
+    },
+    {
+      "segment_id": "SEG-0004",
+      "kind": "table_cell",
+      "source_text": "QA Manager",
+      "locator": {"section_id": "TGT-4", "unit_id": "SRC-3-U004", "row": 1, "col": 0}
+    },
+    {
+      "segment_id": "SEG-0005",
+      "kind": "template_text",
+      "source_text": "Purpose",
+      "locator": {"block_path": "body/p[41]"}
+    },
+    {
+      "segment_id": "SEG-0006",
+      "kind": "template_text",
+      "source_text": "⟦1⟧Note:⟦/1⟧ keep this record for 10 years.⟦2⟧",
+      "locator": {"block_path": "body/sdt[3]/sdtContent[0]/tbl[0]/tr[0]/tc[1]/p[0]"}
+    }
+  ]
+}

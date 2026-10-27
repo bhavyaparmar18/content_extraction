@@ -1,0 +1,41 @@
+{
+  "job_id": "TRN-20261025-1A2B3C4D",
+  "language": "de-DE",
+  "scope": "TGT-3",
+  "version": 1,
+  "prompt_version": "translator/1",
+  "model": "azure/gpt-4o-poc",
+  "segments": [
+    {
+      "segment_id": "SEG-0001",
+      "kind": "claim",
+      "source_text": "Record every deviation in the batch record within 2 working days (see {{ref:SRC-7.1}}).",
+      "target_text": "Jede Abweichung ist innerhalb von 2 Arbeitstagen im Chargenprotokoll zu erfassen (siehe {{ref:SRC-7.1}}).",
+      "origin": "llm",
+      "locator": {"section_id": "TGT-3", "slot_id": "TGT-3-S1", "claim_id": "CLM-0012"}
+    },
+    {
+      "segment_id": "SEG-0002",
+      "kind": "table_cell",
+      "source_text": "QA Manager",
+      "target_text": null,
+      "locator": {"unit_id": "SRC-3-U004", "row": 1, "col": 0}
+    },
+    {
+      "segment_id": "SEG-0003",
+      "kind": "xref",
+      "source_text": "Chapter \u27e61\u27e7",
+      "target_text": "Kapitel \u27e61\u27e7",
+      "origin": "llm",
+      "locator": {"claim_id": "CLM-0012", "ref_index": 0}
+    },
+    {
+      "segment_id": "SEG-0004",
+      "kind": "template_text",
+      "source_text": "\u27e61\u27e7Note:\u27e6/1\u27e7 keep this record for 10 years.\u27e62\u27e7",
+      "target_text": "\u27e61\u27e7Hinweis:\u27e6/1\u27e7 Diese Aufzeichnung 10 Jahre aufbewahren.\u27e62\u27e7",
+      "origin": "llm",
+      "locator": {"block_path": "body/p[41]"}
+    }
+  ]
+}

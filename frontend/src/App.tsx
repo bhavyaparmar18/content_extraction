@@ -9,6 +9,11 @@ import { TemplateManagement } from '@/pages/TemplateManagement';
 import { TemplateContentView } from '@/pages/TemplateContentView';
 import { MigrationsList } from '@/pages/MigrationsList';
 import { MigrationWorkspace } from '@/pages/MigrationWorkspace';
+import { TranslationsList } from '@/pages/TranslationsList';
+import { LanguageResources } from '@/pages/LanguageResources';
+import { GlossaryEditorPage } from '@/pages/GlossaryEditorPage';
+import { LanguageTemplatePage } from '@/pages/LanguageTemplatePage';
+import { TranslationWorkspace } from '@/pages/TranslationWorkspace';
 import { SignupPage } from '@/pages/SignupPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
@@ -42,6 +47,11 @@ export const App: React.FC = () => {
                   <Route path="/review/:recordId" element={<ReviewPage />} />
                   <Route path="/migrations" element={<MigrationsList />} />
                   <Route path="/migrations/:jobId" element={<MigrationWorkspace />} />
+                  <Route path="/translations" element={<TranslationsList />} />
+                  <Route path="/translations/resources" element={<LanguageResources />} />
+                  <Route path="/translations/resources/glossaries/:glossaryId" element={<GlossaryEditorPage />} />
+                  <Route path="/translations/resources/templates/:templateId" element={<LanguageTemplatePage />} />
+                  <Route path="/translations/:jobId" element={<TranslationWorkspace />} />
                   <Route path="/admin/reprocessing" element={<ReprocessingAdminPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

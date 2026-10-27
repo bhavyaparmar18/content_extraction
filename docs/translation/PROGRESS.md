@@ -1,0 +1,330 @@
+# Translation: Progress Log
+
+Handoff log for `IMPLEMENTATION_PLAN.md`. Append one entry at the end of each phase or session. At the start of a session, read the plan's relevant phase and the latest entry here.
+
+Entry format:
+
+```
+## YYYY-MM-DD: Phase TN (name): done / partial
+- Done:
+- Files touched:
+- Open issues / decisions:
+- Next step:
+```
+
+---
+
+## 2026-10-25: Planning: done
+- Done: explored the migration v2 pipeline, the frontend and the shared infrastructure, then wrote `IMPLEMENTATION_PLAN.md` (phases T1 to T9).
+- Decisions (user, 2026-10-25):
+  - **Languages (8):** zh-CN, fr-FR, de-DE, it-IT, ja-JP, pt-BR, es-ES, el-GR. The source is always English.
+  - **Trigger:** translation runs on a **completed** migration, one translation job per language.
+  - **Engine:** the existing LLM path (`ChainFactory`, `LLMRateLimiter`, versioned prompt, audit).
+  - **Review:** every translation is reviewed and approved by a human before export.
+  - **Language template:** a full `.docx` per language. Only its first page, headers and footers are used; the rest is ignored. It is **optional**: without one, the English first page, header and footer are kept as they are. Only one or two exist today.
+  - **Glossary:** per language and **optional**. Without one, the LLM translates freely. With one, its terms are mandatory (in the prompt and in the QA check). None exist yet.
+  - **Scope:** text inside images is out of scope (the next plan).
+- Open issues / decisions:
+  - Confirm Spanish = `es-ES` (Spain).
+  - Template fixed text (headings, labels) is translated by the LLM.
+  - There is no cross-job translation memory yet.
+- Next step: T1. Write `app/schemas/v2/translation.py` and `app/db/migrations/0002_translation.sql`. Before saving the SQL file, check whether `uvicorn --reload` is running.
+
+## 2026-10-25: Phase T1 (contracts, schema, stores): done
+- Done:
+  - **Contracts** (`app/schemas/v2/translation.py`, exported from `app.schemas.v2`): `LanguageCode`, `GlossaryEntry`/`Glossary`, `Segment`/`SegmentLocator`/`SegmentKind`/`SegmentOrigin`, `TranslationSet`, `TranslationJob`/`TranslationStatus`. The glossary and the language template are optional on a job. Rules and conventions are in `docs/translation/CONTRACTS.md`; the examples are in `docs/translation/examples/`.
+  - **New `ArtifactKind`s:** `segments`, `translation`, `glossary`, `front_matter`.
+  - **Languages** (`app/services/translation/languages.py`): identity only, i.e. name, Word code, script and East Asian flag. There are no style rules.
+  - **Schema** `0002_translation.sql`: `glossaries`, `language_templates`, `translation_jobs` (nullable, RESTRICT foreign keys to the glossary and the language template; RESTRICT to `migration_jobs`), `translation_artifacts` and `translation_events`.
+  - **Stores:**
+    - `VersionedRecordStore` (`app/stores/versioned_store.py`) is the GWP-style versioned upload table: race-free versions, relative paths, column whitelists, and delete blocked while a translation job uses the version.
+    - `GlossaryStore` and `LanguageTemplateStore` build on it.
+    - `TranslationStore` mirrors `MigrationStore`: jobs, compare-and-swap `set_status`, `approve` (only from REVIEW_PENDING, records who and when), artifacts and events.
+  - `ArtifactWriter` now takes any store with `add_next_artifact` (the `ArtifactIndex` protocol), so translation jobs reuse it over `settings.translation_dir`.
+  - `RecordInUseError` takes `job_kind` ("migration" or "translation").
+  - **Settings:** `translation_dir`, `glossary_dir`, `glossary_upload_dir`, `glossary_allowed_extensions` (`.csv`, `.xlsx`), `language_template_dir`, `language_template_upload_dir`.
+- Files touched:
+  - New: `app/schemas/v2/translation.py`, `app/services/translation/{__init__,languages}.py`, `app/db/migrations/0002_translation.sql`, `app/stores/{versioned_store,glossary_store,language_template_store,translation_store}.py`, `docs/translation/{CONTRACTS.md,examples/*}`, `tests/test_translation_{contracts,stores}.py`.
+  - Changed: `app/schemas/v2/{__init__,job}.py`, `app/services/migration_v2/artifacts.py`, `app/db/__init__.py`, `app/config/settings.py`, `tests/test_app_db.py` (schema version 2, new tables).
+- Tests: 29 new tests (`test_translation_contracts.py`, `test_translation_stores.py`). Full suite: 593 passed, 14 skipped, 1 failed. The failure is the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx` (Text completeness WARN, an extraction issue recorded in the migration v2 PROGRESS; unrelated).
+- Open issues / decisions:
+  - The real `data/app.db` gets schema 2 (new tables only, nothing existing changes) the next time the server starts. The dev server was not running during T1.
+  - The stores are not yet wired in `app/main.py`; T2 does that with the glossary API.
+- Next step: T2. `app/services/translation/glossary.py`: parse CSV/XLSX with the columns `source_term`, `target_term`, `note`, `case_sensitive`, `do_not_translate`, plus an optional "style notes" sheet or column (add `openpyxl`). Then the term matcher (case, word boundaries, plurals; substring for zh/ja), the upload/edit/approve API under `/api/v1/translations/glossaries`, and store wiring in `main.py`.
+
+## 2026-10-25: Phase T2 (glossary management): done
+- Done:
+  - **`app/services/translation/glossary.py`**, file reading:
+    - Reads CSV (comma, semicolon or tab; UTF-8 with or without BOM, UTF-16 from Excel's "Unicode text", or Windows-1252) and XLSX.
+    - XLSX: the terms come from a sheet named Glossary or Terms (otherwise the first sheet). An optional "Style notes" sheet becomes `Glossary.style_notes`.
+    - The header map is tolerant: `source`/`English`; `target`/`translation`/the language's name or code; `notes`/`comment`; `dnt`… Flags accept yes/no, true/false, 1/0 and x.
+    - A file with any bad row is refused as a whole. `GlossaryInvalid.problems` lists every reason with its spreadsheet row (missing target, bad flag, duplicate term, do-not-translate with a different target).
+    - Export to CSV (with a UTF-8 BOM, so Excel reads it) or XLSX; both round-trip.
+  - **Matching** (in the same file):
+    - `match_terms` / `terms_in` find terms in the English source: whole words, case-insensitive unless case-sensitive, any whitespace between words, English plurals including -ies, longer terms first, no overlaps.
+    - `target_present` checks a translation:
+      - Chinese and Japanese: substring, whitespace ignored.
+      - Latin languages and Greek: whole words, case- and accent-insensitive, and the last word may change its ending (`Abweichung`/`Abweichungen`, `απόκλιση`/`αποκλίσεις`; `Zweck` does not match `Zwei`).
+      - Do-not-translate terms must appear exactly.
+  - **`glossary_service.py`:**
+    - `create_version` validates before writing, keeps the uploaded file, and refuses a language change for an existing `glossary_id` (409 `GLOSSARY_LANGUAGE_MISMATCH`).
+    - `save_entries` edits in place while in review; on an approved version it creates the next version, so approved versions never change.
+    - `approve` and `load` (the Glossary JSON at `entries_path` is the source of truth).
+  - **API `app/api/translations.py`** (`/api/v1/translations`): `GET /languages` plus the glossary routes (listed in the plan's API section, as built). It is mounted in `app/main.py`, and the glossary, language-template and translation stores are on `app.state`.
+  - **Dependency:** `openpyxl==3.1.5` in `pyproject.toml`, `uv.lock` and `requirements.txt`, installed in `venv`. `uv add` had stripped the blank lines in `pyproject.toml`; it was restored and the line added by hand, and `uv lock --check` is clean.
+- Files touched:
+  - New: `app/services/translation/{glossary,glossary_service}.py`, `app/api/translations.py`, `tests/test_translation_glossary.py`.
+  - Changed: `app/main.py`, `pyproject.toml`, `uv.lock`, `requirements.txt`, `docs/translation/IMPLEMENTATION_PLAN.md` (API section).
+- Tests: 29 new. Full suite: 622 passed, 14 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- Open issues / decisions:
+  - A glossary is optional on a job; a job may name only an **approved** version. This check comes with the job API in T4.
+  - The matcher is a heuristic. Its misses on translations become HIGH issues for the reviewer (T5), never automatic edits.
+  - German compounds that embed the term in the middle of a word (e.g. "Herstellungschargenprotokoll") are not found; the reviewer resolves those.
+- Next step: T3. `app/services/translation/front_matter.py`:
+  - extract the first page (up to the first section break, else the first page break) and the header and footer parts, with their images, from a language template `.docx`;
+  - write a preview `.docx`;
+  - `apply_front_matter(doc, front_matter)`;
+  - language-template upload and preview API, with a ready status.
+
+## 2026-10-25: Phase T3 (language template front matter): done
+- Done:
+  - **What the real files look like** (`data/template_output/Template_Main_GP_Docs_v1_normalized.docx`, and the rendered `MIG-20261019-7BF76968/docx_final_v1.docx`):
+    - the first page is the first section, ending at a next-page section break, with `titlePg` and all three header and footer types;
+    - the body section names only its two headers and inherits its footers from the first page's section;
+    - the rendered final keeps the template's first page and header relationships, but one empty first-page paragraph is gone, so the first page is found by its break, never by a block count.
+  - **`app/services/translation/front_matter.py`:**
+    - `find_cover` (the first section break that starts a new page, or the first page break when earlier; "page break before" on the next paragraph also counts; a continuous break is an error). A section break's type is read from the *following* section's `sectPr`, as Word does.
+    - `section_props`, `effective_refs` (Word's inheritance), `set_refs`.
+    - `extract_front_matter` writes the package, preview and report. Problems: no first page, objects other than images and links, tracked changes, footnotes. Warnings: comments (removed), several sections, data-bound controls, header lists, no Han/kana or Greek letters for zh-CN, ja-JP and el-GR, an empty first page.
+    - `apply_front_matter` and `front_matter_problems`, as described in `CONTRACTS.md`.
+  - **`renumber_drawings(doc)`** moved from `_Renderer` to `render/xml.py`, so the renderer and the swap share it (no behaviour change).
+  - **`language_template_service.py`:** `create_version` (refuses a language change for an existing `template_id`), `extract`, `load_report`, `mark_ready`.
+  - **API:** the language-template routes in `app/api/translations.py`; `_resolve` now serves both stores. Setting `language_template_allowed_extensions = [".docx"]`.
+  - **Contracts:** `FrontMatterReport`, `FrontMatterPart`, `FrontMatterSwap`, `CoverEnd`, with `examples/front_matter_report.json`.
+  - **Checked on the real files:** the company template's front matter swaps into the rendered migration and the check is clean. Word opens the swapped document (20 pages) and the preview (3 pages: first page, body first page, body following page).
+- Files touched:
+  - New: `app/services/translation/{front_matter,language_template_service}.py`, `tests/test_translation_front_matter.py`, `docs/translation/examples/front_matter_report.json`.
+  - Changed: `app/api/translations.py`, `app/schemas/v2/{translation,__init__}.py`, `app/config/settings.py`, `app/services/migration_v2/render/{xml,renderer}.py`, `tests/test_translation_contracts.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 29 new (the Word one is opt-in with `SOP_RUN_WORD_TESTS=1`; it passes). Full suite in `venv`: 650 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`). `.venv` (uv) lacks `openpyxl`, so the glossary tests do not collect there until `uv sync`.
+- Open issues / decisions:
+  - Body sections keep the English page geometry; only headers, footers and `titlePg` come from the language template. The first page takes the language template's whole section.
+  - A style id in both files with different definitions keeps the English definition (a warning). Chinese and Japanese `eastAsia` fonts are T6.
+  - Header and footer XML is compared byte for byte against the package. After Word re-saves a file the bytes differ (Word rewrites the parts), so the Word test compares texts.
+  - No real language template has been uploaded yet; when one arrives, upload it and open the preview in Word.
+- Next step: T4. `translation/segments.py`, `translation/orchestrator.py`, `translation/stages.py`, a `body_hook` parameter on `render_document`, and the job API. PREPARING snapshots the drafts, source, number map, assembly, glossary and the `front_matter` package (only `ready` language templates and `approved` glossaries may be named).
+
+## 2026-10-25: Phase T3 follow-up (the real German and Spanish templates): done
+- Done:
+  - Tried `documents/Templates/Template Main GP Docs-de.docx` and `…-es.docx`. Both have the company template's shape: the first page ends at a next-page section break (7 blocks); the first page's section has first-page and default headers and footers (no even ones); the body section has its own two headers and inherits the footers. No problems, no warnings beyond the two below.
+  - Swapped into `MIG-20261019-7BF76968/docx_final_v1.docx`: the check is clean. Word renders both, and pages 1–3 match the language templates (logo, header tables, German or Spanish page numbering over the whole document, footer).
+  - **Style rule changed:** the language templates define `Header` and `Footer` with other spacing (12 pt above and below) and tab stops. A style that only the first page, headers and footers use now takes the language template's definition (`FrontMatterSwap.styles_replaced`); a style the body also uses (`Normal`) keeps the document's, with a warning. Before, every differing style kept the English definition, and the headers would not have looked like the language template's.
+  - **`DOCVARIABLE` warning:** both templates were saved from a Vault document. Their Scope cell is a `DOCVARIABLE vault_r:document_scope__c:0` field, and `settings.xml` holds 24 document variables of another document (`BI-VQD-29892`). They are not copied; the extraction report now warns about such fields. Until Vault fills the variable, the cell shows its saved text `${vault:document_scope__c}`, or nothing once Word refreshes fields.
+- Tests: 4 new (style rule, `DOCVARIABLE` warning, the German and Spanish templates against the rendered migration).
+- Open issues / decisions:
+  - The Spanish first-page header "Página 1 de N" wraps when N has two digits; the German one does not. That is in the template's header, which is copied unchanged.
+  - The first page's section of both templates has an **English** default header ("Page 5 of 5 Document Name"). It only shows if the first page runs onto a second page.
+  - Not yet registered in the app: `data/app.db` is still at schema version 1 (the translation tables of T1 are created on the next server start).
+
+## 2026-10-25: Phase T4 (segmentation, orchestrator, PREPARING, job API): done
+- Done:
+  - **Renderer body hook** (`render_document(..., body_hook=)`): called once in `_Renderer.run` after `remove_instructions`, before the FINAL unwrap and `rebuild_toc`, with the elements built from the drafts and source rows (`ContentContext.generated`: the leaf blocks of `build_blocks`, and the template-table rows and source-shaped tables of table slots; a callout box's own label is not in it). `export.render_final` passes it through and now returns the `slot_plan`. With no hook the render is unchanged.
+  - **Template text** (`translation/template_text.py`): `harvest_hook` collects every body paragraph not built from the drafts, leaving out the cover (`find_cover`), the TOC field's entries and text without letters. `encode_paragraph` tags formatting: the most-used formatting is plain, other formatting is `⟦k⟧…⟦/k⟧`, spaces never open a tag, and tabs, fields, drawings, links and inline controls are a standalone `⟦k⟧`. `Encoded` keeps what each tag stands for, for T6. `parse_tags` / `strip_tags` are there for T5.
+  - **Segments** (`translation/segments.py`): `build_segments` (claims, table cells, table headers once per table, xrefs with `⟦1⟧`, template text; ids in document order); `block_path` / `find_block`.
+  - **Contract** `SegmentSet` (the `segments` artifact) and `Segment.scope`; `examples/segment_set.json`. The `translation_set.json` template-text example now shows a real mixed-formatting case.
+  - **PREPARING** (`translation/stages.py`): checks the migration is COMPLETED or COMPLETED_WITH_WARNINGS, then calls `render_final` with the harvest hook. It snapshots source, template, slot plan, drafts, assembly and number map, the English `docx` and `render_report` (scope `english`), the glossary and front matter (only when named, each re-checked as approved / ready and of the job's language), then the `SegmentSet`. When there is no glossary or no language template, it adds notes and events. If the English render reports problems, it records `english_render_problems` and goes on.
+  - **`TranslationOrchestrator`** (`translation/orchestrator.py`): the migration orchestrator's pattern (semaphore, compare-and-swap, cooperative cancel, `retry(from_stage)` with required artifacts, audited chain factory). Only PREPARING has a stage, so jobs wait at TRANSLATING; `resume_incomplete` skips statuses without a stage.
+  - **Job API** (`app/api/translations.py`, after the static routes): `POST /translations` (one job per language; `job_service.resolve_request` checks every language first), list, get, cancel, retry, audit, segments. It is wired in `app/main.py`, with one rate limiter shared with the migration orchestrator.
+  - **Checked on the real sample** (a scratch copy of `data/`, the German language template uploaded and marked ready): `MIG-20261019-7BF76968` → TRANSLATING with 373 segments (140 claims, 174 cells, 32 headers, 4 xrefs, 23 template texts; 325 distinct). The template text is the TOC title, the section headings and the template table headers; the cover and TOC entries are left out.
+- Files touched:
+  - New: `app/services/translation/{segments,template_text,stages,orchestrator,job_service}.py`, `tests/test_translation_{segments,jobs}.py`, `docs/translation/examples/segment_set.json`.
+  - Changed: `app/services/migration_v2/render/{renderer,content}.py`, `app/services/migration_v2/export.py`, `app/schemas/v2/{translation,__init__}.py`, `app/api/translations.py`, `app/main.py`, `tests/test_translation_contracts.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`, `docs/translation/examples/translation_set.json`.
+- Tests: 24 new. Full suite in `venv`: 674 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- Open issues / decisions:
+  - **Template text means "not built from the drafts"**, not "outside `CC_` controls" (retained labels and callout labels would be missed otherwise). The plan's segment table is updated.
+  - **Table headers are one set per source table.** A source table that fits the template table renders the template's header, so its source header is only seen in source-shaped tables. It is still a segment (cheap, and deduplicated in T5).
+  - **For T6:**
+    - `TemplateTable.fits(header)` compares the *English* source header with the template's. Decide the fit on the English headers and write the translated ones, or translated tables change shape and the block paths drift.
+    - `show_refs` drops lead words shared by the claim and the phrase ("described in"); after translation they may not match.
+    - The apply hook re-encodes each paragraph at its `block_path` and checks that the tagged English equals `source_text` (a mismatch is a warning and the paragraph keeps its English), then rebuilds the runs from `Encoded.groups` / `objects`, keeping bookmarks.
+    - Text-box paragraphs under `mc:AlternateContent` appear twice (Choice and Fallback); apply both.
+  - If the English final render has post-render problems, `render_final` returns no bytes, so there is no `docx[english]` and `english_docx_sha256` is empty.
+  - `data/app.db` still gets schema 2 on the next server start (no server ran during T4).
+- Next step: T5. `app/services/llm/prompts/v2/translator.py` (`translator/1`, registered in `audit._PROMPTS`), and `translation/translator.py`:
+  - TRANSLATING: distinct source strings packed with `planning/budget.py:pack`, glossary terms per batch from `glossary.terms_in`, `COPIED` for text without letters and for do-not-translate-only text, one `TranslationSet` per scope;
+  - `translation/checks.py`: tags with `parse_tags`, `{{ref:}}` tokens, neutral values with `quality/facts.extract_values`, glossary with `target_present`;
+  - CHECKING ⇄ REPAIRING stages.
+
+## 2026-10-25: Phase T5 (translator, QA checks, repair): done
+- Done:
+  - **Prompt `translator/1`** (`app/services/llm/prompts/v2/translator.py`), registered in `audit._PROMPTS`. The system prompt names no language (the audit recognises a task by its exact system prompt); the target language, the glossary entries a call's texts use, the style notes and the "already translated" entries go in the user prompt. Preservation duties only: `{{ref:}}` tokens (and never new ones: a reference written out stays words), exactly the segment's own markers, digits, IDs, e-mails, URLs, obligation strength, nothing added or dropped. `audit.describe` also records `segment_ids` and names a repair call `translator_repair`.
+  - **Translator** (`translation/translator.py`):
+    - each distinct text translated once, its answer given to every segment that shows it; texts with nothing to translate copied (`checks.copy_only`);
+    - two waves: template text, table headers and xrefs first; their short translations are the bounded memory of the section texts (as `GlossaryEntry`s, so `terms_in` sends only those a call uses);
+    - blocks packed per scope with `planning/budget.pack`, concurrent; the segments an answer leaves out are asked again once, a failed call is tried once more as two halves; markers an answer adds that its English lacks are dropped;
+    - `merged` (segments with their latest translations, every segment in exactly one set) and `build_sets`.
+  - **Checks** (`translation/checks.py`): the table in `CONTRACTS.md` (codes `EMPTY`, `REF_TOKENS`, `TAGS`, `NUMBERS`/`REFERENCES` with the `numerical_change` gate, `GLOSSARY-n`/`DNT-n`, `UNTRANSLATED`, `SCRIPT`, `LINE_BREAKS`, `LENGTH`, `NUMBERS_ADDED`). Stable issue ids `TQ-<segment>-<code>`, resolutions carried over (`gates.carry_resolutions`).
+  - **Stages:** TRANSLATING (every scope's `translation[<scope>]`), CHECKING (`quality_report[translation]`; REPAIRING when a segment needs it), REPAIRING (one retranslation per segment with its problems; `origin: repair`; the better of the two texts). Jobs now wait at RENDERING. Without an LLM, or when every call fails, the job fails technically (retryable).
+  - **Orchestrator:** CHECKING, REPAIRING and RENDERING require `translation` (and REPAIRING a `quality_report`); the retry check looks at artifacts of any scope.
+  - **Contracts:** `ValidationIssue.segment_ids`; `IssueCategory.TERMINOLOGY` and `LANGUAGE`; `examples/translation_quality_report.json`. Settings `translator_block_tokens`, `translator_memory_tokens`, `translation_length_min_chars`, `translation_length_bounds`.
+  - **API:** `GET /{id}/segments` carries the latest translations; `GET /{id}/validation` (404 `NO_VALIDATION` before CHECKING).
+  - **Live** (`tests/test_translation_live.py`, one sample SOP, 314 segments, 294 distinct): fr-FR with a 3-term glossary and ja-JP without one both pass (every segment translated or copied, no critical issue or gate after one repair round; about 20k tokens each). The first Japanese runs showed what the checks and prompt now handle: the model wrapped words in markers the English did not have, turned a written "see chapter 7, no. 1" into a `{{ref:}}` token, ran away to the 16k output limit on a long list of document references, and IDs next to Japanese text (`RD01で`) defeated `\b`.
+  - **Real sample** (scratch copy of `data/`, the German job of T4 on `MIG-20261019-7BF76968`, with the German language template, no glossary): 373 segments, 325 distinct, 7 calls (about 22k tokens), then one repair call; the job waits at RENDERING with no gate open and only LOW issues left (people's names in the distribution list, a few short cells' length). Headings, table headers, cells and xrefs read correctly (`PURPOSE` → `ZWECK`, `Chapter ⟦1⟧` → `Kapitel ⟦1⟧`). In one run the model left out 87 of 318 texts without failing a call, so left-out segments are now asked again inside TRANSLATING.
+- Files touched:
+  - New: `app/services/llm/prompts/v2/translator.py`, `app/services/translation/{translator,checks}.py`, `tests/test_translation_{translator,checks,live}.py`, `docs/translation/examples/translation_quality_report.json`.
+  - Changed: `app/services/translation/{stages,orchestrator}.py`, `app/services/migration_v2/audit.py`, `app/schemas/v2/quality.py`, `app/config/settings.py`, `app/api/translations.py`, `tests/test_translation_{jobs,contracts}.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 27 new offline, plus 2 live (opt-in with `SOP_RUN_LLM_TESTS=1`; both pass). The T4 job tests keep only PREPARING when they have no chain factory. Full suite in `venv`: 701 passed, 17 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- Open issues / decisions:
+  - **Numbers are digit runs, not `extract_values`' kinds** (a deviation from the plan's wording): its normalized forms carry English words. The digits of IDs count on both sides (the English may lack a space a translation adds, so an ID is not always recognised on both sides); digits inside names (`E2E`) do not count.
+  - **No LLM, no translation:** TRANSLATING fails technically rather than copying the English.
+  - **Dropping foreign markers is the one automatic edit** of an answer: they carry no text. Everything else is reported, never fixed silently.
+  - The `SCRIPT` and `UNTRANSLATED` checks leave out the English's own names and acronyms; product names kept in English ("Vault Quality Document ID") and people's names are still flagged (LOW for names) for the reviewer.
+  - The frontend's `IssueCategory` union (`frontend/src/features/migrations/types.ts`) needs `terminology` and `language` (T8).
+  - **For T6:** a `None` target renders as its English text (the issue stays open for review); apply targets through `translator.merged`; template text's tags may come back reordered (the `TAGS` check guarantees the same set, balanced and not crossing).
+- Next step: T6. `translation/render.py`: render the translated final from translated drafts (claims), a translated `SourceDocument` copy (cells and headers, the table fit decided on the English headers), a translated `ref_text`, and an apply hook for the template text at the harvest point; `w:lang` and the East Asian fonts; the language template's front matter (or the English kept); TOC rebuilt from the translated headings; `verify` against the language template's headers and footers (`expected_header_source`).
+
+## 2026-10-25: Phase T6 (translated render and preview): done
+- Done:
+  - **One render, the English one's** (`translation/render.py`, `render_translation`): the same `render_document` call as PREPARING's (final mode, the job's snapshot of template, slot plan, accepted gaps and number map) on translated inputs: `translated_drafts` (claims), `translated_source` (cells, multi-paragraph cells, headers applied to every row of their table; `unit.text` stays English so unedited rows still come from their cells; a header that was only its rows' text joined is joined again), `translated_assembly` (phrases with the number back where `⟦1⟧` was, still REF fields).
+  - **Template text** (`template_text.apply_hook` / `decode_into`): at the harvest point, every paragraph is found and checked against its English first, then rebuilt: `pPr` and bookmarks kept, `⟦k⟧…⟦/k⟧` in its group's formatting, standalone `⟦k⟧` objects put back (links, fields, tabs, text boxes). Unknown, lost or doubled markers leave the English.
+  - **Fallback:** no translation, only markers, a lost `⟦1⟧`, or a paragraph not at its place → English, with a render warning naming the segment.
+  - **Renderer:** `render_document(..., finish=, header_check=)` and `verify_rendered(..., header_check=)`; without them migration renders are unchanged. `finish` runs before the first save, so Word measures the TOC on the final layout.
+  - **finish:** `apply_front_matter` with the job's `front_matter` snapshot (the check is then `front_matter_problems`); without a language template the English first page, headers and footers stay and are compared byte for byte as before. `set_language` (body without the first page, styles, defaults, `themeFontLang`; `w:eastAsia` for zh/ja; headers untouched) and `set_east_asia_font` (the language template's, else setting `translation_east_asia_fonts`: Microsoft YaHei / Yu Gothic).
+  - **RENDERING stage:** `docx[translated]` (saved even with problems) and `render_report[translated]`, events `render` / `render_problems`; the job goes to REVIEW_PENDING. The "source column … under template column …" warnings are dropped (translated headers against the English template's).
+  - **Edited table rows** (found while planning): a row a reviewer edited in the migration is now one `claim` segment (the renderer shows it from the claim), with the critical `CELLS` check on its `|` separators. Only jobs prepared from now on.
+  - **API:** `GET /{id}/export/preview` (inline `docx[translated]`; 404 `NO_RENDER`, 409 `JOB_RUNNING`) and `GET /{id}/render-report`.
+- Files touched:
+  - New: `app/services/translation/render.py`, `tests/test_translation_render.py`.
+  - Changed: `app/services/translation/{template_text,stages,orchestrator,segments,checks}.py`, `app/services/migration_v2/render/{renderer,verify}.py`, `app/config/settings.py`, `app/api/translations.py`, `tests/test_translation_{jobs,translator}.py` (jobs now reach REVIEW_PENDING), `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 14 new. Full suite in `venv`: 715 passed, 17 skipped, 1 failed (the known `test_samples_pass_inspection` on `BI-VQD-10643-S (1).docx`).
+- **Real sample** (a scratch copy of `data/`; live LLM; Word measuring TOC pages), `MIG-20261019-7BF76968`, 373 segments each:
+  - de-DE with the German language template, fr-FR and ja-JP without one: all three REVIEW_PENDING, every segment written (none kept in English), no render problems, 40 TOC entries with Word's page numbers in the target language (`ZWECK`, `OBJECTIF`, `目的`).
+  - German: the first page and the headers are the German template's (`Seite x von y`); French and Japanese keep the English ones. Japanese: `ja-JP` with `w:eastAsia`, East Asian font Yu Gothic.
+  - Warnings left: the three source tables written in their own shape (the English render's same decision), and for German "Normal keeps the document's definition".
+- Open issues / decisions:
+  - A render with problems still goes to review; T7's approval must refuse while the latest `render_report[translated]` has problems.
+  - Inline instructions the renderer rewrites (e.g. "This ⟨SOP/Work Instruction⟩ is applicable:") lose their run formatting already in the English render; the translation keeps what the English shows.
+  - The cover's cached header field results (e.g. "Page 2 of 3") are the template's; Word refreshes them.
+- Next step: T7. Segment `PATCH` → a new `translation[<scope>]` version (origin `human`) → CHECKING and RENDERING again; issue resolve; approve (REVIEW_PENDING only, a clean render, no open gate); `GET /{id}/export/word` once approved, recorded as an event.
+
+## 2026-10-25: Document terms (consistent terminology without a glossary): done
+- Why: reviewing the German T6 job (no glossary) showed one English term translated several ways across sections and tables, e.g. "owning system" as *besitzendes System* (11×), *zugehöriges System* (4×), *Eigentümersystem* (5×); "RPAS owner" three ways; "risk assessment" as *Risikoanalyse* and *Risikobewertung*. The memory held only the first wave's headings and headers, the body blocks were translated independently and in parallel, and no check compared segments with each other.
+- Done:
+  - **`translation/terms.py`, `find_terms`:** the document's recurring English terms (phrases of 2–4 words without function words in 3+ distinct texts, the longer phrase winning when it covers 75% of a shorter one's texts; short table labels used elsewhere; plurals and case folded, each written as most often; names/IDs and glossary terms left out; at most 80).
+  - **Translator:** the terms are translated first, in calls of their own (`TERM-<n>`, role `term`, section "Terms of this document: translate each term"); every later call and repair gets the ones its texts use as DOCUMENT TERMS (`translator_terms_tokens`, 800); the "already translated" memory no longer repeats them. Prompt `translator/2`.
+  - **Artifact `glossary[terms]`** (written by TRANSLATING, read by CHECKING and REPAIRING); `translator` event: `terms`, `terms_translated`.
+  - **Check `TERM-<n>`** (MEDIUM, terminology, so repaired once): the English uses a term, the translation neither renders it as agreed (`glossary.term_present`, loose: every word inflects, hyphens, compounds) nor keeps it in English.
+  - Settings `translator_terms_tokens`, `translation_terms_max`, `translation_term_min_texts`.
+- Files touched:
+  - New: `app/services/translation/terms.py`, `tests/test_translation_terms.py`.
+  - Changed: `app/services/translation/{translator,checks,stages,glossary}.py`, `app/services/llm/prompts/v2/translator.py`, `app/config/settings.py`, `tests/test_translation_{jobs,translator}.py` (the fake also answers `TERM-` lines; `translator/2`), `docs/translation/CONTRACTS.md`.
+- Tests: 7 new. Full suite in `venv`: 719 passed, 17 skipped, 1 failed (the known `test_samples_pass_inspection`), plus 1 failure and 2 errors from Word's `~$` lock file of a sample SOP that was open in Word (the sample tests read every `.docx` in `documents/SOPs`).
+- **Real sample** (scratch copy of `data/`, live LLM, de-DE with the German template, `MIG-20261019-7BF76968`): 44 terms, all agreed in one call; round 1 flagged 9 segments with `TERM`, all 9 fixed by the one repair; round 2 left only LOW issues; render clean. Terms that had 2–5 German variants now have one each (owning system → *Eigentümersystem* 23×, RPAS owner → *RPAS-Eigentümer* 8×, risk assessment → *Risikobewertung* 13×, CSV&C Function → *CSV&C-Funktion* 9×, change control → *Änderungskontrolle* 13×). About 26.5k tokens plus 2.6k for the repair (before: 22k).
+- Open issues / decisions:
+  - **A section titled only "Recurring terms of this document" was answered with an empty list** by gpt-4o once the list reached about 30 terms (every time; any other title, or none, got all 44). The title now says what to do.
+  - The agreed term is the model's choice; a glossary entry, when the glossary comes, takes precedence (its terms are left out of the document terms).
+  - Forcing a compound term into a coordinated phrase can read awkwardly ("im Funktionalen und Anforderungstestfälle Plan"); the reviewer edits such segments in T7.
+  - English spelling variants of a term ("Requirement test cases" vs "Requirements Test Cases") are separate texts to the matcher: only the plural is folded.
+
+## 2026-10-25: Phase T7 (review API): done
+- Decisions (user, 2026-10-25):
+  - **The reviewer chooses how far a change goes.** A segment edit goes by default to every segment with the same English text (`apply_to: same_text`; human edits never overwritten), or to that one only (`this`). A find-and-replace changes a word or phrase in one occurrence, a chosen set or all.
+  - **Re-rendering is a step of its own:** each change is checked again at once, in the request (no LLM); the render is out of date until `POST /{id}/render`. (The plan said an edit re-runs CHECKING and RENDERING.)
+  - **The approval gate:** a current render without post-render problems, no open `numerical_change` gate issue and no open CRITICAL issue (`EMPTY`, `REF_TOKENS`, `TAGS`, `CELLS`). HIGH (glossary) and lower do not block.
+  - **Approved is final:** no reopen; a change needs a new job.
+- Done:
+  - **`translation/review_service.py`:** `edit_segment`, `find_matches` / `replace`, `resolve_issue`, `render_state`, `approval_blockers`, `review_view`, `approve`, `approved_export`, as described in `CONTRACTS.md` ("Review (Phase T7)").
+    - An edit the document could not show (empty; tokens, markers or `|` separators changed) is refused (422 `SEGMENT_INVALID`); everything else is saved and reported.
+    - A change writes the next `translation[<scope>]` of the scopes it touches and the next `quality_report[translation]`; the changed segments' resolutions are cleared, the others carried over.
+    - Find and replace never matches inside markers or tokens; whole words by default (substrings for zh/ja); a stale preview is refused (409 `PREVIEW_OUT_OF_DATE`, by `translation_versions`). Replacing every occurrence of a document term's agreed translation agrees the new one (`glossary[terms]`).
+    - The export serves the approved `docx[translated]` itself (hash-checked), never a new render.
+  - **Stages / orchestrator:** `TranslationStageContext.actor` (artifacts and events written in review carry the reviewer) and `refresh()`; `job_glossary` / `job_terms` public; `translation_versions(job)`; the `render` event records the `translation_versions` it rendered. `TranslationOrchestrator.context(job, actor)` (the run loop uses it too) and `rerender(job_id, actor)` (REVIEW_PENDING → RENDERING, event `render_requested`).
+  - **API:** `PATCH /{id}/segments/{segment_id}`, `POST /{id}/replace/preview`, `POST /{id}/replace`, `POST /{id}/issues/{iid}/resolve`, `POST /{id}/render`, `POST /{id}/approve`, `GET /{id}/export/word`; `GET /{id}` carries `review: {render_current, docx_version, blockers, can_approve}`.
+- Files touched:
+  - New: `app/services/translation/review_service.py`, `tests/test_translation_review.py`.
+  - Changed: `app/services/translation/{stages,orchestrator}.py`, `app/api/translations.py`, `docs/translation/{CONTRACTS,IMPLEMENTATION_PLAN}.md`.
+- Tests: 11 new (service and API, end to end: edit → replace → render → approve → export, the edits in the exported `.docx`). Full suite in `venv`: 730 passed, 17 skipped; failing, all unrelated: the known `test_samples_pass_inspection` (`BI-VQD-10643-S (1).docx`), plus 1 failure and 2 errors from Word's `~$` lock file of the RPAS sample SOP, which was open in Word.
+- **Real sample** (a copy of the T6 scratch data, de-DE job `TRN-20261025-C46CE38E` with the German template, through the API router; Word measuring TOC pages):
+  - edited SEG-0268 ("im Funktionalen und Anforderungstestfälle Plan" → "im Plan für Funktions- und Anforderungstestfälle");
+  - `Eigentümersystem` → `Eigentümer-System`: one occurrence, then all. Whole words found 9 occurrences, and the preview warned about 16 more inside longer words (`Eigentümersystems` 15, `Eigentümersysteme` 1). Without whole words, 24 were replaced (`Eigentümer-Systems`), the term "owning system" was agreed again, and no `TERM` issue opened. On a first run with whole words, the 16 inflected forms stayed and got `TERM-1` issues, which led to the `longer_words` warning;
+  - resolved a LOW issue; approval refused while the render was out of date; rendered again (about 9 s); approved; exported.
+  - Word opens the export: 21 pages, the German header ("Seite 1 von 21"), 40 TOC entries, and the edit is in it. The audit holds `segment_edited`, `segments_replaced` (twice), `issue_resolved`, `render_requested`, `render`, `approved` and `export`. A PATCH after the approval gets 409 `NOT_IN_REVIEW`.
+- Open issues / decisions:
+  - Same text means the identical English string (the translator's grouping), so "Role" in a table header and the same word as template text change together.
+  - A replacement is inserted exactly as typed: no case matching (replacing "role" with "Rolle" also turns "ROLE" into "Rolle").
+  - The handlers check the job's status and change it within one request without awaiting in between, and the status changes are compare-and-swap. This is enough for one server process; a second process would need a lock.
+  - The `review.py` stub and the dead `/translations` vite proxy target are retired in T8, because the mock UI still uses them.
+  - The frontend's `IssueCategory` union still needs `terminology` and `language` (T8).
+- Next step: T8, the frontend (`frontend/src/features/translations/`):
+  - the language resources page (glossaries, language templates);
+  - `StartTranslationDialog` on a completed migration, and the migration page's list of translation jobs;
+  - the workspace `/translations/:id`: per-section English/target review. An edit asks "this segment / all N with this English", find-and-replace previews its matches and the longer-word forms, then the issue panel, "Update document" (`POST /render`), and approve once `review.can_approve`;
+  - final preview and download; remove the mocks.
+
+## 2026-10-26: Planning T8 (frontend): done
+- Done: wrote `T8_PLAN.md`, the detailed plan of T8, in three sessions: T8a (foundation and language resources), T8b (start dialog, job lists, workspace shell, mocks retired), T8c (segment review, then end to end).
+- Decisions (user, 2026-10-26):
+  - **Review layout:** a segment grid (sections | English and target rows | issues, glossary, find and replace). The rendered document is on the Final step, not beside the grid.
+  - **Markers** (`⟦k⟧`, `⟦1⟧`, `{{ref:}}`, `|`) are locked chips in a TipTap editor.
+  - **Navigation:** sidebar "Translation" → `/translations` (every job); "Glossary" → `/translations/resources` (glossaries and language templates).
+  - **SOP entry:** the review page's Translation tab lists the SOP's translation jobs, with "Translate…" on each completed migration.
+  - **Permissions:** any signed-in user approves, as today.
+  - **End-to-end check:** on a scratch copy of `data/` with its own backend (port 8001), never the real `data/app.db`.
+- Found while planning: the Vite `'/translations'` proxy entry would send reloads of the new `/translations` page to the backend, so T8a deletes it. There is no route yet for a job's glossary snapshot, its document terms or its English `docx`, and the job list rows lack `running`; T8a adds these small read-only routes.
+- Next step: T8a, step 1 (the backend additions and their tests).
+
+## 2026-10-26: Phase T8a (frontend foundation, language resources): done
+- Done:
+  - **Backend (read-only):** `GET /translations` rows carry `running`; `GET /{id}/glossary` (the job's snapshot; `?scope=terms` for the document terms; 404 `NO_GLOSSARY`); `GET /{id}/english` (the `docx[english]` snapshot, inline; 404 `NO_RENDER`).
+  - **Vite:** the dead `/translations` proxy entry is gone (it would have sent reloads of the new page to the backend); `API_TARGET` overrides the proxy target.
+  - **`frontend/src/features/translations/`:** `types.ts` (contracts mirrored by hand), `api.ts`, `hooks.ts` (polling and artifact-stamped queries, as for migrations), `status.ts` (labels, steps Preparing / Translating / Review / Final, permissions, version grouping), `glossaryEdit.ts` (editor rows, checks mirroring `GlossaryEntry` / `Glossary`), `jobs.ts`, `components/` (pills, modal, error panel, upload dialogs, resource lists). The migrations `IssueCategory` gained `terminology` / `language`, `ValidationIssue` gained `segment_ids`; `lib/api.ts` gained `apiErrorCode`.
+  - **Pages:** `/translations/resources` (coverage strip per language, glossaries and language templates tabs, versions folded under the newest), `/translations/resources/glossaries/:id` (editable term table, style notes, save in place while in review or as the next version once approved, approve, export, unsaved-changes guard), `/translations/resources/templates/:id` (preview `.docx`, extraction report, mark ready), and `/translations` (every job, pulled forward from T8b so the sidebar link has a page). Sidebar "Glossary" and "Translation" now go to them.
+- Files touched:
+  - New: `frontend/src/features/translations/*`, `frontend/src/pages/{TranslationsList,LanguageResources,GlossaryEditorPage,LanguageTemplatePage}.tsx`, `docs/translation/T8_PLAN.md`.
+  - Changed: `app/api/translations.py`, `tests/test_translation_jobs.py`, `frontend/{vite.config.ts,src/App.tsx,src/components/layout/Sidebar.tsx,src/lib/api.ts,src/features/migrations/types.ts}`, `docs/translation/{IMPLEMENTATION_PLAN,PROGRESS}.md`.
+- Tests: 1 new pytest; 9 new vitest (status, steps, permissions, version grouping, glossary rows, job joins). Full suite in `venv`: 734 passed, 15 skipped, 1 failed (the known `test_samples_pass_inspection`). `tsc -b` clean, vitest 25 passed, oxlint clean on the new files.
+- **Checked in a browser** (a scratch copy of `data/` behind uvicorn :8001, Vite :5174 with `API_TARGET`, headless Chrome through Playwright from a scratch venv): the resources page with the two ready templates (de, es); the German template's preview and report; a CSV with a missing target refused with its row; a valid CSV uploaded → editor → edit saved in place → approved → edited again, saved as v2 with v1 still approved; the list folds v1 under v2.
+- Open issues / decisions:
+  - `BrowserRouter` has no navigation blocker, so the glossary editor guards only reloads (`beforeunload`) and its own back/version controls; a sidebar click leaves without asking.
+- Next step: T8b. `StartTranslationDialog`, the migration page's "Translate…" and translations panel, the SOP Translation tab (and retiring the mock and the `review.py` stub), then the workspace shell (header, stepper, progress, activity, Final step, review bar).
+
+## 2026-10-26: Phase T8b (starting translations, job lists, workspace shell, mocks retired): done
+- Done:
+  - **`StartTranslationDialog`:** one checkbox per language; per checked language a glossary select (approved versions; the newest preselected, else "None (free translation)") and a language-template select (ready versions; else "None (keep English first page, header and footer)"); existing jobs of that language shown; one job opens its workspace, several stay with a toast. Defaults are pure (`jobs.defaultPicks`, `languageChoice`).
+  - **Migration page:** "Translate…" in `JobHeader` once exportable; the Final step's aside lists the migration's translation jobs (`MigrationTranslations`).
+  - **SOP review page:** the Translation tab is `SopTranslationJobs` (the SOP's completed migrations, each with its jobs and "Translate…"); no action footer on that tab. **Retired:** `TranslationReviewMode`, `GlossaryPanel`, `TranslationQaPanel`, the footer's "Run QA" / "AI Translate", and the `review.py` translation stub (no actions, no `targetLocale`).
+  - **Workspace `/translations/:id`:** `TranslationHeader` (SOP → language, the glossary and language template with links, retry, cancel, download once approved); the steps Preparing / Translating / Review / Final on a shared `StepBar` (`StageStepper` is now a wrapper over it); `TranslationProgress` while the pipeline works; summaries of ① and ②; `ReviewBar` on ③/④ (render current or "Update document", the blockers, "Approve…" with an optional note and the open issues it leaves); `TranslationFinal` (the translated render or the English snapshot in `DocxViewer`, the out-of-date banner, segments shown in English linking to the review, render notes, download); Activity through the shared `ActivityView` with translation labels (`activity.ts`). A re-render keeps the reviewer on their step.
+  - **Shared:** `ActivityLog` split into `ActivityView` + labels; `ReviewShell` takes a `storageKey`.
+  - The Review step shows the open QA issues for now; T8c replaces it with the segment grid.
+- **Checked in the browser** (scratch data, live LLM): from the migration page, de-DE (German template, no glossary) and fr-FR (glossary GxP_terms_FR v1, English front matter) started in one request; the progress view followed them; both reached REVIEW_PENDING (de: 373 segments, 28k tokens, 11 repaired, one open `REFERENCES` gate issue on SEG-0218, so approval is blocked). Final shows the German first page and header ("Seite 1 von 9"), 40 TOC entries, the render check passed; the English tab shows the snapshot; the SOP tab lists both jobs.
+- Files touched:
+  - New: `frontend/src/features/translations/{activity,segments,useTranslationDownload}.ts`, `components/{StartTranslationDialog,MigrationTranslations,TranslationHeader,ReviewBar,TranslationProgress,TranslationFinal,SegmentReview}.tsx`, `frontend/src/pages/TranslationWorkspace.tsx`.
+  - Changed: `app/api/review.py`, `frontend/src/{App.tsx,pages/ReviewPage.tsx,components/review/{ActionFooter,ReviewHeader}.tsx}`, `frontend/src/features/migrations/components/{ActivityLog,StageStepper,ReviewShell,JobHeader,FinalDocument}.tsx`, `frontend/src/features/translations/{jobs,types,translations.test}.ts`.
+  - Deleted: `frontend/src/components/review/{TranslationReviewMode,GlossaryPanel,TranslationQaPanel}.tsx`.
+- Tests: 2 new vitest (defaults, request choices); 27 pass. `tsc -b` clean. `test_translation_jobs` and `test_translation_review`: 19 passed.
+- Next step: T8c. The segment grid (sections, rows, filters), the TipTap editor with locked marker chips (`markers.ts` is written), apply-to-same-English, find and replace, the issue, glossary and terms panels; then fix the German gate issue, approve and download, and open the download in Word.
+
+## 2026-10-26: Phase T8c (segment review, end to end): done
+- Done:
+  - **Review step** (`SegmentReview`): `ReviewShell` with the sections on the left (`TranslationSectionNav`: template order, then "Headings and labels" and "Cross-references"; counts, worst open issue, edits), the section's segments in the middle (`SegmentGrid`: English and target side by side; filters with issues / edited / shown in English / copied; a text filter), and Issues, Terms and Find & replace on the right. `?section=`, `?segment=` and `?issue=` select, so the blockers, issues, matches and the Final step's "shown in English" links land on their segment.
+  - **Editor** (`SegmentEditor`, loaded on the first edit): TipTap with one paragraph, hard breaks, and a `marker` atom node for `⟦k⟧`, `⟦/k⟧`, `⟦k⟧` objects, `⟦1⟧` (shown as "No." in references), `{{ref:}}` and `|` (only when the English has cell separators). A ProseMirror `filterTransaction` refuses any change to the multiset of markers. Pasted or typed marker characters are cleaned. `markers.structuralProblems` mirrors EMPTY / REF_TOKENS / TAGS / CELLS before saving, and the server's `SEGMENT_INVALID` details are shown when it refuses. When other non-human segments show the same English, Save asks "All N with this English / This segment only". Ctrl+Enter saves, Esc cancels.
+  - **Panels** (`ReviewPanels`): `TranslationIssuePanel` (blocking = gate or critical / open / resolved, this section only, resolve with a note); `JobGlossaryPanel` (the job's glossary snapshot and document terms, the selected segment's terms first, "find this translation" on a term to agree another one); `FindReplacePanel` (preview with context and the English, the server's warnings, "search again without whole words", replace the chosen ones or all, a stale preview re-run on 409 `PREVIEW_OUT_OF_DATE`).
+  - Pure helpers: `markers.ts`, `editorDoc.ts`, `chips.ts`, `segments.ts` (scopes, section order, locator labels, issues per segment, same-English segments, "shown in English" from the render warnings, filters).
+- **End to end in the browser** (scratch data, live LLM; jobs from T8b): on de-DE `TRN-20261025-97615B90`:
+  - the approval blocker led to SEG-0218 (`REFERENCES` gate: the English writes `028-BIS-00484 -RD01` with a space, the translation joined it). Edited to keep the ID; the gate closed.
+  - the chip lock held: Ctrl+A and Backspace on a segment with `{{ref:}}` was refused; Backspace from the end removed only text.
+  - "Roles and responsibilities are defined in 028-BIP-00516-RD01" edited once, applied to all 4.
+  - Find "Eigentümersystem": 9 matches, with the document-term and 16-longer-words warnings; one occurrence replaced, which opened `TERM-1` on that segment (as designed); resolved with a note.
+  - Update document → render v2 current → approved with a note → Final shows "Approved by You" → downloaded.
+  - **Word** opens the download: 21 pages, the German first-page header "Seite 1 von 21", a German TOC (ZWECK, ANWENDBARKEIT, …), the gate fix, the 4 same-English edits and the replacement in it, body text in German (1031).
+  - fr-FR `TRN-20261025-FE5FB280`: the Terms tab shows the glossary snapshot (deviation → écart, Vault kept) and the document terms; a reference opened in the editor with its locked "No." chip.
+- **Bug found and fixed while checking:** the review shell in a plain block grew to its content, so focus and scrolling shifted the page (now in a flex column; the list scrolls itself). Two smaller ones from the T8b check ("1 blocks approval"; the translator's token count summing input, output and total) went into the T8b commit.
+- Files touched:
+  - New: `frontend/src/features/translations/{markers,editorDoc,chips}.ts`, `components/{SegmentGrid,SegmentEditor,SegmentText,ReviewPanels}.tsx`.
+  - Changed: `components/SegmentReview.tsx`, `translations.test.ts`, `frontend/package.json` and `package-lock.json` (`@tiptap/pm` declared), `docs/translation/{IMPLEMENTATION_PLAN,T8_PLAN,PROGRESS}.md`.
+- Tests: 13 new vitest (markers, the server-mirroring structural check, the editor document round trip, segments, activity); 40 pass. `npm run build` passes (the main chunk is 925 kB, about 30 kB more than before T8; the editor is its own 391 kB chunk; the >500 kB warning was already there). oxlint is clean on the translation files.
+- Open issues / decisions:
+  - **The chip lock is strict:** selecting everything and typing over a segment that has a marker is refused as a whole. The reviewer edits around the chips (the hint says so). If that proves tedious, a softer rule could keep the markers and drop only the text.
+  - The sample SOP has no template text with formatting pairs (`⟦k⟧…⟦/k⟧`). Pairs are covered by the unit tests, not yet by a real document.
+  - Not run end to end: es-ES (the dialog was checked from the SOP tab without starting it) and the "neither" case (ja-JP). About 28k tokens each.
+  - The scratch copy (`t8root`), the Playwright venv and the screenshots stay in the session's scratchpad; nothing was written to the real `data/`.
+- Next step: T9. `scripts/inspect_translation.py` (an HTML report like `inspect_sop.py`), then run all 8 languages on the samples and review the reports, now possible in the UI too.

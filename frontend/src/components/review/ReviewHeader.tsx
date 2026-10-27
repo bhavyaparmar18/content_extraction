@@ -35,7 +35,7 @@ export const ReviewHeader: React.FC<ReviewHeaderProps> = ({
 
   const modeTitles = {
     review: 'Extraction Review',
-    translation: 'AI Translation Review',
+    translation: 'Translations',
     migration: 'AI Migration Review',
   };
 

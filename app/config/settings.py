@@ -74,6 +74,28 @@ class Settings(BaseSettings):
     gwp_upload_dir: Path = Path("data/gwp/uploads")
     gwp_allowed_extensions: list[str] = [".docx", ".pdf"]
 
+    # --- Translation (docs/translation/IMPLEMENTATION_PLAN.md) ---
+    translation_dir: Path = Path("data/translations")              # data/translations/{job_id}/{kind}_v{n}.json
+    glossary_dir: Path = Path("data/glossaries")                   # Glossary JSON per glossary version
+    glossary_upload_dir: Path = Path("data/glossaries/uploads")
+    glossary_allowed_extensions: list[str] = [".csv", ".xlsx"]
+    language_template_dir: Path = Path("data/language_templates")  # extracted front matter and previews
+    language_template_upload_dir: Path = Path("data/language_templates/uploads")
+    language_template_allowed_extensions: list[str] = [".docx"]
+    translator_block_tokens: int = 1500    # source tokens per translation call
+    translator_memory_tokens: int = 600    # cap on the "already translated" pairs (headings, labels) sent per call
+    translator_terms_tokens: int = 800     # cap on the document terms sent per call
+    translation_terms_max: int = 80        # document terms translated first and checked (terms.find_terms)
+    translation_term_min_texts: int = 3    # a phrase is a document term from this many distinct texts
+    translation_length_min_chars: int = 20  # the length check skips shorter source texts
+    # translated / source characters outside these bounds is a LOW issue (loose on purpose)
+    translation_length_bounds: dict[str, tuple[float, float]] = {
+        "de-DE": (0.8, 2.0), "fr-FR": (0.8, 1.8), "it-IT": (0.8, 1.8), "es-ES": (0.8, 1.8), "pt-BR": (0.8, 1.8),
+        "el-GR": (0.8, 2.0), "zh-CN": (0.1, 1.0), "ja-JP": (0.12, 1.2),
+    }
+    # East Asian font of a Chinese or Japanese translation when its language template names none
+    translation_east_asia_fonts: dict[str, str] = {"zh-CN": "Microsoft YaHei", "ja-JP": "Yu Gothic"}
+
     # --- Migration v2 jobs ---
     migration_v2_dir: Path = Path("data/migrations")  # data/migrations/{job_id}/{kind}_v{n}.json
     section_planner_llm: str = "confirm"   # "confirm": one compact LLM call checks the rule plan; "off": rules only
@@ -183,6 +205,11 @@ class Settings(BaseSettings):
         self.gwp_dir = base / self.gwp_dir
         self.gwp_upload_dir = base / self.gwp_upload_dir
         self.migration_v2_dir = base / self.migration_v2_dir
+        self.translation_dir = base / self.translation_dir
+        self.glossary_dir = base / self.glossary_dir
+        self.glossary_upload_dir = base / self.glossary_upload_dir
+        self.language_template_dir = base / self.language_template_dir
+        self.language_template_upload_dir = base / self.language_template_upload_dir
         self.log_dir = base / self.log_dir
         self.log_file_path = base / self.log_file_path
         self.error_file_path = base / self.error_file_path
@@ -205,6 +232,11 @@ class Settings(BaseSettings):
             self.gwp_dir,
             self.gwp_upload_dir,
             self.migration_v2_dir,
+            self.translation_dir,
+            self.glossary_dir,
+            self.glossary_upload_dir,
+            self.language_template_dir,
+            self.language_template_upload_dir,
             self.log_dir,
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)

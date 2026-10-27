@@ -211,6 +211,20 @@ def next_bookmark_id(root) -> int:
     return max(ids, default=0) + 1
 
 
+def renumber_drawings(doc) -> None:
+    """Clones and pictures must not share a drawing ID; the body's numbering starts above the headers' and
+    footers'."""
+    used = []
+    for rel in doc.part.rels.values():
+        part = rel.target_part if not rel.is_external else None
+        if part is not None and part is not doc.part and hasattr(part, "element"):
+            used += [int(d.get("id")) for d in part.element.iter(qn("wp:docPr")) if (d.get("id") or "").isdigit()]
+    next_id = max(used, default=0) + 1
+    for node in doc.element.body.iter(qn("wp:docPr")):
+        node.set("id", str(next_id))
+        next_id += 1
+
+
 def make_plain(el) -> None:
     """Drop colour and highlight from every run (and paragraph mark) under *el*: kept template text turns black."""
     for node in list(el.iter(qn("w:color"), qn("w:highlight"))):

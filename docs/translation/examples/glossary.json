@@ -1,0 +1,12 @@
+{
+  "glossary_id": "GLS-de",
+  "version": 2,
+  "language": "de-DE",
+  "name": "German SOP glossary",
+  "style_notes": "Formal register (Sie).",
+  "entries": [
+    {"source_term": "deviation", "target_term": "Abweichung", "note": "QA term"},
+    {"source_term": "batch record", "target_term": "Chargenprotokoll"},
+    {"source_term": "Veeva Vault", "do_not_translate": true, "case_sensitive": true}
+  ]
+}

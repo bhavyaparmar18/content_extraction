@@ -60,6 +60,8 @@ class IssueCategory(str, Enum):
     CROSS_REFERENCE = "cross_reference"
     SEMANTIC = "semantic"
     CONSISTENCY = "consistency"
+    TERMINOLOGY = "terminology"  # translation: a glossary term not used, a do-not-translate term altered
+    LANGUAGE = "language"        # translation: left in English, wrong script, unusual length
 
 
 class Gate(str, Enum):
@@ -91,6 +93,7 @@ class ValidationIssue(V2Model):
     slot_id: Optional[str] = None
     claim_ids: list[str] = Field(default_factory=list)
     unit_ids: list[str] = Field(default_factory=list)
+    segment_ids: list[str] = Field(default_factory=list, description="translation jobs: the segments concerned")
     message: str
     resolved: bool = False
     resolution_note: Optional[str] = None

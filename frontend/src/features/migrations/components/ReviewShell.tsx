@@ -16,6 +16,8 @@ interface ReviewShellProps {
   right: Pane;
   /** Start with both side panes hidden (a step that needs the room, e.g. the document preview). */
   roomy?: boolean;
+  /** Where the pane sizes are remembered (each workspace its own). */
+  storageKey?: string;
   children: React.ReactNode;
 }
 
@@ -33,9 +35,9 @@ interface PaneState {
 
 const DEFAULTS: PaneState = { left: 380, right: 340, leftOpen: true, rightOpen: true };
 
-function readPanes(): PaneState {
+function readPanes(key: string): PaneState {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(key) || '{}') };
   } catch {
     return DEFAULTS;
   }
@@ -58,10 +60,10 @@ function useWiderThan(ref: React.RefObject<HTMLElement | null>, min: number): bo
  * Source SOP | work area | template. On wide screens the side panes are resizable and collapsible
  * (sizes remembered); on narrower ones they open as drawers over the work area.
  */
-export const ReviewShell: React.FC<ReviewShellProps> = ({ left, right, roomy = false, children }) => {
+export const ReviewShell: React.FC<ReviewShellProps> = ({ left, right, roomy = false, storageKey = STORAGE_KEY, children }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const wide = useWiderThan(rowRef, WIDE_SHELL_PX);
-  const [panes, setPanes] = useState<PaneState>(readPanes);
+  const [panes, setPanes] = useState<PaneState>(() => readPanes(storageKey));
   const [drawer, setDrawer] = useState<'left' | 'right' | null>(null);
   // In a roomy step the panes start hidden; showing one there is not remembered for the other steps.
   const [roomyOpen, setRoomyOpen] = useState({ left: false, right: false, roomy });
@@ -82,11 +84,11 @@ export const ReviewShell: React.FC<ReviewShellProps> = ({ left, right, roomy = f
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(panes));
+      localStorage.setItem(storageKey, JSON.stringify(panes));
     } catch {
       /* private mode: sizes are not remembered */
     }
-  }, [panes]);
+  }, [panes, storageKey]);
 
   const startResize = useCallback((side: 'left' | 'right') => (event: React.PointerEvent) => {
     event.preventDefault();
