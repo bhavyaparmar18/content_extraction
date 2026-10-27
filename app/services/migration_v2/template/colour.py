@@ -64,6 +64,16 @@ class TextColour:
             values = [self._style_colour(style_id(p, "pPr", "pStyle"), WD_STYLE_TYPE.PARAGRAPH)]
         return any(is_blue(v) for v in values)
 
+    def drop_blue_styles(self, el) -> None:
+        """Remove the paragraph styles that make text blue from *el* (a paragraph, its pPr, a row, any block).
+
+        The renderer reuses template formatting for content and keeps some template text; neither may stay blue
+        through its style. The text falls back to the default paragraph style.
+        """
+        for node in list(el.iter(qn("w:pStyle"))):
+            if is_blue(self._style_colour(node.get(qn("w:val")), WD_STYLE_TYPE.PARAGRAPH)):
+                node.getparent().remove(node)
+
     def _style_colour(self, style_id_: Optional[str], style_type) -> Optional[str]:
         if not style_id_:
             return None

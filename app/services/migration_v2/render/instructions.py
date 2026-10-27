@@ -58,8 +58,10 @@ _ELLIPSIS = re.compile(r"\s*(?:…|\.\.\.)\s*")
 # ── Conditional regions ───────────────────────────────────────────────
 
 
-def settle_regions(template: TemplateModel, slot_plan: Optional[SlotPlan], controls: dict[str, list]) -> list[RegionRender]:
-    """Apply, keep or remove each conditional region; the region's content control is unwrapped."""
+def settle_regions(template: TemplateModel, slot_plan: Optional[SlotPlan], controls: dict[str, list],
+                   colour: Optional[TextColour] = None) -> list[RegionRender]:
+    """Apply, keep or remove each conditional region; the region's content control is unwrapped. Kept text turns
+    plain, and with *colour* loses a paragraph style that makes it blue."""
     choices = {rc.region_id: rc for s in (slot_plan.sections if slot_plan else []) for rc in s.region_choices}
     document_choice = next((rc.choice for rc in choices.values() if rc.choice), None)
     out = []
@@ -77,7 +79,7 @@ def settle_regions(template: TemplateModel, slot_plan: Optional[SlotPlan], contr
                 if choice:
                     for sdt in sdts:
                         for p in list(sdt.iter(W_P)):
-                            _apply_choice(p, choice)
+                            _apply_choice(p, choice, colour)
                         unwrap(sdt)
                     note = None if chosen and chosen.choice else "document type taken from another region of this SOP"
                     out.append(RegionRender(region_id=region.region_id, outcome=RegionOutcome.CHOICE_APPLIED,
@@ -87,7 +89,7 @@ def settle_regions(template: TemplateModel, slot_plan: Optional[SlotPlan], contr
             else:
                 if chosen is not None:
                     for sdt in sdts:
-                        make_plain(sdt)
+                        make_plain(sdt, colour)
                         unwrap(sdt)
                     out.append(RegionRender(region_id=region.region_id, outcome=RegionOutcome.KEPT))
                     continue
@@ -98,7 +100,7 @@ def settle_regions(template: TemplateModel, slot_plan: Optional[SlotPlan], contr
     return out
 
 
-def _apply_choice(p, choice: str) -> None:
+def _apply_choice(p, choice: str, colour: Optional[TextColour] = None) -> None:
     """"This Directive/SOP/Work Instruction/Guidance…is applicable:" → "This SOP is applicable:" in plain text."""
     rpr = None
     parts = []
@@ -106,8 +108,8 @@ def _apply_choice(p, choice: str) -> None:
         text = run_text(r)
         if not text:
             continue
-        colour = r.find(f"{qn('w:rPr')}/{qn('w:color')}")
-        if rpr is None and not is_blue(colour.get(qn("w:val")) if colour is not None else None):
+        run_colour = r.find(f"{qn('w:rPr')}/{qn('w:color')}")
+        if rpr is None and not is_blue(run_colour.get(qn("w:val")) if run_colour is not None else None):
             rpr = base_rpr(r)
         text = _CHOICE_GROUP.sub(lambda m: (" " if m.group(0).startswith(" ") else "") + choice, text, count=1)
         parts.append(_ELLIPSIS.sub(" ", text))
@@ -116,7 +118,7 @@ def _apply_choice(p, choice: str) -> None:
         remove(r)
     for r in paragraph(line, None, rpr).findall(W_R):
         p.append(r)
-    make_plain(p)
+    make_plain(p, colour)
 
 
 # ── Instruction cleanup ───────────────────────────────────────────────

@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
+from docx.shared import RGBColor
+from docx.text.paragraph import Paragraph
 
 from app.schemas.v2 import (
     ArtifactKind,
@@ -41,6 +44,7 @@ from app.schemas.v2 import (
 )
 from app.services.migration_v2.render import GAP_MARKER_TEXT, RenderBlocked, RenderError, gap_slots, render_document
 from app.services.migration_v2.render.verify import verify_rendered
+from app.services.migration_v2.render.xml import text_of
 from app.services.migration_v2.template.colour import TextColour
 from app.services.migration_v2.template.service import build_template_model, normalize_and_save
 from tests.db_helpers import seed_job_inputs
@@ -419,6 +423,79 @@ def test_template_file_recorded_on_another_pc_is_found_in_this_data_folder(tpl, 
 
     with pytest.raises(RenderError, match="normalized template file not found"):
         _render(tpl.model_copy(update={"normalized_file": r"Z:\Other PC\data\template_output\missing.docx"}), tmp_path)
+
+
+# ── Blue through a paragraph style ────────────────────────────────────
+
+
+def _blue_style(doc, name: str, base=None, rgb=RGBColor(0x00, 0x70, 0xC0)):
+    style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    if base is not None:
+        style.base_style = base
+    if rgb is not None:
+        style.font.color.rgb = rgb
+    return style
+
+
+@pytest.fixture
+def blue_style_tpl(tmp_path):
+    """The synthetic template with its instructions blue through an "Instruction" paragraph style, not run colour,
+    and the terms table's example rows in that style (as some GP templates have them)."""
+    source = _template(tmp_path / "template.docx", tmp_path)
+    doc = Document(str(source))
+    instruction = _blue_style(doc, "Instruction")
+    for p in doc.element.body.iter(qn("w:p")):
+        runs = [r for r in p.iter(qn("w:r")) if "".join(t.text or "" for t in r.iter(qn("w:t"))).strip()]
+        colours = [r.find(f"{qn('w:rPr')}/{qn('w:color')}") for r in runs]
+        if runs and all(c is not None and c.get(qn("w:val")).upper() == "0075FF" for c in colours):
+            for c in colours:
+                c.getparent().remove(c)
+            Paragraph(p, doc).style = instruction
+    terms = next(t for t in doc.tables if t.rows[0].cells[0].text == "Term")
+    for row in terms.rows[1:]:
+        for cell in row.cells:
+            cell.paragraphs[0].style = instruction
+    doc.save(str(source))
+    config = _decide_all(build_template_model(source, "tpl").detection,
+                         {"inline_instruction": "conditional", "instruction_table": "conditional"})
+    return normalize_and_save(source, "tpl", 1, tmp_path / "out", config).build.model
+
+
+def _styled(doc, style_id: str) -> list[str]:
+    return [text_of(p) for p in doc.element.body.iter(qn("w:p"))
+            if (s := p.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")) is not None and s.get(qn("w:val")) == style_id]
+
+
+def test_content_does_not_inherit_a_blue_paragraph_style(blue_style_tpl, tmp_path):
+    report, doc, _ = _render(blue_style_tpl, tmp_path)
+    assert report.problems == [], report.problems
+    assert report.slot("TGT-1-WHAT").outcome == SlotOutcome.FILLED
+    terms = next(t for t in _tables(doc) if _cell_text(t.rows[0].cells[0]) == "Term")
+    assert [_cell_text(r.cells[0]) for r in terms.rows] == ["Term", "CAPA", "QA"]
+    assert TextColour(doc).classify(terms._tbl) == "plain"
+    assert _styled(doc, "Instruction") == []  # no content, row or kept text is left in the blue style
+
+
+def test_kept_template_text_drops_a_blue_paragraph_style(blue_style_tpl, tmp_path):
+    source, drafts, plan = scenario(tmp_path)
+    plan.sections[0].region_choices.append(RegionChoice(region_id="t:4", unit_ids=[source.sections[3].units[0].unit_id]))
+    kept = render_document(blue_style_tpl, drafts, source, tmp_path / "kept.docx", job_id="J", slot_plan=plan)
+    assert {r.region_id: r.outcome for r in kept.regions}["t:4"] == RegionOutcome.KEPT
+    doc = Document(str(tmp_path / "kept.docx"))
+    competence = next(t for t in _tables(doc) if _cell_text(t.rows[0].cells[0]) == "Competence")
+    assert TextColour(doc).classify(competence._tbl) == "plain" and kept.problems == []
+    assert _styled(doc, "Instruction") == []
+
+
+def test_drop_blue_styles_follows_based_on():
+    doc = Document()
+    blue = _blue_style(doc, "Blue")
+    _blue_style(doc, "Blue Child", base=blue, rgb=None)  # blue only through basedOn
+    _blue_style(doc, "Black", rgb=RGBColor(0, 0, 0))
+    for name in ("Blue", "Blue Child", "Black"):
+        doc.add_paragraph(name, style=name)
+    TextColour(doc).drop_blue_styles(doc.element.body)
+    assert [p.style.name for p in doc.paragraphs] == ["Normal", "Normal", "Black"]
 
 
 def test_unnormalized_anchors_table_cell_and_placeholder(tmp_path):
